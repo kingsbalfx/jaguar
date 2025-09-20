@@ -1,67 +1,51 @@
-import { useEffect } from "react";
-import { useRouter } from "next/router";
-import { createClient } from "@supabase/supabase-js";
+// pages/auth/callback.js
+import { useEffect } from 'react';
+import { useRouter } from 'next/router';
+import { createClient } from '@supabase/supabase-js';
 
-export default function Callback() {
+// Initialize Supabase client (anon key)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
+
+export default function AuthCallback() {
   const router = useRouter();
 
   useEffect(() => {
-    let mounted = true;
-    async function handleCallback() {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-      if (!url || !key) {
-        console.warn("Missing NEXT_PUBLIC_SUPABASE_* envs; redirecting to /dashboard");
-        router.replace("/dashboard");
+    const checkRoleAndRedirect = async () => {
+      // Get the current user session
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session) {
+        router.push('/login'); // not logged in
         return;
       }
+      const email = data.session.user.email;
 
-      const supabase = createClient(url, key);
-
+      // Fetch user role from custom API (must be implemented server-side)
       try {
-        if (typeof supabase.auth.getSessionFromUrl === "function") {
-          try {
-            await supabase.auth.getSessionFromUrl({ storeSession: true });
-          } catch (e) {
-            console.debug("getSessionFromUrl non-fatal:", e?.message || e);
-          }
+        const res = await fetch('/api/get-role');
+        const result = await res.json();
+        const role = result.role;
+
+        // Admin check (by role or specific email)
+        if (role === 'admin' || email === 'shafiuabdullahi.sa3@gmail.com') {
+          router.push('/admin');
+        } else if (role === 'vip') {
+          router.push('/dashboard/vip');
+        } else if (role === 'premium') {
+          router.push('/dashboard/premium');
+        } else {
+          router.push('/dashboard');
         }
-
-        const { data: sessionData } = await supabase.auth.getSession();
-        const user = sessionData?.session?.user ?? null;
-        if (!user) {
-          router.replace("/register");
-          return;
-        }
-
-        const r = await fetch("/api/get-role", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: user.id }),
-        });
-
-        if (!mounted) return;
-        if (!r.ok) {
-          router.replace("/dashboard");
-          return;
-        }
-
-        const json = await r.json();
-        const role = json?.role;
-
-        if (role === "vip") router.replace("/dashboard/vip");
-        else if (role === "premium") router.replace("/dashboard/premium");
-        else router.replace("/dashboard");
       } catch (err) {
-        console.error("Callback handling error:", err);
-        router.replace("/dashboard");
+        console.error('Failed to get role:', err);
+        router.push('/dashboard'); // fallback
       }
-    }
+    };
 
-    handleCallback();
-    return () => { mounted = false; };
+    checkRoleAndRedirect();
   }, [router]);
 
-  return <div className="p-6">Signing you in — redirecting to your dashboard...</div>;
+  return <p>Redirecting...</p>;
 }
