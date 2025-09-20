@@ -1,31 +1,74 @@
-import { useEffect } from "react";
-import { supabase } from "../lib/supabaseClient";
-import { useRouter } from "next/router";
+// pages/register.js
+import { useState } from 'react';
+import { useRouter } from 'next/router';
+import { createClient } from '@supabase/supabase-js';
+
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
 export default function Register() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const router = useRouter();
-  const { plan } = router.query;
 
-  useEffect(() => {
-    // start OAuth sign-in with Google (Supabase)
-    async function signIn() {
-      const redirectTo = "/auth/callback";
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: { redirectTo },
-      });
-      if (error) console.error("OAuth error", error);
+  // Handle email/password sign-up
+  const handleEmailSignUp = async (e) => {
+    e.preventDefault();
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) {
+      alert(error.message);
+    } else {
+      // On successful sign-up, go to callback
+      router.push('/auth/callback');
     }
-    signIn();
-  }, []);
+  };
+
+  // Handle Google OAuth sign-in
+  const handleGoogleSignIn = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        // Redirect back to auth callback page after Google login
+        redirectTo: `${window.location.origin}/auth/callback`
+      }
+    });
+    if (error) alert(error.message);
+    // No manual redirect needed – Supabase will navigate to the callback URL
+  };
 
   return (
-    <div className="container mx-auto px-6 py-12 text-white">
-      <h3 className="text-2xl">Redirecting to Google for sign-in...</h3>
-      <p className="text-gray-300">
-        After sign-in we will check the Gmail domain and redirect to payment if
-        required.
-      </p>
+    <div className="card">
+      <h1>Register</h1>
+      <form onSubmit={handleEmailSignUp}>
+        <label>
+          Email:
+          <input 
+            type="email" 
+            value={email}
+            onChange={(e) => setEmail(e.target.value)} 
+            required 
+          />
+        </label>
+        <br />
+        <label>
+          Password:
+          <input 
+            type="password" 
+            value={password}
+            onChange={(e) => setPassword(e.target.value)} 
+            required 
+          />
+        </label>
+        <br />
+        <button type="submit">Sign Up</button>
+      </form>
+      <hr />
+      <button onClick={handleGoogleSignIn}>
+        Continue with Google
+      </button>
     </div>
   );
 }
