@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import Header from "../../components/Header";
 import Footer from "../../components/Footer";
 import dynamic from "next/dynamic";
+import PriceButton from "../components/PriceButton";
 
 const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
 const TwilioVideoClient = dynamic(
@@ -86,3 +87,4 @@ export default function PremiumDashboard() {
     </>
   );
 }
+
