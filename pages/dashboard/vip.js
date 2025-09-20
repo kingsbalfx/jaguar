@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { supabase } from "../../lib/supabaseClient"; // your existing client
 import PriceButton from "../../components/PriceButton";
 
+const PRICE_VIP_NGN = 150000;
 const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
 
 export default function VipDashboard() {
@@ -287,4 +288,5 @@ export default function VipDashboard() {
     </>
   );
 }
+
 
