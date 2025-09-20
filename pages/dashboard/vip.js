@@ -4,6 +4,7 @@ import Header from "../../components/Header";
 import Footer from "../../components/Footer";
 import dynamic from "next/dynamic";
 import { supabase } from "../../lib/supabaseClient"; // your existing client
+import PriceButton from "../../components/PriceButton";
 
 const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
 
@@ -147,6 +148,10 @@ export default function VipDashboard() {
   return (
     <>
       <Header />
+    <div className="text-right">
+  <div className="text-sm text-gray-400">Access price</div>
+  <div className="text-xl font-semibold text-yellow-300">
+    {new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(PRICE_VIP_NGN)}
       <main className="container mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-2xl font-bold">VIP Dashboard</h2>
@@ -156,6 +161,8 @@ export default function VipDashboard() {
               {priceFormatter.format(PRICE_VIP_NGN)}
             </div>
             <a
+               <div className="mt-2">
+               <PriceButton initialPrice={PRICE_VIP_NGN} plan="vip" />
               href={`/checkout?plan=vip`}
               className="mt-2 inline-block px-4 py-2 bg-green-600 rounded text-white"
             >
@@ -280,3 +287,4 @@ export default function VipDashboard() {
     </>
   );
 }
+
