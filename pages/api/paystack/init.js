@@ -1,82 +1,60 @@
-// pages/api/paystack/init.js
-import axios from "axios";
+// pages/api/paystack/initiate.js
+import fetch from "node-fetch";
+import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
+
+const PLANS = {
+  vip: { price: 150000, name: "VIP Access" },       // ₦150,000
+  premium: { price: 90000, name: "Premium Access" } // ₦90,000
+};
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== "POST") return res.status(405).end();
+
+  const supabase = createPagesServerClient({ req, res });
+
+  // get supabase session (user must be signed in)
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !session?.user) {
+    return res.status(401).json({ error: "Not authenticated" });
   }
+  const user = session.user;
 
-  const { plan, amount, email, reference, callback_url } = req.body ?? {};
-  const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET;
+  const { plan } = req.body || {};
+  if (!plan || !PLANS[plan]) return res.status(400).json({ error: "Invalid plan" });
 
-  if (!PAYSTACK_SECRET) {
-    return res.status(500).json({
-      error:
-        "Missing PAYSTACK_SECRET in environment. Set PAYSTACK_SECRET in your .env or Vercel env vars.",
-    });
-  }
-
-  if (!email || !amount) {
-    return res
-      .status(400)
-      .json({ error: "Missing required fields: email and amount" });
-  }
-
-  // Ensure numeric amount and convert to kobo (NGN * 100)
-  const numericAmount = Number(amount);
-  if (Number.isNaN(numericAmount) || numericAmount <= 0) {
-    return res.status(400).json({ error: "Invalid amount" });
-  }
-  const kobo = Math.round(numericAmount * 100);
-
-  // callback_url: prefer caller-provided, otherwise default to /checkout/success on same origin
-  const callbackUrl =
-    callback_url ?? `${req.headers.origin ?? ""}/checkout/success`;
-
-  const body = {
-    email,
-    amount: kobo,
-    callback_url: callbackUrl,
-    metadata: { plan: plan ?? "unknown" },
-  };
-
-  // include provided reference if present (optional)
-  if (reference) {
-    body.reference = reference;
-  }
+  const amount = PLANS[plan].price;
+  const email = user.email;
 
   try {
-    const resp = await axios.post(
-      "https://api.paystack.co/transaction/initialize",
-      body,
-      {
-        headers: {
-          Authorization: `Bearer ${PAYSTACK_SECRET}`,
-          "Content-Type": "application/json",
+    // Initialize Paystack transaction from server
+    const initRes = await fetch("https://api.paystack.co/transaction/initialize", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email,
+        amount: amount * 100, // Paystack expects kobo (so multiply Naira by 100)
+        metadata: {
+          userId: user.id,
+          plan,
         },
-        timeout: 15000,
-      }
-    );
-
-    // resp.data typically includes { status, message, data: { authorization_url, access_code, reference, ... } }
-    const responseData = resp.data ?? {};
-
-    // Return the key fields + raw response for flexibility
-    return res.status(200).json({
-      ok: true,
-      message: responseData.message ?? "initialized",
-      authorization_url: responseData.data?.authorization_url ?? null,
-      access_code: responseData.data?.access_code ?? null,
-      reference: responseData.data?.reference ?? null,
-      raw: responseData,
+        // You can optionally set callback_url here, Paystack will still redirect to the callback on the dashboard settings
+        callback_url: `${process.env.NEXT_PUBLIC_SITE_URL || `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`}/api/paystack/verify`
+      }),
     });
+
+    const json = await initRes.json();
+    if (!initRes.ok) {
+      console.error("Paystack init error", json);
+      return res.status(500).json({ error: "Paystack initialization failed", details: json });
+    }
+
+    // Return authorization_url to client to redirect user
+    return res.status(200).json({ authorization_url: json.data.authorization_url, reference: json.data.reference });
   } catch (err) {
-    const details = err.response?.data ?? err.message ?? String(err);
-    console.error("Paystack init error:", details);
-    return res.status(500).json({
-      ok: false,
-      error: "Paystack initialization failed",
-      details,
-    });
+    console.error("paystack/initiate error", err);
+    return res.status(500).json({ error: "Server error" });
   }
 }
