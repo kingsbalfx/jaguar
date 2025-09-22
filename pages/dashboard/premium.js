@@ -3,9 +3,11 @@ import React, { useState } from "react";
 import Header from "../../components/Header";
 import Footer from "../../components/Footer";
 import dynamic from "next/dynamic";
-import PriceButton from "../components/PriceButton";
+import PriceButton from "../../components/PriceButton"; // correct relative path
 
+// Premium price (single source)
 const PRICE_PREMIUM_NGN = 70000;
+
 const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
 const TwilioVideoClient = dynamic(
   () => import("../../components/TwilioVideoClient"),
@@ -13,7 +15,6 @@ const TwilioVideoClient = dynamic(
 );
 
 export default function PremiumDashboard() {
-  const PRICE_PREMIUM_NGN = 70000;
   const priceFormatter = new Intl.NumberFormat("en-NG", {
     style: "currency",
     currency: "NGN",
@@ -26,35 +27,41 @@ export default function PremiumDashboard() {
     <>
       <Header />
       <main className="container mx-auto px-6 py-8">
-       <div className="text-right">
-       <div className="text-sm text-gray-400">Access price</div>
-         <div className="text-xl font-semibold text-yellow-300">
-            {new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(PRICE_VIP_NGN)}
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-2xl font-bold">Premium Dashboard</h2>
+
           <div className="text-right">
             <div className="text-sm text-gray-400">Access price</div>
             <div className="text-lg font-semibold text-yellow-300">
               {priceFormatter.format(PRICE_PREMIUM_NGN)}
             </div>
-            <a
-              href={`/checkout?plan=premium`}
-              className="mt-2 inline-block px-3 py-2 bg-indigo-600 rounded text-white"
-            >
-              Purchase Access
-            </a>
+
+            {/* Purchase link (simple anchor) */}
+            <div className="mt-2">
+              <a
+                href={`/checkout?plan=premium`}
+                className="inline-block px-3 py-2 bg-indigo-600 rounded text-white"
+              >
+                Purchase Access
+              </a>
+
+              {/* PriceButton should NOT be nested inside a <button> or inside the anchor.
+                  Render it as a sibling (it may itself render a button or link). */}
+              <div className="inline-block ml-3">
+                <PriceButton initialPrice={PRICE_PREMIUM_NGN} plan="premium" />
+              </div>
+            </div>
           </div>
         </div>
 
         <div className="flex gap-4 mb-4">
-          <div className="mt-2">
           <button
             className="px-4 py-2 bg-indigo-600 rounded"
             onClick={() => setUseTwilio(false)}
-           <PriceButton initialPrice={PRICE_PREMIUM_NGN} plan="premium" />
-            >
+          >
             Watch YouTube
           </button>
+
           <button
             className="px-4 py-2 bg-green-600 rounded"
             onClick={() => setUseTwilio(true)}
@@ -94,5 +101,4 @@ export default function PremiumDashboard() {
     </>
   );
 }
-
 
