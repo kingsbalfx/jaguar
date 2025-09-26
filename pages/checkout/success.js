@@ -4,16 +4,9 @@ import Header from "../../components/Header";
 import Footer from "../../components/Footer";
 
 /**
- * This page verifies a Paystack transaction server-side (getServerSideProps).
- * On success it updates the user's role in Supabase (profiles table) using
- * the SUPABASE_SERVICE_ROLE_KEY (server-only), then redirects the user to
- * the appropriate dashboard.
- *
- * IMPORTANT:
- * - SUPABASE_SERVICE_ROLE_KEY and PAYSTACK_SECRET_KEY must be set in Vercel
- *   as server-side environment variables (do NOT expose service key to client).
- * - This page expects Paystack to call /redirect?reference=... which lands here
- *   as /checkout/success?reference=...
+ * Server-side Paystack verification + profile update.
+ * - Requires PAYSTACK_SECRET_KEY and SUPABASE_SERVICE_ROLE_KEY (server envs).
+ * - Expects Paystack redirect to this page with ?reference=...
  */
 
 export default function CheckoutSuccess({ success, message, reference }) {
@@ -49,32 +42,28 @@ export async function getServerSideProps(context) {
     };
   }
 
-  // 1) Verify transaction with Paystack
   try {
-    const paystackRes = await fetch(
+    // 1) Verify transaction with Paystack
+    const vRes = await fetch(
       `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
       {
         method: "GET",
-        headers: {
-          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-        },
+        headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
       }
     );
-    const paystackJson = await paystackRes.json();
+    const vJson = await vRes.json();
 
-    // Paystack returns status: true/false at top-level; data contains details
-    if (!paystackRes.ok || paystackJson.status !== true) {
+    if (!vRes.ok || vJson.status !== true) {
       return {
         props: {
           success: false,
-          message:
-            paystackJson.message || "Unable to verify transaction with Paystack.",
+          message: vJson.message || "Unable to verify transaction with Paystack.",
           reference,
         },
       };
     }
 
-    const trx = paystackJson.data;
+    const trx = vJson.data;
     if (trx.status !== "success") {
       return {
         props: {
@@ -85,94 +74,59 @@ export async function getServerSideProps(context) {
       };
     }
 
-    // 2) Extract metadata we sent during initialization (we recommended: { userId, plan })
+    // 2) Extract metadata
     const metadata = trx.metadata || {};
-    const plan = metadata.plan || metadata?.product || null; // expected 'vip' or 'premium'
+    const plan = metadata.plan || metadata.product || null; // 'vip'|'premium'
     const userId = metadata.userId || null;
     const buyerEmail = trx.customer?.email || metadata.email || null;
 
-    // 3) Update Supabase to set role = plan (server-side using service role)
-    // Use supabase-js admin client with SUPABASE_SERVICE_ROLE_KEY
+    // 3) Update Supabase server-side using service role key
     const { createClient } = await import("@supabase/supabase-js");
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY
     );
 
-    let updated = false;
-    let updateError = null;
-
     try {
       if (userId) {
-        // Preferred: update profiles table if you maintain one
-        const { error: upErr } = await supabaseAdmin
-          .from("profiles")
-          .update({ role: plan })
-          .eq("id", userId);
-        if (upErr) {
-          // fallback: try updating auth user app_metadata
-          updateError = upErr;
-        } else {
-          updated = true;
-        }
-
-        // Also optionally update auth user's app_metadata (if you use it)
+        // update profiles table if exists
+        await supabaseAdmin.from("profiles").update({ role: plan }).eq("id", userId);
+        // attempt to also set auth app_metadata (best-effort)
         try {
-          const { error: authErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+          await supabaseAdmin.auth.admin.updateUserById(userId, {
             app_metadata: { role: plan },
           });
-          if (authErr) {
-            // not fatal — log
-            console.warn("auth.admin.updateUserById error:", authErr);
-          }
         } catch (e) {
-          // ignore
+          // non-fatal
+          console.warn("auth.admin.updateUserById failed:", e?.message || e);
         }
       } else if (buyerEmail) {
-        // No userId in metadata — attempt to find profile by email and update
-        const { data: profileRow, error: selErr } = await supabaseAdmin
+        const { data: profileRow } = await supabaseAdmin
           .from("profiles")
           .select("id")
           .eq("email", buyerEmail)
           .maybeSingle();
-        if (selErr) {
-          updateError = selErr;
-        } else if (profileRow?.id) {
-          const { error: upErr2 } = await supabaseAdmin
-            .from("profiles")
-            .update({ role: plan })
-            .eq("id", profileRow.id);
-          if (upErr2) updateError = upErr2;
-          else updated = true;
+
+        if (profileRow?.id) {
+          await supabaseAdmin.from("profiles").update({ role: plan }).eq("id", profileRow.id);
         } else {
-          // no profile found — you might want to create one
-          const { error: insErr } = await supabaseAdmin.from("profiles").insert([
-            { id: null, email: buyerEmail, role: plan },
-          ]);
-          if (insErr) {
-            updateError = insErr;
-          } else {
-            updated = true;
-          }
+          // create profile if none exists (optional)
+          await supabaseAdmin.from("profiles").insert([{ email: buyerEmail, role: plan }]);
         }
       }
-    } catch (err) {
-      updateError = err;
+    } catch (upErr) {
+      console.error("Failed updating role after payment:", upErr);
+      // continue — don't block the user
     }
 
-    if (!updated && updateError) {
-      console.error("Failed updating user role after payment:", updateError);
-      // We won't block the user; continue to redirect to success but note the issue
-    }
-
-    // 4) Optional: subscribe to Mailchimp (if MAILCHIMP vars set)
+    // 4) Optional Mailchimp subscribe (best-effort)
     try {
-      const emailToSubscribe = buyerEmail;
       const listId = process.env.MAILCHIMP_LIST_ID;
       const apiKey = process.env.MAILCHIMP_API_KEY;
+      const emailToSubscribe = buyerEmail;
       if (emailToSubscribe && listId && apiKey) {
         const dc = apiKey.split("-").pop();
-        const mcRes = await fetch(`https://${dc}.api.mailchimp.com/3.0/lists/${listId}/members`, {
+        await fetch(`https://${dc}.api.mailchimp.com/3.0/lists/${listId}/members`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -180,28 +134,19 @@ export async function getServerSideProps(context) {
           },
           body: JSON.stringify({ email_address: emailToSubscribe, status: "subscribed" }),
         });
-        // ignore result if already subscribed
-        if (mcRes.status !== 200 && mcRes.status !== 201) {
-          // log but don't fail
-          const mcJson = await mcRes.json().catch(() => ({}));
-          console.warn("Mailchimp subscribe issue:", mcRes.status, mcJson);
-        }
       }
-    } catch (err) {
-      console.warn("Mailchimp subscribe failed:", err);
+    } catch (mcErr) {
+      console.warn("Mailchimp subscribe failed:", mcErr);
     }
 
-    // 5) Final: redirect user to appropriate page based on plan (role)
+    // 5) Redirect to proper dashboard
     let destination = "/dashboard";
     if (plan === "vip") destination = "/dashboard/vip";
     else if (plan === "premium") destination = "/dashboard/premium";
-
-    // If the buyer's email is the special admin, route to /admin
     if ((trx.customer?.email || "").toLowerCase() === "shafiuabdullahi.sa3@gmail.com") {
       destination = "/admin";
     }
 
-    // Prefer to redirect server-side to the destination (user lands directly)
     return {
       redirect: {
         destination,
@@ -214,4 +159,8 @@ export async function getServerSideProps(context) {
       props: {
         success: false,
         message: "Server error while verifying payment. Try again or contact support.",
-        refere:contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
+        reference: null,
+      },
+    };
+  }
+}
