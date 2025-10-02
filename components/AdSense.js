@@ -3,36 +3,43 @@ import Script from "next/script";
 import { useEffect } from "react";
 
 /**
- * Minimal AdSense component for Next.js pages.
- * - Replace CLIENT with your ca-pub-... publisher id
- * - Optionally pass slot prop if you have a specific ad unit id
+ * AdSense component
+ * - default client = your publisher id
+ * - pass slot prop if you have a specific ad unit id (optional)
+ *
+ * Usage:
+ * <AdSense slot="1234567890" />
  */
-export default function AdSense({ client = "ca-pub-REPLACE_WITH_YOURS", slot = "" }) {
+export default function AdSense({
+  client = "ca-pub-9076762305803751",
+  slot = ""
+}) {
   useEffect(() => {
-    // If the script is already loaded, request ad refresh
+    // If the script has already loaded, request adsbygoogle to render this <ins>
     try {
-      if (window && window.adsbygoogle) {
+      if (typeof window !== "undefined" && window.adsbygoogle) {
         (window.adsbygoogle = window.adsbygoogle || []).push({});
       }
-    } catch (e) {
-      // ignore
+    } catch (err) {
+      // swallow errors quietly
+      // console.error("adsense push error", err);
     }
   }, []);
 
   return (
     <>
-      {/* Loads AdSense library only when this component is rendered */}
+      {/* Load AdSense lib only when this component is used */}
       <Script
-        id="adsense-script"
+        id="adsense-js"
         strategy="afterInteractive"
-        src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}`}
+        src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9076762305803751`}
         crossOrigin="anonymous"
       />
-      {/* responsive ad slot — will display only on pages using <AdSense /> */}
+      {/* Responsive ad container */}
       <ins
         className="adsbygoogle"
         style={{ display: "block" }}
-        data-ad-client={client}
+        data-ad-client="ca-pub-9076762305803751"
         data-ad-slot={slot}
         data-ad-format="auto"
         data-full-width-responsive="true"
