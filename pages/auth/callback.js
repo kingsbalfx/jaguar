@@ -13,11 +13,26 @@ import { createClient } from "@supabase/supabase-js";
  * Behavior:
  *  - admin => /admin
  *  - vip (and has successful payment) => /dashboard/vip
- *  - vip (and no payment) => /checkout?plan=vip&next=/auth/callback
+ *  - vip (and no payment) => /checkout?plan=vip&next=/auth/callback  (or next param if provided)
  *  - premium (and has successful payment) => /dashboard/premium
- *  - premium (and no payment) => /checkout?plan=premium&next=/auth/callback
+ *  - premium (and no payment) => /checkout?plan=premium&next=/auth/callback  (or next param if provided)
  *  - default => /dashboard
  */
+
+function safeNextParam(rawNext) {
+  if (!rawNext) return null;
+  try {
+    const decoded = decodeURIComponent(String(rawNext));
+    // Only allow relative paths starting with '/'
+    if (decoded.startsWith("/") && !decoded.startsWith("//")) {
+      // normalize: avoid double slashes
+      return decoded;
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
 
 export const getServerSideProps = async (ctx) => {
   // server-side Supabase client (reads cookies)
@@ -31,6 +46,7 @@ export const getServerSideProps = async (ctx) => {
 
   if (sessionError) {
     console.error("Supabase getSession error:", sessionError);
+    // If you want to surface a debug page in dev, you could return props; here we redirect to login.
     return { redirect: { destination: "/login", permanent: false } };
   }
 
@@ -38,6 +54,10 @@ export const getServerSideProps = async (ctx) => {
   if (!user || !user.email) {
     return { redirect: { destination: "/login", permanent: false } };
   }
+
+  // extract and validate any incoming next param (from redirectTo or query)
+  const rawNext = ctx.query?.next ?? null;
+  const validatedNext = safeNextParam(rawNext);
 
   // Get role from profiles table
   const { data: profile, error: profileError } = await supabase
@@ -48,7 +68,6 @@ export const getServerSideProps = async (ctx) => {
 
   if (profileError) {
     console.error("Supabase profile fetch error:", profileError);
-    // If profile query fails, safe fallback: send to dashboard (or login)
     return { redirect: { destination: "/dashboard", permanent: false } };
   }
 
@@ -58,7 +77,9 @@ export const getServerSideProps = async (ctx) => {
   // allow special super admin env override (optional)
   const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || "").toLowerCase();
   if (role === "admin" || email === SUPER_ADMIN_EMAIL) {
-    return { redirect: { destination: "/admin", permanent: false } };
+    const computedDestination = "/admin";
+    const finalDestination = validatedNext || computedDestination;
+    return { redirect: { destination: finalDestination, permanent: false } };
   }
 
   // Helper: check payments table for success record
@@ -94,27 +115,24 @@ export const getServerSideProps = async (ctx) => {
   // Role-based redirection with payment check for paid roles
   if (role === "vip") {
     const paid = await hasSuccessfulPaymentForPlan("vip");
-    if (paid) {
-      return { redirect: { destination: "/dashboard/vip", permanent: false } };
-    } else {
-      // Not paid yet — send to checkout (preserving intent)
-      const checkoutUrl = `/checkout?plan=vip&next=${encodeURIComponent("/auth/callback")}`;
-      return { redirect: { destination: checkoutUrl, permanent: false } };
-    }
+    const computedDestination = paid ? "/dashboard/vip" : `/checkout?plan=vip&next=${encodeURIComponent("/auth/callback")}`;
+    const finalDestination = validatedNext || computedDestination;
+    return { redirect: { destination: finalDestination, permanent: false } };
   }
 
   if (role === "premium") {
     const paid = await hasSuccessfulPaymentForPlan("premium");
-    if (paid) {
-      return { redirect: { destination: "/dashboard/premium", permanent: false } };
-    } else {
-      const checkoutUrl = `/checkout?plan=premium&next=${encodeURIComponent("/auth/callback")}`;
-      return { redirect: { destination: checkoutUrl, permanent: false } };
-    }
+    const computedDestination = paid
+      ? "/dashboard/premium"
+      : `/checkout?plan=premium&next=${encodeURIComponent("/auth/callback")}`;
+    const finalDestination = validatedNext || computedDestination;
+    return { redirect: { destination: finalDestination, permanent: false } };
   }
 
   // default /trial users
-  return { redirect: { destination: "/dashboard", permanent: false } };
+  const computedDestination = "/dashboard";
+  const finalDestination = validatedNext || computedDestination;
+  return { redirect: { destination: finalDestination, permanent: false } };
 };
 
 export default function Callback() {
