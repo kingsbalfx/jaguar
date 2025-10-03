@@ -3,8 +3,6 @@ import "../styles/globals.css";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import { useEffect } from "react";
-import Header from "../components/Header";
-import Footer from "../components/Footer";
 
 const AD_EXCLUDE_PATHS = [
   "/login",
@@ -18,6 +16,7 @@ const AD_EXCLUDE_PATHS = [
   // optionally exclude plain /dashboard if you don't want ads there
 ];
 
+// helper to decide if ads should show on this path
 function shouldShowAds(path) {
   if (!path) return false;
   for (const p of AD_EXCLUDE_PATHS) {
@@ -50,7 +49,7 @@ export default function MyApp({ Component, pageProps }) {
   const showAds = shouldShowAds(router.pathname);
 
   return (
-    <div className="min-h-screen flex flex-col bg-black text-white">
+    <>
       <Head>
         <title>KINGSBALFX</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -59,18 +58,12 @@ export default function MyApp({ Component, pageProps }) {
         <meta name="google-adsense-account" content="ca-pub-9076762305803751" />
       </Head>
 
-      {/* Ad script if allowed */}
       {showAds && <AdsenseLoader />}
 
-      <Header />
-
-      <main className="flex-grow">
+      <div className="min-h-screen app-bg text-white">
         <Component {...pageProps} />
-      </main>
+      </div>
 
-      <Footer />
-
-      {/* Ad slot at bottom if allowed */}
       {showAds && (
         <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
           <ins
@@ -88,6 +81,16 @@ export default function MyApp({ Component, pageProps }) {
           />
         </div>
       )}
+    </>
+  );
+} fix with this export default function MyApp({ Component, pageProps }) {
+  return (
+    <div className="min-h-screen flex flex-col bg-black text-white">
+      <Header />
+      <main className="flex-grow">
+        <Component {...pageProps} />
+      </main>
+      <Footer />
     </div>
   );
 }
