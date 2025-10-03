@@ -1,5 +1,6 @@
 // components/Footer.js
 import React from "react";
+import Link from "next/link";
 import {
   FaFacebook,
   FaTwitter,
@@ -39,7 +40,10 @@ function parseSocials(raw = "") {
         .filter(Boolean);
     } else if (typeof parsed === "object" && parsed !== null) {
       return Object.entries(parsed)
-        .map(([k, v]) => ({ label: (k || "").toString().trim(), url: (v || "").toString().trim() }))
+        .map(([k, v]) => ({
+          label: (k || "").toString().trim(),
+          url: (v || "").toString().trim(),
+        }))
         .filter((s) => s.label && s.url);
     }
   } catch (e) {
@@ -79,6 +83,24 @@ export default function Footer() {
           </div>
         </div>
 
+        {/* Navigation / Important Links */}
+        <div className="mt-4 md:mt-0">
+          <div className="flex gap-4">
+            <Link href="/about">
+              <a className="text-gray-200 hover:underline">About</a>
+            </Link>
+            <Link href="/privacy">
+              <a className="text-gray-200 hover:underline">Privacy</a>
+            </Link>
+            <Link href="/contact">
+              <a className="text-gray-200 hover:underline">Contact</a>
+            </Link>
+            <Link href="/terms">
+              <a className="text-gray-200 hover:underline">Terms</a>
+            </Link>
+          </div>
+        </div>
+
         {/* Social links: only render when there are socials */}
         {socials.length > 0 && (
           <div className="mt-4 md:mt-0">
@@ -109,4 +131,3 @@ export default function Footer() {
     </footer>
   );
 }
-
