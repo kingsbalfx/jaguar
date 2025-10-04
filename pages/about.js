@@ -1,4 +1,3 @@
-// pages/about.js
 import React from "react";
 
 export default function About() {
@@ -21,7 +20,7 @@ export default function About() {
         <li>Daily & premium forex signals with entry, stop loss, and take profit levels.</li>
         <li>Weekly lessons and market breakdowns.</li>
         <li>1-on-1 mentorship and VIP challenges.</li>
-        <li>Access to archive of trades and performance reports.</li>
+        <li>Access to archives of trades and performance reports.</li>
       </ul>
 
       <h2 className="text-2xl font-semibold mt-6 mb-2">Contact Us</h2>
