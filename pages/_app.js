@@ -1,3 +1,6 @@
+// pages/_app.js
+import "../styles/globals.css";
+import Head from "next/head";
 import { useRouter } from "next/router";
 import { useEffect } from "react";
 import Header from "../components/Header";
@@ -10,17 +13,13 @@ const AD_EXCLUDE_PATHS = [
   "/admin",
   "/checkout",
   "/checkout/success",
-  // exclude VIP & Premium dashboards
   "/dashboard/vip",
   "/dashboard/premium",
-  // you might also want to exclude /dashboard itself if minimal
 ];
 
-// same helper
 function shouldShowAds(path) {
   if (!path) return false;
   for (const p of AD_EXCLUDE_PATHS) {
-    // match exact or prefix
     if (p.endsWith("/")) {
       if (path.startsWith(p)) return false;
     } else {
@@ -50,10 +49,26 @@ export default function MyApp({ Component, pageProps }) {
   const showAds = shouldShowAds(router.pathname);
 
   return (
-    <>
+    <div className="min-h-screen flex flex-col bg-black text-white">
+      <Head>
+        <title>KINGSBALFX</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#071022" />
+        <meta name="google-adsense-account" content="ca-pub-9076762305803751" />
+      </Head>
+
       {showAds && <AdsenseLoader />}
 
-      <Component {...pageProps} />
+      <Header />
+
+      <main className="flex-grow app-bg">
+        <div className="app-content">
+          <Component {...pageProps} />
+        </div>
+      </main>
+
+      <Footer />
 
       {showAds && (
         <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
@@ -72,6 +87,7 @@ export default function MyApp({ Component, pageProps }) {
           />
         </div>
       )}
-    </>
+    </div>
   );
 }
+
