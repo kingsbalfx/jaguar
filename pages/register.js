@@ -11,32 +11,39 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  // Dynamically resolve base URL
   const getBaseUrl = () => {
     const envUrl = process.env.NEXT_PUBLIC_SITE_URL;
     if (envUrl) return envUrl.replace(/\/$/, "");
-    if (typeof window !== "undefined" && window.location?.origin) return window.location.origin;
+    if (typeof window !== "undefined" && window.location?.origin)
+      return window.location.origin;
     return "http://localhost:3000";
   };
 
+  // Email + password sign-up
   const handleEmailSignUp = async (e) => {
     e.preventDefault();
     setLoading(true);
     setErrorMsg("");
+
     try {
+      const base = getBaseUrl();
       const { error } = await supabase.auth.signUp({
         email,
         password,
+        options: { redirectTo: `${base}/auth/callback` },
       });
       if (error) throw error;
-      const base = getBaseUrl();
-      router.push(`${base}/auth/callback`);
+
+      // Supabase handles redirect after verification or login
+      router.push("/auth/callback");
     } catch (err) {
       setErrorMsg(err?.message || "Sign up failed");
-    } finally {
       setLoading(false);
     }
   };
 
+  // Google OAuth sign-in
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setErrorMsg("");
@@ -49,24 +56,25 @@ export default function Register() {
       if (error) throw error;
     } catch (err) {
       setErrorMsg(err?.message || "Google sign-in failed");
-    } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-indigo-900 to-black p-4">
-      <div className="w-full max-w-md bg-black/70 backdrop-blur-lg ring-1 ring-white/20 rounded-2xl p-8 text-white shadow-lg space-y-6">
-        <h1 className="text-3xl font-bold text-center">Register</h1>
-        <p className="text-sm text-gray-400 text-center">Create your account below.</p>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-indigo-900 to-black p-4">
+      <div className="w-full max-w-md bg-black/70 backdrop-blur-lg border border-white/10 rounded-2xl shadow-2xl p-8 text-white space-y-6">
+        <h1 className="text-4xl font-bold text-center">Create an Account</h1>
+        <p className="text-sm text-gray-400 text-center">
+          Sign up with your email or continue with Google.
+        </p>
 
         {errorMsg && (
-          <div className="bg-red-600 bg-opacity-50 text-red-200 px-4 py-2 rounded">
+          <div className="bg-red-600/40 text-red-200 text-sm p-3 rounded-md text-center">
             {errorMsg}
           </div>
         )}
 
-        <form onSubmit={handleEmailSignUp} className="space-y-4">
+        <form onSubmit={handleEmailSignUp} className="space-y-5">
           <div>
             <label className="block mb-1 text-sm text-gray-300">Email</label>
             <input
@@ -94,30 +102,30 @@ export default function Register() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 bg-indigo-600 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-60 transition"
+            className="w-full py-3 bg-indigo-600 rounded-lg font-semibold text-white hover:bg-indigo-700 disabled:opacity-60 transition"
           >
-            {loading ? "Signing up…" : "Sign Up"}
+            {loading ? "Creating account…" : "Sign Up"}
           </button>
         </form>
 
         <div className="flex items-center gap-3 text-gray-500">
           <hr className="flex-1 border-gray-600" />
-          <span className="text-xs">OR</span>
+          <span className="text-xs uppercase">or</span>
           <hr className="flex-1 border-gray-600" />
         </div>
 
         <button
           onClick={handleGoogleSignIn}
           disabled={loading}
-          className="w-full flex items-center justify-center gap-3 py-3 border border-gray-500 rounded-lg hover:bg-white/10 transition"
+          className="w-full flex items-center justify-center gap-3 py-3 border border-gray-600 rounded-lg hover:bg-white/10 transition"
         >
-          <FcGoogle size={24} />
-          Sign in with Google
+          <FcGoogle size={22} />
+          <span>Continue with Google</span>
         </button>
 
         <div className="text-center text-sm text-gray-400">
           Already have an account?{" "}
-          <a href="/login" className="underline text-indigo-400">
+          <a href="/login" className="underline text-indigo-400 hover:text-indigo-300">
             Sign in
           </a>
         </div>
