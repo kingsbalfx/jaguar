@@ -1,12 +1,7 @@
 // pages/login.js
 import React, { useState } from "react";
 import { useRouter } from "next/router";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+import { supabase } from "../lib/supabaseClient"; // use your shared client import
 
 export default function Login() {
   const router = useRouter();
@@ -16,7 +11,6 @@ export default function Login() {
   const [errMsg, setErrMsg] = useState("");
 
   const getBaseUrl = () => {
-    // Use explicit env (production), otherwise runtime origin (preview/dev), fallback to localhost for dev
     const envUrl = process.env.NEXT_PUBLIC_SITE_URL;
     if (envUrl) return envUrl.replace(/\/$/, "");
     if (typeof window !== "undefined" && window.location?.origin) return window.location.origin;
@@ -28,14 +22,13 @@ export default function Login() {
     setLoading(true);
     setErrMsg("");
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
       if (error) throw error;
-      // success — go to callback page where the server/client will route by role
       const base = getBaseUrl();
-      router.push(`/auth/callback?redirectTo=${encodeURIComponent(base + "/auth/callback")}`);
+      router.push(`/auth/callback?next=${encodeURIComponent(base + "/dashboard")}`);
     } catch (err) {
       setErrMsg(err?.message || "Login failed");
     } finally {
@@ -48,11 +41,11 @@ export default function Login() {
     setErrMsg("");
     try {
       const base = getBaseUrl();
-      await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo: `${base}/auth/callback` },
       });
-      // Supabase will redirect the browser to the provider and back to /auth/callback
+      if (error) throw error;
     } catch (err) {
       setErrMsg(err?.message || "OAuth failed");
       setLoading(false);
@@ -60,65 +53,72 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-900 to-black p-6">
-      <div className="w-full max-w-md bg-black/60 ring-1 ring-white/10 rounded-xl p-8 text-white">
-        <h1 className="text-2xl font-bold mb-2 text-center">Welcome back</h1>
-        <p className="text-sm text-gray-300 mb-6 text-center">Login to access your dashboard</p>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 via-black to-gray-900 p-4">
+      <div className="w-full max-w-md bg-black/70 backdrop-blur-lg ring-1 ring-white/20 rounded-2xl p-8 text-white shadow-lg">
+        <h1 className="text-3xl font-bold mb-4 text-center">Sign In</h1>
+        <p className="text-sm text-gray-400 mb-6 text-center">
+          Welcome back — login to your account
+        </p>
 
-        {errMsg && <div className="text-red-400 mb-4 text-sm">{errMsg}</div>}
+        {errMsg && (
+          <div className="bg-red-600 bg-opacity-50 text-red-200 px-4 py-2 rounded mb-4">
+            {errMsg}
+          </div>
+        )}
 
         <form onSubmit={handleEmailLogin} className="space-y-4">
-          <label className="block">
-            <span className="text-sm text-gray-300">Email</span>
+          <div>
+            <label className="block mb-1 text-sm text-gray-300">Email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="mt-1 w-full p-3 rounded bg-white/5 outline-none focus:ring-2 focus:ring-indigo-500"
               placeholder="you@example.com"
+              className="w-full px-4 py-3 rounded-lg bg-white/10 placeholder-gray-500 focus:bg-white/20 focus:ring-2 focus:ring-indigo-500 outline-none transition"
             />
-          </label>
+          </div>
 
-          <label className="block">
-            <span className="text-sm text-gray-300">Password</span>
+          <div>
+            <label className="block mb-1 text-sm text-gray-300">Password</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="mt-1 w-full p-3 rounded bg-white/5 outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="Your password"
+              placeholder="••••••••"
+              className="w-full px-4 py-3 rounded-lg bg-white/10 placeholder-gray-500 focus:bg-white/20 focus:ring-2 focus:ring-indigo-500 outline-none transition"
             />
-          </label>
+          </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 bg-indigo-600 rounded text-white font-semibold hover:bg-indigo-700 disabled:opacity-60"
+            className="w-full py-3 bg-indigo-600 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-60 transition"
           >
-            {loading ? "Signing in…" : "Sign in"}
+            {loading ? "Signing in…" : "Sign In"}
           </button>
         </form>
 
-        <div className="my-4 flex items-center gap-3">
-          <hr className="flex-1 border-white/10" />
-          <span className="text-xs text-gray-400">or</span>
-          <hr className="flex-1 border-white/10" />
+        <div className="my-6 flex items-center gap-3 text-gray-500">
+          <hr className="flex-1 border-gray-600" />
+          <span className="text-xs">OR</span>
+          <hr className="flex-1 border-gray-600" />
         </div>
 
         <button
           onClick={handleGoogle}
-          className="w-full flex items-center justify-center gap-3 py-3 border border-white/10 rounded hover:bg-white/5"
+          disabled={loading}
+          className="w-full flex items-center justify-center gap-3 py-3 border border-gray-500 rounded-lg hover:bg-white/10 transition"
         >
           <img src="/images/google.svg" alt="Google" className="w-5 h-5" />
-          <span>Continue with Google</span>
+          Continue with Google
         </button>
 
-        <div className="mt-4 text-center text-sm text-gray-400">
-          New here?{" "}
-          <a href="/register" className="text-white underline">
-            Create account
+        <div className="mt-6 text-center text-sm text-gray-400">
+          Don’t have an account?{" "}
+          <a href="/register" className="text-indigo-400 hover:underline">
+            Register
           </a>
         </div>
       </div>
