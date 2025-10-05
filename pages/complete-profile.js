@@ -1,7 +1,15 @@
-// pages/complete-profile.js
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import { supabase } from "../lib/supabaseClient";
+
+/**
+ * CompleteProfile Page
+ * --------------------
+ * - Shown after user signs up but has no record in `profiles` table.
+ * - Collects full name and phone.
+ * - Saves or updates profile with default role: 'user'.
+ * - Redirects to /dashboard after success.
+ */
 
 export default function CompleteProfile() {
   const [name, setName] = useState("");
@@ -11,40 +19,48 @@ export default function CompleteProfile() {
   const [user, setUser] = useState(null);
   const router = useRouter();
 
+  // ✅ Fetch authenticated user
   useEffect(() => {
     const fetchUser = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
+
       if (!user) {
         router.push("/login");
       } else {
         setUser(user);
       }
     };
+
     fetchUser();
   }, [router]);
 
+  // ✅ Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!user) return;
+
     setLoading(true);
     setErr("");
 
-    const { error } = await supabase.from("profiles").upsert({
-      id: user.id,
-      email: user.email,
-      name,
-      phone,
-      role: "user",
-      updated_at: new Date().toISOString(),
-    });
+    try {
+      const { error } = await supabase.from("profiles").upsert({
+        id: user.id,
+        email: user.email,
+        name,
+        phone,
+        role: "user",
+        updated_at: new Date().toISOString(),
+      });
 
-    if (error) {
-      setErr(error.message);
-      setLoading(false);
-    } else {
+      if (error) throw error;
+
       router.push("/dashboard");
+    } catch (error) {
+      setErr(error.message || "Something went wrong");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -56,7 +72,11 @@ export default function CompleteProfile() {
           Please fill in your details to finish setting up your account.
         </p>
 
-        {err && <div className="bg-red-600/40 text-red-200 p-3 rounded">{err}</div>}
+        {err && (
+          <div className="bg-red-600/40 text-red-200 p-3 rounded text-center">
+            {err}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
