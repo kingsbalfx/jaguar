@@ -1,14 +1,15 @@
-// pages/auth/callback.js
 import React from "react";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 
 /**
- * After OAuth login, this page:
- * - Validates Supabase session.
- * - Gets user role from `profiles`.
- * - Redirects to admin, vip, premium, or dashboard accordingly.
- * - Uses SUPER_ADMIN_EMAIL from .env for emergency admin override.
+ * Supabase Auth Callback
+ * -----------------------
+ * - Verifies session after login or signup.
+ * - If no profile record exists, redirect to /complete-profile.
+ * - Routes by role (admin, vip, premium, user).
+ * - Supports SUPER_ADMIN_EMAIL from .env for master admin access.
+ * - Uses payments table to verify paid subscriptions.
  */
 
 function safeNextParam(rawNext) {
@@ -23,9 +24,9 @@ function safeNextParam(rawNext) {
 }
 
 export const getServerSideProps = async (ctx) => {
-  // ✅ Authenticated Supabase client (server-side, reads cookies)
   const supabase = createPagesServerClient(ctx);
 
+  // ✅ Step 1: Verify user session
   const {
     data: { session },
     error: sessionError,
@@ -41,32 +42,37 @@ export const getServerSideProps = async (ctx) => {
   const rawNext = ctx.query?.next ?? null;
   const validatedNext = safeNextParam(rawNext);
 
-  // ✅ Fetch user role
+  // ✅ Step 2: Fetch user profile
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("role")
+    .select("*")
     .eq("id", user.id)
     .maybeSingle();
 
   if (profileError) {
     console.error("Supabase profile fetch error:", profileError);
-    return { redirect: { destination: "/dashboard", permanent: false } };
   }
 
-  const role = profile?.role || null;
+  // ✅ Step 3: Super Admin Logic
   const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || "").toLowerCase();
+  const role = profile?.role || null;
 
-  // ✅ Debug output (visible in Vercel build logs)
   console.log("DEBUG => Logged-in user:", email);
   console.log("DEBUG => SUPER_ADMIN_EMAIL:", SUPER_ADMIN_EMAIL);
 
-  // ✅ Admin or Super Admin redirect
+  // ✅ Step 4: New user profile redirect
+  if (!profile) {
+    console.log("⚠️ No profile found for user. Redirecting to /complete-profile");
+    return { redirect: { destination: "/complete-profile", permanent: false } };
+  }
+
+  // ✅ Step 5: Admin or Super Admin redirect
   if (role === "admin" || email === SUPER_ADMIN_EMAIL) {
     const destination = validatedNext || "/admin";
     return { redirect: { destination, permanent: false } };
   }
 
-  // ✅ Server-side client for payment validation
+  // ✅ Step 6: Create a server client to check payments
   const supabaseAdmin = getSupabaseClient({ server: true });
 
   async function hasSuccessfulPaymentForPlan(plan) {
@@ -91,24 +97,37 @@ export const getServerSideProps = async (ctx) => {
     }
   }
 
-  // ✅ Role-based routing
+  // ✅ Step 7: Role-based redirects
   if (role === "vip") {
     const paid = await hasSuccessfulPaymentForPlan("vip");
-    const destination = validatedNext || (paid ? "/dashboard/vip" : `/checkout?plan=vip&next=/auth/callback`);
+    const destination =
+      validatedNext ||
+      (paid
+        ? "/dashboard/vip"
+        : `/checkout?plan=vip&next=/auth/callback`);
     return { redirect: { destination, permanent: false } };
   }
 
   if (role === "premium") {
     const paid = await hasSuccessfulPaymentForPlan("premium");
-    const destination = validatedNext || (paid ? "/dashboard/premium" : `/checkout?plan=premium&next=/auth/callback`);
+    const destination =
+      validatedNext ||
+      (paid
+        ? "/dashboard/premium"
+        : `/checkout?plan=premium&next=/auth/callback`);
     return { redirect: { destination, permanent: false } };
   }
 
-  // ✅ Default user
+  // ✅ Step 8: Default users → normal dashboard
   const destination = validatedNext || "/dashboard";
   return { redirect: { destination, permanent: false } };
 };
 
+// ✅ Step 9: Fallback UI while redirecting
 export default function Callback() {
-  return <div className="p-6 text-center text-gray-700">Redirecting…</div>;
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-black text-gray-300 text-lg">
+      Redirecting…
+    </div>
+  );
 }
