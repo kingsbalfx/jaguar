@@ -54,11 +54,32 @@ export default function MyApp({ Component, pageProps }) {
         <div className="app-content">
           <Component {...pageProps} />
         </div>
+
+        {/* ✅ Responsive AdSense unit inside main content */}
+        {showAds && (
+          <div style={{ display: "flex", justifyContent: "center", margin: "24px 0" }}>
+            <ins
+              className="adsbygoogle"
+              style={{ display: "block" }}
+              data-ad-client="ca-pub-9076762305803751"
+              data-ad-slot="1636184407"
+              data-ad-format="auto"
+              data-full-width-responsive="true"
+            ></ins>
+            <Script
+              id="adsbygoogle-responsive"
+              strategy="afterInteractive"
+              dangerouslySetInnerHTML={{
+                __html: `(adsbygoogle = window.adsbygoogle || []).push({});`,
+              }}
+            />
+          </div>
+        )}
       </main>
 
       <Footer />
 
-      {/* ✅ Display your actual 728x90 ad only on approved pages */}
+      {/* ✅ Static 728x90 banner for desktop view */}
       {showAds && (
         <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
           <ins
@@ -71,9 +92,7 @@ export default function MyApp({ Component, pageProps }) {
             id="adsbygoogle-init"
             strategy="afterInteractive"
             dangerouslySetInnerHTML={{
-              __html: `
-                (adsbygoogle = window.adsbygoogle || []).push({});
-              `,
+              __html: `(adsbygoogle = window.adsbygoogle || []).push({});`,
             }}
           />
         </div>
