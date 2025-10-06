@@ -1,47 +1,26 @@
-// pages/_app.js
 import "../styles/globals.css";
 import Head from "next/head";
+import Script from "next/script";
 import { useRouter } from "next/router";
-import { useEffect } from "react";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
 
-const AD_EXCLUDE_PATHS = [
+const NO_ADS_PATHS = [
   "/login",
   "/register",
   "/auth/callback",
+  "/complete-profile",
   "/admin",
   "/checkout",
   "/checkout/success",
+  "/dashboard",
   "/dashboard/vip",
   "/dashboard/premium",
 ];
 
 function shouldShowAds(path) {
   if (!path) return false;
-  for (const p of AD_EXCLUDE_PATHS) {
-    if (p.endsWith("/")) {
-      if (path.startsWith(p)) return false;
-    } else {
-      if (path === p || path.startsWith(p + "/")) return false;
-    }
-  }
-  return true;
-}
-
-function AdsenseLoader() {
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!document.querySelector('script[data-adsense]')) {
-      const s = document.createElement("script");
-      s.setAttribute("data-adsense", "true");
-      s.async = true;
-      s.crossOrigin = "anonymous";
-      s.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9076762305803751";
-      document.head.appendChild(s);
-    }
-  }, []);
-  return null;
+  return !NO_ADS_PATHS.some((p) => path === p || path.startsWith(p + "/"));
 }
 
 export default function MyApp({ Component, pageProps }) {
@@ -58,7 +37,16 @@ export default function MyApp({ Component, pageProps }) {
         <meta name="google-adsense-account" content="ca-pub-9076762305803751" />
       </Head>
 
-      {showAds && <AdsenseLoader />}
+      {/* ✅ Load AdSense script only when allowed */}
+      {showAds && (
+        <Script
+          id="adsense-script"
+          async
+          strategy="afterInteractive"
+          crossOrigin="anonymous"
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9076762305803751"
+        />
+      )}
 
       <Header />
 
@@ -70,6 +58,7 @@ export default function MyApp({ Component, pageProps }) {
 
       <Footer />
 
+      {/* ✅ Display ad only on approved pages */}
       {showAds && (
         <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
           <ins
@@ -79,10 +68,14 @@ export default function MyApp({ Component, pageProps }) {
             data-ad-slot="YOUR_AD_SLOT_ID"
             data-ad-format="auto"
             data-full-width-responsive="true"
-          />
-          <script
+          ></ins>
+          <Script
+            id="adsbygoogle-init"
+            strategy="afterInteractive"
             dangerouslySetInnerHTML={{
-              __html: `(adsbygoogle = window.adsbygoogle || []).push({});`,
+              __html: `
+                (adsbygoogle = window.adsbygoogle || []).push({});
+              `,
             }}
           />
         </div>
@@ -90,4 +83,3 @@ export default function MyApp({ Component, pageProps }) {
     </div>
   );
 }
-
