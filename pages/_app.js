@@ -58,16 +58,14 @@ export default function MyApp({ Component, pageProps }) {
 
       <Footer />
 
-      {/* ✅ Display ad only on approved pages */}
+      {/* ✅ Display your actual 728x90 ad only on approved pages */}
       {showAds && (
         <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
           <ins
             className="adsbygoogle"
-            style={{ display: "block", width: 320, height: 100 }}
+            style={{ display: "inline-block", width: 728, height: 90 }}
             data-ad-client="ca-pub-9076762305803751"
-            data-ad-slot="YOUR_AD_SLOT_ID"
-            data-ad-format="auto"
-            data-full-width-responsive="true"
+            data-ad-slot="1636184407"
           ></ins>
           <Script
             id="adsbygoogle-init"
