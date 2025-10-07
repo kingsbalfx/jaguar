@@ -35,9 +35,37 @@ export default function MyApp({ Component, pageProps }) {
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#071022" />
         <meta name="google-adsense-account" content="ca-pub-9076762305803751" />
+
+        {/* ✅ Logo + SEO Metadata */}
+        <link rel="icon" href="/favicon.ico" />
+        <link rel="apple-touch-icon" href="/logo-jaguar-512.png" />
+        <meta name="title" content="KINGSBALFX - Trade Smart, Live Smart" />
+        <meta
+          name="description"
+          content="KINGSBALFX — professional forex and crypto trading solutions for serious investors."
+        />
+
+        {/* ✅ Open Graph / Social Preview */}
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://kingsbalfx.name.ng/" />
+        <meta property="og:title" content="KINGSBALFX - Trade Smart, Live Smart" />
+        <meta
+          property="og:description"
+          content="Join KINGSBALFX today — access VIP and premium trading insights to grow your portfolio."
+        />
+        <meta property="og:image" content="https://kingsbalfx.name.ng/logo-jaguar-512.png" />
+
+        {/* ✅ Twitter Card */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="KINGSBALFX - Trade Smart, Live Smart" />
+        <meta
+          name="twitter:description"
+          content="Join KINGSBALFX today — access VIP and premium trading insights to grow your portfolio."
+        />
+        <meta name="twitter:image" content="https://kingsbalfx.name.ng/logo-jaguar-512.png" />
       </Head>
 
-      {/* ✅ Load AdSense script only when allowed */}
+      {/* ✅ Load AdSense only when allowed */}
       {showAds && (
         <Script
           id="adsense-script"
@@ -55,7 +83,7 @@ export default function MyApp({ Component, pageProps }) {
           <Component {...pageProps} />
         </div>
 
-        {/* ✅ Responsive AdSense unit inside main content */}
+        {/* ✅ Responsive Ad inside main content */}
         {showAds && (
           <div style={{ display: "flex", justifyContent: "center", margin: "24px 0" }}>
             <ins
