@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '../../utils/supabaseClient'; // Adjust the import path as necessary
+import { supabase } from '../../lib/supabaseClient'; // ✅ FIXED path
 import { useRouter } from 'next/router';
 
 const SignUp = () => {
