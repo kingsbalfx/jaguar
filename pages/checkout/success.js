@@ -2,27 +2,42 @@
 import React from "react";
 import Header from "../../components/Header";
 import Footer from "../../components/Footer";
+import Link from "next/link";
 
-/**
- * Server-side Paystack verification + profile update.
- * - Requires PAYSTACK_SECRET_KEY and SUPABASE_SERVICE_ROLE_KEY (server envs).
- * - Expects Paystack redirect to this page with ?reference=...
- */
+export default function CheckoutSuccess({ success, message, reference, plan }) {
+  const dashboardUrl = plan === 'vip' ? '/dashboard/vip' : plan === 'premium' ? '/dashboard/premium' : '/dashboard';
 
-export default function CheckoutSuccess({ success, message, reference }) {
   return (
     <>
       <Header />
-      <main className="container mx-auto px-6 py-8">
-        <h1 className="text-2xl font-bold mb-4">
-          {success ? "Payment Successful" : "Payment Verification Failed"}
-        </h1>
-        <p className="mb-2">{message}</p>
-        {reference && (
-          <div className="mt-2">
-            Reference: <strong>{reference}</strong>
-          </div>
-        )}
+      <main className="container mx-auto px-6 py-12 text-center">
+        <div className="max-w-lg mx-auto bg-gray-800/50 rounded-lg shadow-lg p-8">
+          {success ? (
+            <svg className="h-16 w-16 text-green-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          ) : (
+            <svg className="h-16 w-16 text-red-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          )}
+          <h1 className="text-3xl font-bold mb-4">
+            {success ? "Payment Successful" : "Payment Verification Failed"}
+          </h1>
+          <p className="text-gray-300 mb-6">{message}</p>
+          {reference && (
+            <div className="mt-4 text-gray-400">
+              Reference: <strong>{reference}</strong>
+            </div>
+          )}
+          {success && (
+            <div className="mt-8">
+              <Link href={dashboardUrl} className="bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 transition duration-300">
+                Go to Your Dashboard
+              </Link>
+            </div>
+          )}
+        </div>
       </main>
       <Footer />
     </>
@@ -43,7 +58,6 @@ export async function getServerSideProps(context) {
   }
 
   try {
-    // 1) Verify transaction with Paystack
     const vRes = await fetch(
       `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
       {
@@ -74,13 +88,11 @@ export async function getServerSideProps(context) {
       };
     }
 
-    // 2) Extract metadata
     const metadata = trx.metadata || {};
-    const plan = metadata.plan || metadata.product || null; // 'vip'|'premium'
+    const plan = metadata.plan || metadata.product || null;
     const userId = metadata.userId || null;
     const buyerEmail = trx.customer?.email || metadata.email || null;
 
-    // 3) Update Supabase server-side using service role key
     const { createClient } = await import("@supabase/supabase-js");
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -89,15 +101,12 @@ export async function getServerSideProps(context) {
 
     try {
       if (userId) {
-        // update profiles table if exists
         await supabaseAdmin.from("profiles").update({ role: plan }).eq("id", userId);
-        // attempt to also set auth app_metadata (best-effort)
         try {
           await supabaseAdmin.auth.admin.updateUserById(userId, {
             app_metadata: { role: plan },
           });
         } catch (e) {
-          // non-fatal
           console.warn("auth.admin.updateUserById failed:", e?.message || e);
         }
       } else if (buyerEmail) {
@@ -110,42 +119,26 @@ export async function getServerSideProps(context) {
         if (profileRow?.id) {
           await supabaseAdmin.from("profiles").update({ role: plan }).eq("id", profileRow.id);
         } else {
-          // create profile if none exists (optional)
           await supabaseAdmin.from("profiles").insert([{ email: buyerEmail, role: plan }]);
         }
       }
     } catch (upErr) {
       console.error("Failed updating role after payment:", upErr);
-      // continue — don't block the user
     }
 
-    // 4) Optional Mailchimp subscribe (best-effort)
-    try {
-      const listId = process.env.MAILCHIMP_LIST_ID;
-      const apiKey = process.env.MAILCHIMP_API_KEY;
-      const emailToSubscribe = buyerEmail;
-      if (emailToSubscribe && listId && apiKey) {
-        const dc = apiKey.split("-").pop();
-        await fetch(`https://${dc}.api.mailchimp.com/3.0/lists/${listId}/members`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Basic ${Buffer.from(`apikey:${apiKey}`).toString("base64")}`,
-          },
-          body: JSON.stringify({ email_address: emailToSubscribe, status: "subscribed" }),
-        });
-      }
-    } catch (mcErr) {
-      console.warn("Mailchimp subscribe failed:", mcErr);
+    // Redirect logic
+    if ((trx.customer?.email || "").toLowerCase() === "shafiuabdullahi.sa3@gmail.com") {
+      return {
+        redirect: {
+          destination: "/admin",
+          permanent: false,
+        },
+      };
     }
 
-    // 5) Redirect to proper dashboard
     let destination = "/dashboard";
     if (plan === "vip") destination = "/dashboard/vip";
     else if (plan === "premium") destination = "/dashboard/premium";
-    if ((trx.customer?.email || "").toLowerCase() === "shafiuabdullahi.sa3@gmail.com") {
-      destination = "/admin";
-    }
 
     return {
       redirect: {
@@ -160,6 +153,7 @@ export async function getServerSideProps(context) {
         success: false,
         message: "Server error while verifying payment. Try again or contact support.",
         reference: null,
+        plan: null,
       },
     };
   }
