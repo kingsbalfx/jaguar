@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '../../lib/supabaseClient';
+import { supabase } from '../../lib/supabaseClient'; // ✅ FIXED path
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 
