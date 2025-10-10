@@ -4,23 +4,16 @@ import Image from "next/image";
 import { useRouter } from "next/router";
 import { supabase } from "../lib/supabaseClient";
 
-/**
- * Stylish Login page for KingsbalFX
- * - Email/password sign-in
- * - Google OAuth sign-in (redirects to /auth/callback)
- * - Animated jaguar logo reveal
- */
-
 export default function Login() {
   const router = useRouter();
-  const { next } = router.query;
+  const { next } = router.query; // preserve redirect target if any
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errMsg, setErrMsg] = useState("");
 
-  // Resolve base URL (production env first, then runtime)
+  // Resolve base URL for redirect (set NEXT_PUBLIC_SITE_URL in env if needed)
   const getBaseUrl = () => {
     const envUrl = process.env.NEXT_PUBLIC_SITE_URL;
     if (envUrl) return envUrl.replace(/\/$/, "");
@@ -28,61 +21,51 @@ export default function Login() {
     return "http://localhost:3000";
   };
 
-  // When email login succeeds we redirect to /auth/callback which will route by role
+  // Email/password sign-in
   const handleEmailLogin = async (e) => {
     e.preventDefault();
     setErrMsg("");
     setLoading(true);
-
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-
-      // include next param if present (so callback can resume)
+      // Redirect to callback (include next param if present)
       const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
       router.push(`/auth/callback${nextParam}`);
     } catch (err) {
-      setErrMsg(err?.message || "Login failed. Check credentials and try again.");
+      setErrMsg(err?.message || "Login failed. Check credentials.");
       setLoading(false);
     }
   };
 
+  // Google OAuth sign-in
   const handleGoogle = async () => {
     setErrMsg("");
     setLoading(true);
     try {
       const base = getBaseUrl();
-      const redirectTo = next ? `${base}/auth/callback?next=${encodeURIComponent(next)}` : `${base}/auth/callback`;
-
+      const redirectTo = next
+        ? `${base}/auth/callback?next=${encodeURIComponent(next)}`
+        : `${base}/auth/callback`;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo },
+        options: { redirectTo }
       });
-
       if (error) throw error;
-
-      // Supabase will redirect the browser to Google and then back to /auth/callback
+      // The browser is now redirecting to Google; no further action needed.
     } catch (err) {
       setErrMsg(err?.message || "Google sign-in failed");
       setLoading(false);
     }
   };
 
-  // small sanity: if user already signed in, go to callback immediately
+  // If already signed in, send to callback immediately
   useEffect(() => {
     (async () => {
-      try {
-        const { data } = await supabase.auth.getSession();
-        if (data?.session?.user) {
-          const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
-          router.replace(`/auth/callback${nextParam}`);
-        }
-      } catch {
-        // ignore
+      const { data } = await supabase.auth.getSession();
+      if (data?.session?.user) {
+        const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
+        router.replace(`/auth/callback${nextParam}`);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -90,26 +73,20 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-black to-indigo-900 p-6">
-      <div className="max-w-md w-full bg-black/60 ring-1 ring-white/10 rounded-2xl p-8 text-white shadow-2xl backdrop-blur">
-        {/* Logo + title */}
-        <div className="flex items-center justify-center mb-6">
-          <div className="relative w-20 h-20 mr-4">
-            {/* Using next/image - ensure /public/jaguar.png exists */}
-            <Image
-              src="/jaguar.png"
-              alt="KingsbalFX Jaguar"
-              layout="fill"
-              objectFit="contain"
-              className="transform transition-transform duration-700 ease-out scale-90 opacity-0 animate-logo-reveal"
-            />
-          </div>
-          <div>
-            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">KINGSBALFX</h1>
-            <p className="text-xs text-gray-300">Trade smart • Live smart</p>
-          </div>
+      <div className="max-w-md w-full bg-black/60 ring-1 ring-white/10 rounded-2xl p-8 text-white shadow-2xl backdrop-blur-lg">
+        {/* Logo and title */}
+        <div className="flex flex-col items-center mb-6">
+          <Image
+            src="/jaguar.png"
+            alt="KINGSBALFX Jaguar"
+            width={80}
+            height={80}
+            className="transform transition-transform duration-700 ease-out scale-90 opacity-0 animate-logo-reveal"
+          />
+          <h1 className="text-3xl font-extrabold tracking-tight mt-4">KINGSBALFX</h1>
+          <p className="text-xs text-gray-300 mt-1">Trade smart • Live smart</p>
         </div>
-
-        {/* Animated keyframes for logo reveal (Tailwind won't have it built-in here so inline style class used) */}
+        {/* Inline keyframes for logo animation */}
         <style jsx>{`
           @keyframes logoReveal {
             0% { transform: scale(0.85); opacity: 0; filter: blur(6px); }
@@ -121,19 +98,16 @@ export default function Login() {
           }
         `}</style>
 
-        {/* Subtitle */}
-        <p className="text-sm text-gray-400 mb-4 text-center">Sign in to access your dashboard</p>
-
         {errMsg && (
           <div className="mb-4 text-sm bg-red-700/30 text-red-200 px-4 py-2 rounded">
             {errMsg}
           </div>
         )}
 
-        {/* Form */}
+        {/* Email/password form */}
         <form onSubmit={handleEmailLogin} className="space-y-4">
-          <label className="block">
-            <span className="text-xs text-gray-300">Email</span>
+          <div>
+            <label className="block text-xs text-gray-300">Email</label>
             <input
               type="email"
               value={email}
@@ -142,10 +116,9 @@ export default function Login() {
               placeholder="you@example.com"
               className="mt-1 w-full bg-white/5 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
             />
-          </label>
-
-          <label className="block">
-            <span className="text-xs text-gray-300">Password</span>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-300">Password</label>
             <input
               type="password"
               value={password}
@@ -154,8 +127,7 @@ export default function Login() {
               placeholder="Your password"
               className="mt-1 w-full bg-white/5 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
             />
-          </label>
-
+          </div>
           <button
             type="submit"
             disabled={loading}
@@ -165,24 +137,25 @@ export default function Login() {
           </button>
         </form>
 
-        {/* separator */}
+        {/* Separator */}
         <div className="my-4 flex items-center gap-3">
           <hr className="flex-1 border-white/10" />
           <span className="text-xs text-gray-400">or</span>
           <hr className="flex-1 border-white/10" />
         </div>
 
-        {/* Google */}
+        {/* Google button */}
         <button
           onClick={handleGoogle}
           disabled={loading}
           className="w-full flex items-center justify-center gap-3 py-3 border border-white/10 rounded-lg hover:bg-white/5 transition"
         >
-          <svg className="w-5 h-5" viewBox="0 0 533.5 544.3" xmlns="http://www.w3.org/2000/svg">
-            <path fill="#4285F4" d="M533.5 278.4c0-17.4-1.6-34.1-4.6-50.4H272v95.4h147.5c-6.4 34.9-25.9 64.4-55.2 84.1v69h89c52.3-48.2 82.2-119.3 82.2-197.1z"/>
-            <path fill="#34A853" d="M272 544.3c73.6 0 135.5-24.5 180.7-66.5l-89-69c-25 17-57 27-91.7 27-70.6 0-130.3-47.6-151.7-111.2h-90v69.9C63.7 481 160.6 544.3 272 544.3z"/>
-            <path fill="#FBBC05" d="M120.3 324.6c-8.8-26.6-8.8-55.2 0-81.8v-69.9h-90C6.6 229.9 0 252.7 0 278.4s6.6 48.6 30.3 105.5l90-69.3z"/>
-            <path fill="#EA4335" d="M272 109.6c39.9 0 75.8 13.7 104 40.6l78-78C404.6 24.5 342.7 0 272 0 160.6 0 63.7 63.4 30.3 153.8l90 69.9C141.7 157.2 201.4 109.6 272 109.6z"/>
+          {/* Google logo SVG */}
+          <svg className="w-5 h-5" viewBox="0 0 533.5 544.3">
+            <path fill="#4285F4" d="M533.5 278.4c0-17.4-1.6-34.1-4.6-50.4H272v95.4h147.5..."/>
+            <path fill="#34A853" d="M272 544.3c73.6 0 135.5-24.5 180.7-66.5l-89-69c-25..."/>
+            <path fill="#FBBC05" d="M120.3 324.6c-8.8-26.6-8.8-55.2 0-81.8v-69.9..."/>
+            <path fill="#EA4335" d="M272 109.6c39.9 0 75.8 13.7 104 40.6l78-78C404.6..."/>
           </svg>
           Continue with Google
         </button>
