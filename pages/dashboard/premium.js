@@ -3,40 +3,28 @@ import React, { useState } from "react";
 import Header from "../../components/Header";
 import Footer from "../../components/Footer";
 import dynamic from "next/dynamic";
-import PriceButton from "../../components/PriceButton"; // correct relative path
+import PriceButton from "../../components/PriceButton";
 
-// Premium price (single source)
 const PRICE_PREMIUM_NGN = 70000;
-
 const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
-const TwilioVideoClient = dynamic(
-  () => import("../../components/TwilioVideoClient"),
-  { ssr: false }
-);
 
 export default function PremiumDashboard() {
   const priceFormatter = new Intl.NumberFormat("en-NG", {
-    style: "currency",
-    currency: "NGN",
-    maximumFractionDigits: 0,
+    style: "currency", currency: "NGN", maximumFractionDigits: 0
   });
-
   const [useTwilio, setUseTwilio] = useState(false);
 
   return (
     <>
       <Header />
-      <main className="container mx-auto px-6 py-8">
+      <main className="container mx-auto px-6 py-8 text-white">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-2xl font-bold">Premium Dashboard</h2>
-
           <div className="text-right">
-            <div className="text-sm text-gray-400">Access price</div>
+            <div className="text-sm text-gray-400">Access Price</div>
             <div className="text-lg font-semibold text-yellow-300">
               {priceFormatter.format(PRICE_PREMIUM_NGN)}
             </div>
-
-            {/* Purchase link (simple anchor) */}
             <div className="mt-2">
               <a
                 href={`/checkout?plan=premium`}
@@ -44,12 +32,7 @@ export default function PremiumDashboard() {
               >
                 Purchase Access
               </a>
-
-              {/* PriceButton should NOT be nested inside a <button> or inside the anchor.
-                  Render it as a sibling (it may itself render a button or link). */}
-              <div className="inline-block ml-3">
-                <PriceButton initialPrice={PRICE_PREMIUM_NGN} plan="premium" />
-              </div>
+              <PriceButton initialPrice={PRICE_PREMIUM_NGN} plan="premium" className="inline-block ml-3" />
             </div>
           </div>
         </div>
@@ -61,7 +44,6 @@ export default function PremiumDashboard() {
           >
             Watch YouTube
           </button>
-
           <button
             className="px-4 py-2 bg-green-600 rounded"
             onClick={() => setUseTwilio(true)}
@@ -72,7 +54,7 @@ export default function PremiumDashboard() {
 
         {!useTwilio ? (
           <div className="grid md:grid-cols-2 gap-6">
-            <div className="p-4 bg-black/20 rounded">
+            <div className="p-4 bg-gray-800 rounded">
               <h3 className="font-semibold mb-2">Live Video (YouTube)</h3>
               <div className="bg-black/40 p-2 rounded">
                 <ReactPlayer
@@ -83,7 +65,7 @@ export default function PremiumDashboard() {
               </div>
             </div>
 
-            <div className="p-4 bg-black/20 rounded">
+            <div className="p-4 bg-gray-800 rounded">
               <h3 className="font-semibold mb-2">Latest Lesson</h3>
               <p className="text-gray-300">
                 Video, documents, images and audio uploads are accessible here.
@@ -91,9 +73,9 @@ export default function PremiumDashboard() {
             </div>
           </div>
         ) : (
-          <div className="p-4 bg-black/20 rounded">
+          <div className="p-4 bg-gray-800 rounded">
             <h3 className="font-semibold mb-2">Twilio Live (Premium)</h3>
-            <TwilioVideoClient />
+            <div className="text-gray-400">Twilio video stream would appear here.</div>
           </div>
         )}
       </main>
@@ -101,4 +83,3 @@ export default function PremiumDashboard() {
     </>
   );
 }
-
