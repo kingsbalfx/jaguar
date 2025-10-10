@@ -11,32 +11,26 @@ const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
 
 export default function VipDashboard() {
   const priceFormatter = new Intl.NumberFormat("en-NG", {
-    style: "currency",
-    currency: "NGN",
-    maximumFractionDigits: 0,
+    style: "currency", currency: "NGN", maximumFractionDigits: 0
   });
-
-  const [showTwilio, setShowTwilio] = useState(true);
-  const [files, setFiles] = useState([]); // list of file metadata
+  const [showTwilio, setShowTwilio] = useState(false);
+  const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const fileInputRef = useRef(null);
 
-  const BUCKET = "vip-uploads"; // make sure this bucket exists in Supabase
+  const BUCKET = "vip-uploads"; // Supabase storage bucket
 
   useEffect(() => {
     fetchFiles();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function fetchFiles() {
     try {
       const { data, error } = await supabase.storage.from(BUCKET).list("", {
-        limit: 100,
-        offset: 0,
-        sortBy: { column: "name", order: "desc" },
+        limit: 100, offset: 0, sortBy: { column: "name", order: "desc" }
       });
       if (error) {
         console.error("Storage list error:", error);
@@ -44,13 +38,9 @@ export default function VipDashboard() {
       }
       const enhanced = await Promise.all(
         (data || []).map(async (file) => {
-          // getPublicUrl returns { publicUrl } inside data
           const { data: publicData } = supabase.storage.from(BUCKET).getPublicUrl(file.name);
           const publicUrl = publicData?.publicUrl || null;
-          return {
-            ...file,
-            publicUrl,
-          };
+          return { ...file, publicUrl };
         })
       );
       setFiles(enhanced);
@@ -65,8 +55,7 @@ export default function VipDashboard() {
     setUploadError("");
     if (e.target.files?.[0]) {
       const f = e.target.files[0];
-      const url = URL.createObjectURL(f);
-      setPreviewUrl(url);
+      setPreviewUrl(URL.createObjectURL(f));
     }
   }
 
@@ -83,12 +72,8 @@ export default function VipDashboard() {
         throw new Error(`File too large — max ${maxMB}MB.`);
       }
       const filePath = `${Date.now()}_${selectedFile.name}`;
-      const { data, error } = await supabase.storage
-        .from(BUCKET)
-        .upload(filePath, selectedFile, { upsert: false });
+      const { error } = await supabase.storage.from(BUCKET).upload(filePath, selectedFile);
       if (error) throw error;
-
-      // Refresh file list and clear selection
       await fetchFiles();
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -115,178 +100,129 @@ export default function VipDashboard() {
 
   function renderPreview(file) {
     if (!file?.publicUrl) return null;
-    const url = file.publicUrl;
     const ext = (file.name || "").split(".").pop()?.toLowerCase();
     if (["mp4", "webm", "ogg", "mov"].includes(ext)) {
-      return <ReactPlayer url={url} controls width="100%" />;
+      return <video src={file.publicUrl} controls className="max-w-full h-auto rounded" />;
     }
-    if (["mp3", "wav", "m4a", "ogg"].includes(ext)) {
-      return <audio controls src={url} className="w-full" />;
+    if (["jpg", "jpeg", "png", "gif"].includes(ext)) {
+      return <img src={file.publicUrl} alt={file.name} className="max-w-full h-auto rounded" />;
     }
-    if (["pdf"].includes(ext)) {
-      return (
-        <iframe
-          title={file.name}
-          src={url}
-          className="w-full min-h-[400px]"
-          style={{ border: "none" }}
-        />
-      );
-    }
-    if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) {
-      return <img src={url} alt={file.name} className="max-w-full" />;
-    }
-    return (
-      <a href={url} target="_blank" rel="noreferrer" className="underline">
-        Open {file.name}
-      </a>
-    );
+    return <a href={file.publicUrl} target="_blank" rel="noopener noreferrer">{file.name}</a>;
   }
 
   return (
     <>
       <Header />
-
-      <main className="container mx-auto px-6 py-8">
+      <main className="container mx-auto px-6 py-8 text-white">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-2xl font-bold">VIP Dashboard</h2>
-
           <div className="text-right">
-            <div className="text-sm text-gray-400">Access price</div>
-            <div className="text-xl font-semibold text-yellow-300">
+            <div className="text-sm text-gray-400">Access Price</div>
+            <div className="text-lg font-semibold text-yellow-300">
               {priceFormatter.format(PRICE_VIP_NGN)}
             </div>
-
-            <div className="mt-2 flex items-center gap-3">
-              {/* Purchase link */}
+            <div className="mt-2">
               <a
                 href={`/checkout?plan=vip`}
-                className="inline-block px-4 py-2 bg-green-600 rounded text-white"
+                className="inline-block px-3 py-2 bg-indigo-600 rounded text-white"
               >
                 Purchase Access
               </a>
-
-              {/* PriceButton rendered as sibling (not nested) */}
-              <div>
-                <PriceButton initialPrice={PRICE_VIP_NGN} plan="vip" />
-              </div>
+              <PriceButton initialPrice={PRICE_VIP_NGN} plan="vip" className="inline-block ml-3" />
             </div>
           </div>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* --- left: live/twilio area --- */}
-          <div className="p-4 bg-black/20 rounded">
-            <h3 className="font-semibold mb-2">VIP Live Video</h3>
-            <div className="bg-black/40 p-2 rounded">
-              {showTwilio ? (
-                <div>
-                  <small className="text-gray-400">Twilio live stream below</small>
-                  <div className="mt-2">
-                    <div className="text-gray-300">Twilio stream component goes here.</div>
+        <div className="flex gap-4 mb-4">
+          <button
+            className="px-4 py-2 bg-indigo-600 rounded"
+            onClick={() => setShowTwilio(false)}
+          >
+            Watch YouTube
+          </button>
+          <button
+            className="px-4 py-2 bg-green-600 rounded"
+            onClick={() => setShowTwilio(true)}
+          >
+            Join Twilio Live
+          </button>
+        </div>
+
+        {!showTwilio ? (
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="p-4 bg-gray-800 rounded">
+              <h3 className="font-semibold mb-2">Live Video (YouTube)</h3>
+              <div className="bg-black/40 p-2 rounded">
+                <ReactPlayer
+                  url="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                  controls
+                  width="100%"
+                />
+              </div>
+            </div>
+
+            <div className="p-4 bg-gray-800 rounded">
+              <h3 className="font-semibold mb-2">Latest Lesson</h3>
+              <p className="text-gray-300">
+                Video, documents, images and audio uploads are accessible here.
+              </p>
+              {/* Upload form */}
+              <div className="mt-4">
+                <input
+                  type="file"
+                  onChange={onFileChange}
+                  ref={fileInputRef}
+                  className="mb-2"
+                />
+                {previewUrl && (
+                  <div className="mb-2">
+                    <div className="text-sm text-gray-200">Preview:</div>
+                    <img src={previewUrl} alt="preview" className="max-w-full h-auto rounded" />
                   </div>
-                </div>
-              ) : (
-                <div className="text-gray-300">Private live stream area</div>
-              )}
-            </div>
-          </div>
-
-          {/* --- right: upload, list --- */}
-          <div className="p-4 bg-black/20 rounded">
-            <h3 className="font-semibold mb-2">Upload Lessons (Video / Audio / Docs)</h3>
-            <div className="mb-3">
-              <input
-                ref={fileInputRef}
-                type="file"
-                onChange={onFileChange}
-                accept="video/*,audio/*,application/pdf,image/*,text/*"
-              />
-            </div>
-
-            {previewUrl && (
-              <div className="mb-3">
-                <div className="font-medium mb-1">Local preview</div>
-                {selectedFile && selectedFile.type.startsWith("video") ? (
-                  <ReactPlayer url={previewUrl} controls width="100%" />
-                ) : selectedFile && selectedFile.type.startsWith("audio") ? (
-                  <audio src={previewUrl} controls className="w-full" />
-                ) : selectedFile && selectedFile.type.startsWith("image") ? (
-                  <img src={previewUrl} alt="preview" className="max-w-full" />
-                ) : (
-                  <div className="text-sm text-gray-300">{selectedFile?.name}</div>
                 )}
+                {uploadError && (
+                  <div className="text-red-500 text-sm mb-2">{uploadError}</div>
+                )}
+                <button
+                  onClick={uploadSelectedFile}
+                  disabled={uploading}
+                  className="px-4 py-2 bg-blue-500 rounded disabled:opacity-60"
+                >
+                  {uploading ? "Uploading…" : "Upload"}
+                </button>
               </div>
-            )}
-
-            <div className="flex gap-2 items-center">
-              <button
-                onClick={uploadSelectedFile}
-                disabled={uploading}
-                className="px-4 py-2 bg-green-600 rounded disabled:opacity-50"
-              >
-                {uploading ? "Uploading..." : "Upload"}
-              </button>
-              <button
-                onClick={() => {
-                  setSelectedFile(null);
-                  setPreviewUrl(null);
-                  if (fileInputRef.current) fileInputRef.current.value = "";
-                }}
-                className="px-3 py-2 bg-gray-700 rounded"
-              >
-                Clear
-              </button>
-            </div>
-
-            {uploadError && <div className="text-red-400 mt-2">{uploadError}</div>}
-
-            <hr className="my-4" />
-
-            <div>
-              <h4 className="font-semibold mb-2">Uploaded files</h4>
-              {files.length === 0 ? (
-                <div className="text-gray-400">No files yet.</div>
-              ) : (
-                <ul className="space-y-3">
-                  {files.map((f) => (
-                    <li key={f.name} className="p-2 bg-black/10 rounded">
-                      <div className="flex justify-between items-start gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium">{f.name}</div>
-                          <div className="text-sm text-gray-400">
-                            {f.updated_at ? new Date(f.updated_at).toLocaleString() : ""}
-                          </div>
-
-                          <div className="mt-2">{renderPreview(f)}</div>
-                        </div>
-
-                        <div className="flex flex-col items-end gap-2 ml-4">
-                          <a
-                            href={f.publicUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-sm underline"
-                          >
-                            Open
-                          </a>
-                          <button
-                            onClick={() => deleteFile(f.name)}
-                            className="text-sm px-2 py-1 bg-red-600 rounded"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {/* File list */}
+              <div className="mt-4">
+                {files.map((f) => (
+                  <div key={f.name} className="flex items-center justify-between mb-2">
+                    <div>{f.name}</div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => deleteFile(f.name)}
+                        className="text-red-400 hover:text-red-600"
+                      >
+                        Delete
+                      </button>
+                      <button
+                        onClick={() => window.open(f.publicUrl, "_blank")}
+                        className="text-blue-400 hover:text-blue-600"
+                      >
+                        View
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="p-4 bg-gray-800 rounded">
+            <h3 className="font-semibold mb-2">Twilio Live (VIP)</h3>
+            {/* Placeholder for Twilio live component */}
+            <div className="text-gray-400">Twilio video stream would appear here.</div>
+          </div>
+        )}
       </main>
-
       <Footer />
     </>
   );
