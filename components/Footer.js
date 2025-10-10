@@ -2,14 +2,8 @@
 import React from "react";
 import Link from "next/link";
 import {
-  FaFacebook,
-  FaTwitter,
-  FaInstagram,
-  FaLinkedin,
-  FaYoutube,
-  FaTelegram,
-  FaTiktok,
-  FaLink,
+  FaFacebook, FaTwitter, FaInstagram, FaLinkedin,
+  FaYoutube, FaTelegram, FaTiktok, FaLink
 } from "react-icons/fa";
 
 const ICON_MAP = {
@@ -25,7 +19,6 @@ const ICON_MAP = {
 function parseSocials(raw = "") {
   const trimmed = (raw || "").trim();
   if (!trimmed) return [];
-
   try {
     const parsed = JSON.parse(trimmed);
     if (Array.isArray(parsed)) {
@@ -40,18 +33,15 @@ function parseSocials(raw = "") {
         .filter(Boolean);
     } else if (typeof parsed === "object" && parsed !== null) {
       return Object.entries(parsed)
-        .map(([k, v]) => ({
-          label: (k || "").toString().trim(),
-          url: (v || "").toString().trim(),
-        }))
+        .map(([k, v]) => ({ label: k.trim(), url: (v || "").toString().trim() }))
         .filter((s) => s.label && s.url);
     }
   } catch (e) {
-    // fall back to CSV parsing
+    // fall back to CSV or simple parse
   }
-
+  // Fallback: split by comma
   const items = trimmed.split(",").map((p) => p.trim()).filter(Boolean);
-  const out = items
+  return items
     .map((item) => {
       if (item.includes("|")) {
         const [label, ...rest] = item.split("|");
@@ -63,10 +53,7 @@ function parseSocials(raw = "") {
       }
       return null;
     })
-    .filter(Boolean)
-    .filter((s) => s.label && s.url);
-
-  return out;
+    .filter(Boolean);
 }
 
 export default function Footer() {
@@ -76,7 +63,7 @@ export default function Footer() {
   return (
     <footer className="w-full bg-gray-900 text-gray-300 mt-12 border-t border-gray-700 pt-8 pb-4">
       <div className="container mx-auto px-6 flex flex-col md:flex-row justify-between items-start md:items-center space-y-6 md:space-y-0">
-        {/* Branding & tagline */}
+        {/* Branding */}
         <div className="flex flex-col">
           <div className="font-bold text-2xl text-white">KINGSBALFX</div>
           <div className="text-sm text-gray-400 mt-1">
@@ -87,21 +74,11 @@ export default function Footer() {
         {/* Navigation Links */}
         <div>
           <div className="flex flex-wrap gap-4 justify-start md:justify-center">
-            <Link href="/about">
-              <a className="hover:text-white transition-colors">About</a>
-            </Link>
-            <Link href="/privacy">
-              <a className="hover:text-white transition-colors">Privacy</a>
-            </Link>
-            <Link href="/contact">
-              <a className="hover:text-white transition-colors">Contact</a>
-            </Link>
-            <Link href="/terms">
-              <a className="hover:text-white transition-colors">Terms</a>
-            </Link>
-            <Link href="/policy">
-              <a className="hover:text-white transition-colors">Policy</a>
-            </Link>
+            <Link href="/about"><a className="hover:text-white transition-colors">About</a></Link>
+            <Link href="/privacy"><a className="hover:text-white transition-colors">Privacy</a></Link>
+            <Link href="/contact"><a className="hover:text-white transition-colors">Contact</a></Link>
+            <Link href="/terms"><a className="hover:text-white transition-colors">Terms</a></Link>
+            <Link href="/policy"><a className="hover:text-white transition-colors">Policy</a></Link>
           </div>
         </div>
 
@@ -129,11 +106,9 @@ export default function Footer() {
         )}
       </div>
 
-      {/* Bottom copyright / notice */}
       <div className="mt-6 border-t border-gray-700 pt-4 text-center text-xs text-gray-500">
         &copy; {new Date().getFullYear()} KINGSBALFX. All rights reserved.
       </div>
     </footer>
   );
 }
-
