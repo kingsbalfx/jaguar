@@ -2,7 +2,6 @@
 import React, { useState } from "react";
 import { useRouter } from "next/router";
 import { supabase } from "../lib/supabaseClient";
-import { FcGoogle } from "react-icons/fc";
 
 export default function Register() {
   const [email, setEmail] = useState("");
@@ -11,31 +10,28 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  // Dynamically resolve base URL
+  // Resolve base URL like in login
   const getBaseUrl = () => {
     const envUrl = process.env.NEXT_PUBLIC_SITE_URL;
     if (envUrl) return envUrl.replace(/\/$/, "");
-    if (typeof window !== "undefined" && window.location?.origin)
-      return window.location.origin;
+    if (typeof window !== "undefined" && window.location?.origin) return window.location.origin;
     return "http://localhost:3000";
   };
 
-  // Email + password sign-up
+  // Email/password sign-up
   const handleEmailSignUp = async (e) => {
     e.preventDefault();
     setLoading(true);
     setErrorMsg("");
-
     try {
       const base = getBaseUrl();
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: { redirectTo: `${base}/auth/callback` },
+        options: { redirectTo: `${base}/auth/callback` }
       });
       if (error) throw error;
-
-      // Supabase handles redirect after verification or login
+      // After sign-up, Supabase will send email for verification then redirect to callback.
       router.push("/auth/callback");
     } catch (err) {
       setErrorMsg(err?.message || "Sign up failed");
@@ -43,7 +39,7 @@ export default function Register() {
     }
   };
 
-  // Google OAuth sign-in
+  // Google OAuth sign-in (as part of sign-up)
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setErrorMsg("");
@@ -51,9 +47,10 @@ export default function Register() {
       const base = getBaseUrl();
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: `${base}/auth/callback` },
+        options: { redirectTo: `${base}/auth/callback` }
       });
       if (error) throw error;
+      // Browser will handle redirect
     } catch (err) {
       setErrorMsg(err?.message || "Google sign-in failed");
       setLoading(false);
@@ -67,7 +64,6 @@ export default function Register() {
         <p className="text-sm text-gray-400 text-center">
           Sign up with your email or continue with Google.
         </p>
-
         {errorMsg && (
           <div className="bg-red-600/40 text-red-200 text-sm p-3 rounded-md text-center">
             {errorMsg}
@@ -86,7 +82,6 @@ export default function Register() {
               className="w-full px-4 py-3 rounded-lg bg-white/10 placeholder-gray-500 focus:bg-white/20 focus:ring-2 focus:ring-indigo-500 outline-none transition"
             />
           </div>
-
           <div>
             <label className="block mb-1 text-sm text-gray-300">Password</label>
             <input
@@ -98,7 +93,6 @@ export default function Register() {
               className="w-full px-4 py-3 rounded-lg bg-white/10 placeholder-gray-500 focus:bg-white/20 focus:ring-2 focus:ring-indigo-500 outline-none transition"
             />
           </div>
-
           <button
             type="submit"
             disabled={loading}
@@ -117,15 +111,16 @@ export default function Register() {
         <button
           onClick={handleGoogleSignIn}
           disabled={loading}
-          className="w-full flex items-center justify-center gap-3 py-3 border border-gray-600 rounded-lg hover:bg-white/10 transition"
+          className="w-full flex items-center justify-center gap-3 py-3 border border-gray-600 rounded-lg hover:bg-white/5 transition"
         >
-          <FcGoogle size={22} />
+          {/* Google icon (use react-icons or similar) */}
+          <span className="text-xl"><FcGoogle /></span>
           <span>Continue with Google</span>
         </button>
 
-        <div className="text-center text-sm text-gray-400">
+        <div className="mt-4 text-center text-sm text-gray-400">
           Already have an account?{" "}
-          <a href="/login" className="underline text-indigo-400 hover:text-indigo-300">
+          <a href="/login" className="text-indigo-300 hover:text-indigo-200 underline">
             Sign in
           </a>
         </div>
