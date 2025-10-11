@@ -10,18 +10,29 @@ function safeNextParam(rawNext) {
   if (!rawNext) return null;
   try {
     const decoded = decodeURIComponent(String(rawNext));
-    if (decoded.startsWith("/") && !decoded.startsWith("//")) return decoded;
-  } catch { }
+    if (decoded.startsWith("/") && !decoded.startsWith("//")) {
+      return decoded;
+    }
+  } catch {
+    // ignore
+  }
   return null;
 }
 
 export const getServerSideProps = async (ctx) => {
   const supabase = createPagesServerClient(ctx);
-  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
+
   if (sessionError || !session?.user) {
     console.error("Session error:", sessionError);
-    return { redirect: { destination: "/login", permanent: false } };
+    return {
+      redirect: { destination: "/login", permanent: false },
+    };
   }
+
   const user = session.user;
   const email = (user.email || "").toLowerCase();
   const rawNext = ctx.query.next ?? ctx.query.redirectTo ?? null;
@@ -33,30 +44,32 @@ export const getServerSideProps = async (ctx) => {
     .select("*")
     .eq("id", user.id)
     .maybeSingle();
-  if (profileError) console.error("Profile fetch error:", profileError);
+  if (profileError) {
+    console.error("Profile fetch error:", profileError);
+  }
 
   if (!profile) {
-    // If no profile, force completing profile
-    return { redirect: { destination: "/complete-profile", permanent: false } };
+    return {
+      redirect: { destination: "/complete-profile", permanent: false },
+    };
   }
 
   const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || "").toLowerCase();
   const role = profile.role || "user";
 
-  // Admin or super admin
+  // Admin or override
   if (role === "admin" || email === SUPER_ADMIN_EMAIL) {
     return {
       redirect: {
         destination: validatedNext || "/admin",
-        permanent: false
-      }
+        permanent: false,
+      },
     };
   }
 
-  // Set up a Supabase admin client to check payments
+  // Use server-side admin Supabase for checking payments
   const supabaseAdmin = getSupabaseClient({ server: true });
 
-  // Helper to check if user has paid for a plan
   async function hasPaid(plan) {
     try {
       const { data, error } = await supabaseAdmin
@@ -66,43 +79,49 @@ export const getServerSideProps = async (ctx) => {
         .eq("plan", plan)
         .eq("status", "success")
         .limit(1);
-      if (error) return false;
+      if (error) {
+        console.error("hasPaid error:", error);
+        return false;
+      }
       return Array.isArray(data) && data.length > 0;
-    } catch {
+    } catch (e) {
+      console.error("hasPaid exception:", e);
       return false;
     }
   }
 
-  // VIP user
   if (role === "vip") {
     const paid = await hasPaid("vip");
     return {
       redirect: {
-        destination: validatedNext || (paid ? "/dashboard/vip" : `/checkout?plan=vip&next=/auth/callback`),
-        permanent: false
-      }
+        destination:
+          validatedNext || (paid ? "/dashboard/vip" : `/checkout?plan=vip&next=/auth/callback`),
+        permanent: false,
+      },
     };
   }
 
-  // Premium user
   if (role === "premium") {
     const paid = await hasPaid("premium");
     return {
       redirect: {
-        destination: validatedNext || (paid ? "/dashboard/premium" : `/checkout?plan=premium&next=/auth/callback`),
-        permanent: false
-      }
+        destination:
+          validatedNext ||
+          (paid ? "/dashboard/premium" : `/checkout?plan=premium&next=/auth/callback`),
+        permanent: false,
+      },
     };
   }
 
-  // Default user dashboard
   return {
-    redirect: { destination: validatedNext || "/dashboard", permanent: false }
+    redirect: {
+      destination: validatedNext || "/dashboard",
+      permanent: false,
+    },
   };
 };
 
 export default function Callback() {
-  // Simple UI shown while redirecting (very brief)
   return (
     <div className="min-h-screen flex items-center justify-center bg-black text-gray-300 text-lg">
       Redirecting…
