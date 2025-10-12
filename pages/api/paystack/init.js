@@ -1,16 +1,22 @@
+// pages/api/paystack/init.js
 import fetch from "node-fetch";
+
+/**
+ * POST body: { plan: "vip"|"premium", email: "...", userId: "..." }
+ * Returns: { authorization_url, reference }
+ */
 
 const PLANS = {
   vip: { price: 150000, name: "VIP Access" },
-  premium: { price: 90000, name: "Premium Access" },
+  premium: { price: 70000, name: "Premium Access" },
 };
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   const { plan, email, userId } = req.body;
   if (!plan || !PLANS[plan]) return res.status(400).json({ error: "Invalid plan" });
-  if (!email) return res.status(400).json({ error: "Buyer email required" });
+  if (!email) return res.status(400).json({ error: "Missing buyer email" });
 
   const amount = PLANS[plan].price;
 
@@ -23,7 +29,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         email,
-        amount: amount * 100,
+        amount: amount * 100, // paystack expects kobo
         metadata: { plan, email, userId },
         callback_url: `${process.env.NEXT_PUBLIC_SITE_URL}/api/paystack/verify`,
       }),
@@ -31,16 +37,13 @@ export default async function handler(req, res) {
 
     const json = await initRes.json();
     if (!initRes.ok) {
-      console.error("Paystack init error:", json);
-      return res.status(500).json({ error: "Paystack init failed", details: json });
+      console.error("Paystack init failed:", json);
+      return res.status(500).json({ error: "Paystack initialization failed", details: json });
     }
 
-    res.status(200).json({
-      authorization_url: json.data.authorization_url,
-      reference: json.data.reference,
-    });
+    return res.status(200).json({ authorization_url: json.data.authorization_url, reference: json.data.reference });
   } catch (err) {
-    console.error("paystack/initiate error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error("paystack init error:", err);
+    return res.status(500).json({ error: "Server error" });
   }
 }
