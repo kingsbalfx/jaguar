@@ -1,7 +1,7 @@
-// components/Header.js
+"use client";
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation"; // Next.js 13
+import { usePathname } from "next/navigation";
 
 const NAV_ITEMS = [
   { label: "Home", href: "/" },
@@ -10,95 +10,84 @@ const NAV_ITEMS = [
 ];
 
 export default function Header() {
-  const [open, setOpen] = useState(false);
-  const pathname = usePathname?.() || "/";
+  const [menuOpen, setMenuOpen] = useState(false);
+  const pathname = usePathname() || "/";
 
-  useEffect(() => setOpen(false), [pathname]);
+  useEffect(() => setMenuOpen(false), [pathname]);
 
-  const isActive = (href) => {
-    if (!href) return false;
-    if (href === "/") return pathname === "/";
-    return pathname === href || pathname.startsWith(href + "/");
-  };
+  const isActive = (href) =>
+    href === "/" ? pathname === "/" : pathname.startsWith(href);
 
   return (
-    <header className="w-full bg-gray-900 py-4 px-4 md:px-6">
-      <div className="container mx-auto flex items-center justify-between">
-        <a href="/" aria-label="KINGSBALFX homepage" className="flex items-center gap-3">
+    <header className="sticky top-0 z-50 w-full bg-gray-900 text-gray-100 shadow-md">
+      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+        <Link href="/" aria-label="KINGSBALFX homepage" className="flex items-center gap-2">
           <img
             src="/jaguar.png"
             alt="KINGSBALFX jaguar logo"
-            width={150}
-            height={40}
-            className="block w-[150px] h-[40px] object-contain"
+            width={130}
+            height={36}
+            className="h-9 w-auto object-contain"
           />
-          <span className="text-white font-bold hidden sm:inline">KINGSBALFX</span>
-        </a>
+          <span className="font-bold tracking-tight hidden sm:inline">KINGSBALFX</span>
+        </Link>
 
-        {/* Desktop nav */}
-        <nav className="hidden md:flex items-center gap-3">
-          {NAV_ITEMS.map((item) => {
-            const active = isActive(item.href);
-            return (
-              <Link key={item.href} href={item.href} legacyBehavior>
-                <a
-                  className={`px-3 py-2 rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                    active
-                      ? "text-white bg-indigo-600"
-                      : "text-gray-200 hover:text-white hover:bg-white/5"
-                  }`}
-                  aria-current={active ? "page" : undefined}
-                >
-                  {item.label}
-                </a>
-              </Link>
-            );
-          })}
+        {/* Desktop Nav */}
+        <nav className="hidden md:flex items-center gap-4">
+          {NAV_ITEMS.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={isActive(item.href) ? "page" : undefined}
+              className={`px-3 py-2 rounded-md text-sm transition-colors ${
+                isActive(item.href)
+                  ? "bg-indigo-600 text-white"
+                  : "text-gray-300 hover:text-white hover:bg-white/10"
+              }`}
+            >
+              {item.label}
+            </Link>
+          ))}
         </nav>
 
-        {/* Mobile menu button */}
-        <div className="md:hidden">
-          <button
-            aria-expanded={open}
-            aria-controls="mobile-menu"
-            aria-label={open ? "Close menu" : "Open menu"}
-            onClick={() => setOpen((v) => !v)}
-            className="inline-flex items-center justify-center p-2 rounded-md text-gray-200 hover:text-white hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            {open ? (
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            ) : (
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            )}
-          </button>
-        </div>
+        {/* Mobile button */}
+        <button
+          aria-label={menuOpen ? "Close menu" : "Open menu"}
+          onClick={() => setMenuOpen(!menuOpen)}
+          className="md:hidden p-2 text-gray-300 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        >
+          {menuOpen ? (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          ) : (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 6h18M3 12h18M3 18h18" />
+            </svg>
+          )}
+        </button>
       </div>
 
-      {/* Mobile menu panel */}
-      {open && (
-        <div id="mobile-menu" className="md:hidden mt-2 bg-black/30 backdrop-blur-sm">
-          <div className="container mx-auto px-4 py-3 flex flex-col gap-1">
-            {NAV_ITEMS.map((item) => {
-              const active = isActive(item.href);
-              return (
-                <Link key={item.href} href={item.href} legacyBehavior>
-                  <a
-                    className={`block px-3 py-2 rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                      active ? "text-white bg-indigo-600" : "text-gray-200 hover:text-white hover:bg-white/5"
-                    }`}
-                    aria-current={active ? "page" : undefined}
-                  >
-                    {item.label}
-                  </a>
-                </Link>
-              );
-            })}
+      {/* Mobile Menu */}
+      {menuOpen && (
+        <nav className="md:hidden bg-black/70 backdrop-blur-md">
+          <div className="px-4 py-3 flex flex-col gap-1">
+            {NAV_ITEMS.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={isActive(item.href) ? "page" : undefined}
+                className={`block px-3 py-2 rounded-md text-sm transition-colors ${
+                  isActive(item.href)
+                    ? "bg-indigo-600 text-white"
+                    : "text-gray-300 hover:text-white hover:bg-white/10"
+                }`}
+              >
+                {item.label}
+              </Link>
+            ))}
           </div>
-        </div>
+        </nav>
       )}
     </header>
   );
