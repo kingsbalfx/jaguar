@@ -4,33 +4,28 @@ import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 
 /**
- * Auth callback: validates session and redirects by role.
+ * Validate `next` param (avoid open redirect)
  */
 function safeNextParam(rawNext) {
   if (!rawNext) return null;
   try {
     const decoded = decodeURIComponent(String(rawNext));
-    if (decoded.startsWith("/") && !decoded.startsWith("//")) {
-      return decoded;
-    }
-  } catch {
-    // ignore
-  }
+    if (decoded.startsWith("/") && !decoded.startsWith("//")) return decoded;
+  } catch {}
   return null;
 }
 
 export const getServerSideProps = async (ctx) => {
   const supabase = createPagesServerClient(ctx);
-  const {
-    data: { session },
-    error: sessionError,
-  } = await supabase.auth.getSession();
+  // try to get session (server-side)
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
   if (sessionError || !session?.user) {
-    console.error("Session error:", sessionError);
-    return {
-      redirect: { destination: "/login", permanent: false },
-    };
+    // Not signed in: redirect to login (preserve next)
+    const rawNext = ctx.query.next ?? null;
+    const next = safeNextParam(rawNext);
+    const dest = next ? `/login?next=${encodeURIComponent(next)}` : "/login";
+    return { redirect: { destination: dest, permanent: false } };
   }
 
   const user = session.user;
@@ -38,36 +33,31 @@ export const getServerSideProps = async (ctx) => {
   const rawNext = ctx.query.next ?? ctx.query.redirectTo ?? null;
   const validatedNext = safeNextParam(rawNext);
 
-  // Fetch user profile from 'profiles' table
+  // fetch profile
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("*")
+    .select("id, role, email")
     .eq("id", user.id)
     .maybeSingle();
+
   if (profileError) {
     console.error("Profile fetch error:", profileError);
   }
 
   if (!profile) {
-    return {
-      redirect: { destination: "/complete-profile", permanent: false },
-    };
+    // If profile missing, send user to complete-profile (you can create that page)
+    return { redirect: { destination: "/complete-profile", permanent: false } };
   }
 
   const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || "").toLowerCase();
   const role = profile.role || "user";
 
-  // Admin or override
+  // Admin or super admin email override
   if (role === "admin" || email === SUPER_ADMIN_EMAIL) {
-    return {
-      redirect: {
-        destination: validatedNext || "/admin",
-        permanent: false,
-      },
-    };
+    return { redirect: { destination: validatedNext || "/admin", permanent: false } };
   }
 
-  // Use server-side admin Supabase for checking payments
+  // Use server admin client for secure payments table checks
   const supabaseAdmin = getSupabaseClient({ server: true });
 
   async function hasPaid(plan) {
@@ -92,38 +82,23 @@ export const getServerSideProps = async (ctx) => {
 
   if (role === "vip") {
     const paid = await hasPaid("vip");
-    return {
-      redirect: {
-        destination:
-          validatedNext || (paid ? "/dashboard/vip" : `/checkout?plan=vip&next=/auth/callback`),
-        permanent: false,
-      },
-    };
+    const dest = validatedNext || (paid ? "/dashboard/vip" : `/checkout?plan=vip&next=/auth/callback`);
+    return { redirect: { destination: dest, permanent: false } };
   }
 
   if (role === "premium") {
     const paid = await hasPaid("premium");
-    return {
-      redirect: {
-        destination:
-          validatedNext ||
-          (paid ? "/dashboard/premium" : `/checkout?plan=premium&next=/auth/callback`),
-        permanent: false,
-      },
-    };
+    const dest = validatedNext || (paid ? "/dashboard/premium" : `/checkout?plan=premium&next=/auth/callback`);
+    return { redirect: { destination: dest, permanent: false } };
   }
 
-  return {
-    redirect: {
-      destination: validatedNext || "/dashboard",
-      permanent: false,
-    },
-  };
+  // default
+  return { redirect: { destination: validatedNext || "/dashboard", permanent: false } };
 };
 
 export default function Callback() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-black text-gray-300 text-lg">
+    <div className="min-h-screen flex items-center justify-center bg-black text-gray-300">
       Redirecting…
     </div>
   );
