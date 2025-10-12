@@ -1,56 +1,78 @@
-// components/PriceButton.jsx
+"use client";
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "../lib/supabaseClient";
 
-export default function PriceButton({ initialPrice = null, plan = "vip" }) {
-  const [visible, setVisible] = useState(Boolean(initialPrice));
+export default function PriceButton({ plan = "vip", initialPrice = null }) {
   const [price, setPrice] = useState(initialPrice);
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
-  const handleToggle = async () => {
-    if (price) {
-      setVisible((v) => !v);
-      return;
-    }
+  const formatted = price
+    ? new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(price)
+    : null;
+
+  const startPayment = async () => {
     setLoading(true);
     try {
-      // Optionally fetch the price from server if needed:
-      const res = await fetch(`/api/price?plan=${encodeURIComponent(plan)}`);
-      if (!res.ok) throw new Error("Failed to fetch price");
+      const { data } = await supabase.auth.getSession();
+      const user = data?.session?.user;
+      if (!user) {
+        router.push(`/login?next=/checkout?plan=${plan}`);
+        return;
+      }
+
+      const res = await fetch("/api/paystack/init", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plan, email: user.email, userId: user.id }),
+      });
       const json = await res.json();
-      setPrice(json?.price ?? null);
-      setVisible(true);
+      if (!res.ok) throw new Error(json?.error || "Payment init failed");
+
+      window.location.href = json.authorization_url;
     } catch (err) {
-      alert(err?.message || "Could not load price");
+      alert(err.message || "Payment error");
     } finally {
       setLoading(false);
     }
   };
 
-  const formatted = price
-    ? new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(price)
-    : null;
+  const handleShow = async () => {
+    if (price) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/price?plan=${plan}`);
+      const data = await res.json();
+      setPrice(data.price || 0);
+    } catch {
+      alert("Could not fetch price");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div>
-      <button
-        onClick={handleToggle}
-        className="px-4 py-2 rounded bg-yellow-500 text-black font-semibold hover:bg-yellow-400"
-      >
-        {loading ? "Loading..." : price ? (visible ? "Hide Price" : "Show Price") : "Show Price"}
-      </button>
-
-      {visible && price && (
-        <div className="mt-2 text-yellow-300 font-bold">
-          Access price: {formatted}
-          <div className="mt-2">
-            <a
-              href={`/checkout?plan=${encodeURIComponent(plan)}`}
-              className="inline-block px-3 py-2 bg-indigo-600 rounded text-white"
-            >
-              Purchase Access
-            </a>
-          </div>
-        </div>
+    <div className="space-y-2">
+      {price ? (
+        <>
+          <div className="text-yellow-300 font-bold">Access price: {formatted}</div>
+          <button
+            onClick={startPayment}
+            disabled={loading}
+            className="px-4 py-2 bg-indigo-600 rounded text-white hover:bg-indigo-500"
+          >
+            {loading ? "Processing…" : `Pay ${formatted}`}
+          </button>
+        </>
+      ) : (
+        <button
+          onClick={handleShow}
+          disabled={loading}
+          className="px-4 py-2 bg-yellow-400 text-black rounded font-semibold hover:bg-yellow-300"
+        >
+          {loading ? "Loading…" : "Show Price"}
+        </button>
       )}
     </div>
   );
