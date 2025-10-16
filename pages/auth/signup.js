@@ -1,79 +1,99 @@
-import { useState } from 'react';
-import { supabase } from '../../lib/supabaseClient'; // ✅ FIXED path
-import { useRouter } from 'next/router';
+"use client";
+import React, { useState } from "react";
+import { supabase } from "../../lib/supabaseClient";
+import { getURL } from "../../lib/getURL";
+import { useRouter } from "next/navigation";
 
-const SignUp = () => {
-    const [fullName, setFullName] = useState('');
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [error, setError] = useState(null);
-    const [success, setSuccess] = useState(false);
-    const router = useRouter();
+export default function AuthSignupPage() {
+  const router = useRouter();
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-    const handleSignUp = async (e) => {
-        e.preventDefault();
-        const { user, error } = await supabase.auth.signUp({
-            email,
-            password,
-            data: { full_name: fullName },
-        });
+  const urlParams = new URL(window.location.href).searchParams;
+  const next = urlParams.get("next");
 
-        if (error) {
-            setError(error.message);
-            setSuccess(false);
-        } else {
-            setSuccess(true);
-            setError(null);
-            // Optionally, redirect or show a success message
-        }
-    };
+  const handleSignUp = async (e) => {
+    e.preventDefault();
+    setError("");
+    const { error: signError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: fullName },
+      },
+    });
+    if (signError) {
+      setError(signError.message);
+    } else {
+      setSuccess("Signup success. Check email.");
+      setTimeout(() => {
+        router.push(`/login${next ? `?next=${encodeURIComponent(next)}` : ""}`);
+      }, 1500);
+    }
+  };
 
-    return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100">
-            <form onSubmit={handleSignUp} className="bg-white p-6 rounded-lg shadow-md w-full max-w-xs">
-                <h1 className="text-lg font-bold mb-4">Sign Up</h1>
-                {success && <p className="text-green-500 mb-2">Check your email for confirmation!</p>}
-                {error && <p className="text-red-500 mb-2">{error}</p>}
-                <input
-                    type="text"
-                    placeholder="Full Name"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    required
-                    className="w-full p-2 mb-3 border rounded"
-                />
-                <input
-                    type="email"
-                    placeholder="Email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    className="w-full p-2 mb-3 border rounded"
-                />
-                <input
-                    type="password"
-                    placeholder="Password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className="w-full p-2 mb-3 border rounded"
-                />
-                <button type="submit" className="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">
-                    Sign Up
-                </button>
-                <div className="text-center mt-4">
-                    <p>
-                        Already have an account?{' '}
-                        <a href="/auth/login" className="text-blue-500 hover:underline">Login</a>
-                    </p>
-                    <p>
-                        Or sign up with{' '}
-                        <a href="#" className="text-blue-500 hover:underline">Google</a>
-                    </p>
-                </div>
-            </form>
+  const handleGoogle = async () => {
+    const base = getURL();
+    const redirectTo = next
+      ? `${base}auth/callback?next=${encodeURIComponent(next)}`
+      : `${base}auth/callback`;
+    const { data, error: oauthErr } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo },
+    });
+    if (oauthErr) {
+      setError(oauthErr.message);
+    } else if (data?.url) {
+      window.location.href = data.url;
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="max-w-md w-full bg-gray-800 p-6 rounded">
+        <h2 className="text-xl font-bold mb-4">Signup</h2>
+        {error && <p className="text-red-400">{error}</p>}
+        {success && <p className="text-green-400">{success}</p>}
+
+        <form onSubmit={handleSignUp} className="space-y-4">
+          <input
+            type="text"
+            placeholder="Full Name"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            className="w-full p-2 rounded bg-gray-700"
+            required
+          />
+          <input
+            type="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full p-2 rounded bg-gray-700"
+            required
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full p-2 rounded bg-gray-700"
+            required
+          />
+          <button type="submit" className="w-full py-2 bg-indigo-600 rounded">
+            Sign Up
+          </button>
+        </form>
+
+        <div className="mt-4">
+          <button onClick={handleGoogle} className="w-full py-2 bg-blue-500 rounded">
+            Continue with Google
+          </button>
         </div>
-    );
-};
-
-export default SignUp;
+      </div>
+    </div>
+  );
+}
