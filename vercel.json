@@ -1,6 +1,51 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
   "framework": "nextjs",
   "buildCommand": "npm run build",
-  "outputDirectory": ".next"
+  "outputDirectory": ".next",
+  "installCommand": "npm install",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- .",
+  "cleanUrls": true,
+  "trailingSlash": false,
+
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/auth/(.*)", "destination": "/auth/$1" },
+    { "source": "/dashboard/(.*)", "destination": "/dashboard/$1" },
+    { "source": "/checkout/(.*)", "destination": "/checkout/$1" },
+    { "source": "/admin/(.*)", "destination": "/admin/$1" },
+    { "source": "/mentorship/(.*)", "destination": "/mentorship/$1" },
+    { "source": "/live-pen", "destination": "/live-pen" }
+  ],
+
+  "redirects": [
+    { "source": "/admin", "destination": "/admin/index", "permanent": false },
+    { "source": "/mentorship", "destination": "/admin/mentorship", "permanent": false },
+    { "source": "/dashboard", "destination": "/dashboard/index", "permanent": false },
+    { "source": "/vip", "destination": "/dashboard/vip", "permanent": false },
+    { "source": "/premium", "destination": "/dashboard/premium", "permanent": false },
+    { "source": "/checkout/success", "destination": "/checkout/success", "permanent": false },
+    { "source": "/api/paystack/verify", "destination": "/api/paystack/verify", "permanent": false },
+    { "source": "/api/paystack/webhook", "destination": "/api/paystack/webhook", "permanent": false }
+  ],
+
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" }
+      ]
+    }
+  ],
+
+  "functions": {
+    "api/**/*.js": {
+      "memory": 512,
+      "maxDuration": 10
+    }
+  }
 }
