@@ -1,32 +1,59 @@
-// next.config.mjs
-
-import withPWA from 'next-pwa';
-
+// next.config.js
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
 
+  // Environment variables available in both build and runtime
+  env: {
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    PAYSTACK_SECRET_KEY: process.env.PAYSTACK_SECRET_KEY,
+    SUPER_ADMIN_EMAIL: process.env.SUPER_ADMIN_EMAIL,
+  },
+
+  // Images settings
   images: {
     domains: [
       'lh3.googleusercontent.com',
-      'images.unsplash.com'
-      // add more if needed
+      'images.unsplash.com',
+      'cdn.pixabay.com',
+      'res.cloudinary.com'
     ],
-    unoptimized: true
+    unoptimized: true,
   },
 
-  // If you need other output behavior, ensure only valid keys per Next.js 15 docs
-  // For example, this is valid:
-  // outputFileTracing: true,
-  // output: { ... } only with valid subkeys
+  // Redirects for route cleanup
+  async redirects() {
+    return [
+      { source: '/admin', destination: '/admin/index', permanent: false },
+      { source: '/vip', destination: '/dashboard/vip', permanent: false },
+      { source: '/premium', destination: '/dashboard/premium', permanent: false },
+      { source: '/mentorship', destination: '/admin/mentorship', permanent: false },
+      { source: '/checkout/success', destination: '/checkout/success', permanent: false },
+    ];
+  },
 
-  // next-pwa plugin usage
+  // Rewrites to handle sub-paths correctly
+  async rewrites() {
+    return [
+      { source: '/api/:path*', destination: '/api/:path*' },
+      { source: '/auth/:path*', destination: '/auth/:path*' },
+      { source: '/dashboard/:path*', destination: '/dashboard/:path*' },
+      { source: '/admin/:path*', destination: '/admin/:path*' },
+      { source: '/mentorship/:path*', destination: '/admin/mentorship/:path*' },
+      { source: '/checkout/:path*', destination: '/checkout/:path*' },
+    ];
+  },
+
+  // PWA settings (if you’re using next-pwa)
   pwa: {
     dest: 'public',
-    disable: process.env.ENABLE_PWA !== 'true'
-    // Do NOT include invalid keys here
-  }
+    disable: process.env.ENABLE_PWA !== 'true',
+    register: true,
+    skipWaiting: true,
+  },
 };
 
-export default withPWA(nextConfig);
+module.exports = nextConfig;
