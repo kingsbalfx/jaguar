@@ -6,11 +6,15 @@ import dynamic from "next/dynamic";
 import PriceButton from "../../components/PriceButton";
 
 const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
-const PRICE_PREMIUM_NGN = 70000;
+const PRICE_PREMIUM_NGN = 90000; // Updated from 70000 to 90000
 
 export default function PremiumDashboard() {
   const [useTwilio, setUseTwilio] = useState(false);
-  const priceFormatter = new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 });
+  const priceFormatter = new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+    maximumFractionDigits: 0,
+  });
 
   return (
     <>
@@ -20,17 +24,25 @@ export default function PremiumDashboard() {
           <h2 className="text-2xl font-bold">Premium Dashboard</h2>
           <div className="text-right">
             <div className="text-sm text-gray-400">Access price</div>
-            <div className="text-xl font-semibold text-yellow-300">{priceFormatter.format(PRICE_PREMIUM_NGN)}</div>
+            <div className="text-xl font-semibold text-yellow-300">
+              {priceFormatter.format(PRICE_PREMIUM_NGN)}
+            </div>
             <div className="mt-2 flex items-center gap-3">
-              <a href={`/checkout?plan=premium`} className="px-3 py-2 bg-indigo-600 rounded">Checkout</a>
+              <a href={`/checkout?plan=premium`} className="px-3 py-2 bg-indigo-600 rounded">
+                Checkout
+              </a>
               <PriceButton initialPrice={PRICE_PREMIUM_NGN} plan="premium" />
             </div>
           </div>
         </div>
 
         <div className="flex gap-4 mb-4">
-          <button className="px-4 py-2 bg-indigo-600 rounded" onClick={() => setUseTwilio(false)}>Watch YouTube</button>
-          <button className="px-4 py-2 bg-green-600 rounded" onClick={() => setUseTwilio(true)}>Join Twilio Live</button>
+          <button className="px-4 py-2 bg-indigo-600 rounded" onClick={() => setUseTwilio(false)}>
+            Watch YouTube
+          </button>
+          <button className="px-4 py-2 bg-green-600 rounded" onClick={() => setUseTwilio(true)}>
+            Join Twilio Live
+          </button>
         </div>
 
         {!useTwilio ? (
