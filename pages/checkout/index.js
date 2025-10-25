@@ -1,3 +1,4 @@
+// pages/checkout/index.js
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { createClient } from "@supabase/supabase-js";
@@ -9,10 +10,10 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
+// Define prices (in Naira)
 const PRICES = {
   vip: 150000,
   premium: 90000,
-  default: 0,
 };
 
 function formatNGN(n) {
@@ -29,12 +30,13 @@ export default function Checkout() {
     ? router.query.plan[0]
     : router.query.plan;
   const plan = planQuery ? planQuery.toString().toLowerCase() : "vip";
-  const amount = PRICES[plan] ?? PRICES.default;
+  const amount = PRICES[plan] ?? 0;
 
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
+  // Utility to get base URL
   const getBaseUrl = () => {
     const envUrl = process.env.NEXT_PUBLIC_SITE_URL;
     if (envUrl) return envUrl.replace(/\/$/, "");
@@ -43,6 +45,7 @@ export default function Checkout() {
     return "http://localhost:3000";
   };
 
+  // Prefill email if logged in
   useEffect(() => {
     (async () => {
       try {
@@ -56,6 +59,7 @@ export default function Checkout() {
     })();
   }, []);
 
+  // If no plan query, default to vip
   useEffect(() => {
     if (!router.isReady) return;
     if (!router.query.plan) {
@@ -73,7 +77,6 @@ export default function Checkout() {
       setMessage("Enter buyer email before continuing.");
       return;
     }
-
     setLoading(true);
 
     try {
@@ -81,6 +84,7 @@ export default function Checkout() {
       const userId = sessionData?.data?.session?.user?.id;
 
       if (!sessionData?.data?.session) {
+        // Not logged in -> redirect to register
         const next = `/checkout?plan=${encodeURIComponent(plan)}`;
         router.push(`/register?next=${encodeURIComponent(next)}`);
         return;
@@ -91,31 +95,24 @@ export default function Checkout() {
         amount,
         email,
         userId,
-        callback_url: `${getBaseUrl()}/api/paystack/verify`,
+        // No need to send callback here (handled server-side)
       };
 
-      const tryEndpoints = ["/api/paystack/initiate", "/api/paystack/init"];
-      let json, resp;
-      for (const ep of tryEndpoints) {
-        resp = await fetch(ep, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (resp.status === 404) continue;
-        json = await resp.json();
-        if (!resp.ok) {
-          throw new Error(
-            json?.error || json?.message || `Payment init failed (${ep})`
-          );
-        }
-        break;
+      // Call the Init endpoint (omit the first try since we handle one endpoint)
+      const resp = await fetch("/api/paystack/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await resp.json();
+      if (!resp.ok) {
+        throw new Error(json?.error || json?.message || "Payment init failed");
       }
 
-      if (!json) throw new Error("No payment endpoint responded");
-      if (!json.authorization_url)
+      // Redirect to Paystack checkout
+      if (!json.authorization_url) {
         throw new Error("No authorization_url returned from server");
-
+      }
       window.location.href = json.authorization_url;
     } catch (err) {
       console.error("checkout error:", err);
@@ -124,6 +121,7 @@ export default function Checkout() {
     }
   }
 
+  // A simulated payment (for testing)
   async function simulate() {
     setMessage("");
     setLoading(true);
