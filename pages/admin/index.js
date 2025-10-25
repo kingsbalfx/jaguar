@@ -4,14 +4,6 @@ import { useState } from "react";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 
-/**
- * Server-side protection:
- * - verifies session
- * - loads profile and role
- * - rejects non-admins (redirect to /login or /)
- *
- * It also collects some small metrics for the admin dashboard.
- */
 export const getServerSideProps = async (ctx) => {
   try {
     const supabase = createPagesServerClient(ctx);
@@ -20,19 +12,19 @@ export const getServerSideProps = async (ctx) => {
       error: sessionError,
     } = await supabase.auth.getSession();
 
-    // Not signed in
+    // Not signed in -> redirect to login
     if (sessionError || !session?.user) {
       return { redirect: { destination: "/login", permanent: false } };
     }
 
-    // Use service-role admin client for secure reads/writes
+    // Create an admin supabase client with service role key
     const supabaseAdmin = getSupabaseClient({ server: true });
     if (!supabaseAdmin) {
       console.error("Missing Supabase admin client (SERVICE_ROLE_KEY).");
       return { redirect: { destination: "/", permanent: false } };
     }
 
-    // Fetch profile
+    // Fetch user profile from DB
     const userId = session.user.id;
     const { data: profile, error: profileError } = await supabaseAdmin
       .from("profiles")
@@ -43,32 +35,29 @@ export const getServerSideProps = async (ctx) => {
     if (profileError) {
       console.error("Profile error:", profileError);
     }
-
     if (!profile) {
-      // If no profile row yet, send to complete profile
+      // No profile yet -> complete profile flow
       return { redirect: { destination: "/complete-profile", permanent: false } };
     }
 
-    // Admin authorization
+    // Only allow admin or SUPER admin (from env)
     const SUPER = (process.env.SUPER_ADMIN_EMAIL || "").toLowerCase();
     const userEmail = (session.user.email || "").toLowerCase();
     const role = (profile.role || "user").toLowerCase();
-
     if (role !== "admin" && userEmail !== SUPER) {
       // Not an admin
       return { redirect: { destination: "/", permanent: false } };
     }
 
-    // Small metrics (lightweight)
+    // Collect simple metrics
     const [{ data: allProfiles }, { data: payments }] = await Promise.all([
       supabaseAdmin.from("profiles").select("id"),
       supabaseAdmin.from("payments").select("amount, plan, status"),
     ]);
-
     const usersCount = Array.isArray(allProfiles) ? allProfiles.length : 0;
     const paymentsCount = Array.isArray(payments) ? payments.length : 0;
     const revenue = Array.isArray(payments)
-      ? payments.reduce((s, p) => s + (Number(p?.amount || 0) / 100 || 0), 0) // stored in kobo (or lowest unit) — adjust if you store NGN directly
+      ? payments.reduce((sum, p) => sum + (Number(p?.amount || 0) / 100 || 0), 0)
       : 0;
 
     return {
@@ -91,8 +80,6 @@ export const getServerSideProps = async (ctx) => {
 export default function AdminPage({ profile, metrics }) {
   const [menuOpen, setMenuOpen] = useState(true);
   const [selected, setSelected] = useState("overview");
-
-  // small formatters
   const fmtCurrency = (n) =>
     new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(n);
 
@@ -147,7 +134,7 @@ export default function AdminPage({ profile, metrics }) {
               <a className="text-sm text-gray-300 hover:text-white px-3 py-2 rounded hover:bg-white/5">Messages Manager</a>
             </Link>
 
-            {/* Extra: quick action buttons */}
+            {/* Quick action buttons */}
             <div className="mt-4 border-t border-white/5 pt-3">
               <Link href="/admin/mentorship/upload" legacyBehavior>
                 <a className="block text-sm bg-yellow-400 text-black px-3 py-2 rounded mb-2 text-center">Upload Lesson (Mentorship)</a>
@@ -202,7 +189,9 @@ export default function AdminPage({ profile, metrics }) {
 
               <div>
                 <h3 className="text-lg font-semibold mb-2">Notes</h3>
-                <p className="text-gray-300">Use the left menu to navigate admin tools. Pages like Mentorship or Upload should be created under <code className="bg-white/5 px-1 rounded">/pages/admin/mentorship*</code>.</p>
+                <p className="text-gray-300">
+                  Use the left menu to navigate admin tools. Pages like Mentorship or Upload should be created under <code className="bg-white/5 px-1 rounded">/pages/admin/mentorship*</code>.
+                </p>
               </div>
             </div>
           )}
@@ -210,7 +199,9 @@ export default function AdminPage({ profile, metrics }) {
           {selected === "users" && (
             <div>
               <h2 className="text-2xl font-bold mb-4">Users & Segments</h2>
-              <p className="text-gray-300 mb-4">Here you will list users, search, filter by role (vip / premium / admin) and edit roles. Link to <code>/admin/users</code> for a full management page.</p>
+              <p className="text-gray-300 mb-4">
+                Here you will list users, search, filter by role (vip / premium / admin) and edit roles. Link to <code>/admin/users</code> for a full management page.
+              </p>
               <Link href="/admin/users" legacyBehavior>
                 <a className="px-4 py-2 bg-indigo-600 text-white rounded">Open Users Manager</a>
               </Link>
@@ -220,7 +211,9 @@ export default function AdminPage({ profile, metrics }) {
           {selected === "mentorship" && (
             <div>
               <h2 className="text-2xl font-bold mb-4">Mentorship</h2>
-              <p className="text-gray-300 mb-4">Manage lessons, upload videos, and publish to landing pages. Use the upload page to add mp4/jpg/pdf resources for VIP/ Premium.</p>
+              <p className="text-gray-300 mb-4">
+                Manage lessons, upload videos, and publish to landing pages. Use the upload page to add mp4/jpg/pdf resources for VIP/Premium.
+              </p>
               <div className="flex gap-3">
                 <Link href="/admin/mentorship/upload" legacyBehavior>
                   <a className="px-4 py-2 bg-yellow-400 text-black rounded">Upload Lesson</a>
@@ -235,7 +228,9 @@ export default function AdminPage({ profile, metrics }) {
           {selected === "subscriptions" && (
             <div>
               <h2 className="text-2xl font-bold mb-4">Subscriptions</h2>
-              <p className="text-gray-300 mb-4">Webhook logs, manual adjustments for users, and payment history. Go to the Subscriptions manager for more.</p>
+              <p className="text-gray-300 mb-4">
+                Webhook logs, manual adjustments for users, and payment history. Go to the Subscriptions manager for more.
+              </p>
               <Link href="/admin/subscriptions" legacyBehavior>
                 <a className="px-4 py-2 bg-green-600 text-white rounded">Open Subscriptions</a>
               </Link>
@@ -245,7 +240,9 @@ export default function AdminPage({ profile, metrics }) {
       </div>
 
       <div className="mt-8 text-sm text-gray-400">
-        <div>Super admin actions: use the upload and manage pages to publish content, adjust roles and view webhook logs.</div>
+        <div>
+          Super admin actions: use the upload and manage pages to publish content, adjust roles and view webhook logs.
+        </div>
       </div>
     </main>
   );
