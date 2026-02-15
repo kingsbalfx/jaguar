@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ensure root fills viewport (important for sticky footer layout) */
+html, body, #__next {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #071022; /* fallback base color */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* main app background container (apply this class to <main> or the overall wrapper) */
+.app-bg {
+  position: relative; /* needed so ::before sits on top */
+  min-height: 100%;
+  /* animated fading candle-like background (kept subtle) */
+  background:
+    radial-gradient(circle at 10% 10%, rgba(255,240,200,0.08), transparent 10%),
+    radial-gradient(circle at 90% 90%, rgba(255,240,200,0.06), transparent 10%),
+    linear-gradient(180deg, #0b1221 0%, #071022 100%);
+  background-size: cover;
+  background-repeat: no-repeat;
+  /* low-cost animation: prefer transform/opacity, but keep this subtle */
+  animation: candleFlicker 6s infinite;
+  overflow: visible;
+}
+
+/* faint chart/grid overlay (candlestick grid feel) */
+.app-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none; /* don't block clicks */
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 28px 28px; /* adjust spacing for density */
+  mix-blend-mode: overlay;
+  opacity: 0.9;
+}
+
+/* keep page content above the overlay */
+.app-content {
+  position: relative;
+  z-index: 1;
+}
+
+/* subtle vignette for focus */
+.app-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(60% 60% at 50% 10%, rgba(0,0,0,0) 0%, rgba(0,0,0,0.25) 80%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* safer animation: reduce filter intensity for performance */
+@keyframes candleFlicker {
+  0% { filter: brightness(1.02) saturate(1.01); }
+  50% { filter: brightness(0.97) saturate(0.99); }
+  100% { filter: brightness(1.02) saturate(1.01); }
+}
+
+/* header/footer helpers */
+/* If your header is fixed at top, add padding to page content so it doesn't overlap */
+.header-fixed + main,
+.header-fixed + .app-bg {
+  padding-top: 64px; /* match header height */
+}
+
+/* ensure header above overlay */
+header {
+  z-index: 50;
+}
+
+/* ensure footer above overlay */
+footer {
+  z-index: 40;
+}
+
+/* small responsive tweak: reduce grid density on small screens */
+@media (max-width: 640px) {
+  .app-bg::before {
+    background-size: 20px 20px;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+  }
+}

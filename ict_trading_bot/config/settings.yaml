@@ -1,0 +1,14 @@
+symbols:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - USDCHF
+  - AUDUSD
+  - NZDUSD
+  - USDCAD
+  - AUDJPY
+  - EURJPY 
+
+risk:
+  per_trade: 0.5
+  max_daily_loss: 2.0

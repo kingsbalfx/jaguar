@@ -1,0 +1,36 @@
+# environment variables and secrets
+.env
+.env.local
+.env.*.local
+
+# dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# build outputs
+.next/
+out/
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+*.log
+
+# testing
+.coverage
+htmlcov/
+
+# docker build artifacts
+.dockerignore

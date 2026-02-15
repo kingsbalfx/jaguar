@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: ./jaguar-main
+    container_name: jaguar_web
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+    restart: unless-stopped
+
+  bot:
+    build:
+      context: ./ict_trading_bot
+    container_name: ict_trading_bot
+    working_dir: /app
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+networks:
+  default:
+    driver: bridge

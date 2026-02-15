@@ -1,0 +1,20 @@
+{
+  "name": "KINGSBALFX",
+  "short_name": "KINGSBALFX",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#071022",
+  "theme_color": "#0b1221",
+  "icons": [
+    {
+      "src": "/jaguar.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/jaguar.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}
