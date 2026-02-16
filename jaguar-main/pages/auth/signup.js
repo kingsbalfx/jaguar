@@ -97,3 +97,7 @@ export default function AuthSignupPage() {
     </div>
   );
 }
+
+export async function getServerSideProps() {
+  return { props: {} };
+}

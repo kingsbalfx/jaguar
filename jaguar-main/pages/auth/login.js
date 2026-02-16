@@ -145,3 +145,7 @@ export default function AuthLoginPage() {
     </div>
   );
 }
+
+export async function getServerSideProps() {
+  return { props: {} };
+}
