@@ -1,6 +1,6 @@
 // pages/api/paystack/verify.js
-import { getSupabaseClient } from "../../lib/supabaseClient";
-import { getURL } from "../../lib/getURL";
+import { getSupabaseClient } from "../../../lib/supabaseClient";
+import { getURL } from "../../../lib/getURL";
 
 // ✅ Helper to safely extract reference (GET or POST)
 function getReference(req) {

@@ -1,6 +1,6 @@
 // pages/api/paystack/init.js
 import fetch from "node-fetch";
-import { getURL } from "../../lib/getURL";
+import { getURL } from "../../../lib/getURL";
 
 const PLANS = {
   vip: { price: 150000, name: "VIP Access" },

@@ -4,8 +4,8 @@
  * Domain: https://kingsbalfx.name.ng/api/bot/pricing-sync
  */
 
-import { getSupabaseClient } from "../../lib/supabaseClient";
-import { PRICING_TIERS } from "../../lib/pricing-config";
+import { getSupabaseClient } from "../../../lib/supabaseClient";
+import { PRICING_TIERS } from "../../../lib/pricing-config";
 
 export default async function handler(req, res) {
   // Only allow GET and POST
