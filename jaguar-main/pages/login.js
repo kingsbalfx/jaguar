@@ -1,15 +1,15 @@
 // pages/login.js
 "use client";
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "next/router";
 import Image from "next/image";
 import { supabase } from "../lib/supabaseClient";
 import { getURL } from "../lib/getURL";
 
 export default function Login() {
   const router = useRouter();
-  const { searchParams } = new URL(window.location.href); // or use next/router if older Next.js
-  const next = searchParams.get("next");
+  const next =
+    typeof router.query?.next === "string" ? router.query.next : "";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

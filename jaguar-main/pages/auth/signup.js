@@ -2,7 +2,7 @@
 import React, { useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { getURL } from "../../lib/getURL";
-import { useRouter } from "next/navigation";
+import { useRouter } from "next/router";
 
 export default function AuthSignupPage() {
   const router = useRouter();
@@ -12,8 +12,8 @@ export default function AuthSignupPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const urlParams = new URL(window.location.href).searchParams;
-  const next = urlParams.get("next");
+  const next =
+    typeof router.query?.next === "string" ? router.query.next : "";
 
   const handleSignUp = async (e) => {
     e.preventDefault();

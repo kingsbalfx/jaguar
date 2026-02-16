@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { supabase } from "../../lib/supabaseClient"; // if you have a shared client
 import { getURL } from "../../lib/getURL";
-import { useRouter } from "next/navigation";
+import { useRouter } from "next/router";
 import Link from "next/link";
 
 export default function AuthLoginPage() {
@@ -15,8 +15,8 @@ export default function AuthLoginPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const urlParams = new URL(window.location.href).searchParams;
-  const next = urlParams.get("next");
+  const next =
+    typeof router.query?.next === "string" ? router.query.next : "";
 
   // If this page is meant for registration, but you also want it to support Google login:
   const handleGoogle = async () => {
