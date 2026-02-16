@@ -1,11 +1,14 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "version": 2,
+
+  "rootDirectory": "jaguar-main",
+
   "framework": "nextjs",
+
+  "installCommand": "npm install",
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
-  "installCommand": "npm install",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- .",
+
   "cleanUrls": true,
   "trailingSlash": false,
 
@@ -24,10 +27,7 @@
     { "source": "/mentorship", "destination": "/admin/mentorship", "permanent": false },
     { "source": "/dashboard", "destination": "/dashboard/index", "permanent": false },
     { "source": "/vip", "destination": "/dashboard/vip", "permanent": false },
-    { "source": "/premium", "destination": "/dashboard/premium", "permanent": false },
-    { "source": "/checkout/success", "destination": "/checkout/success", "permanent": false },
-    { "source": "/api/paystack/verify", "destination": "/api/paystack/verify", "permanent": false },
-    { "source": "/api/paystack/webhook", "destination": "/api/paystack/webhook", "permanent": false }
+    { "source": "/premium", "destination": "/dashboard/premium", "permanent": false }
   ],
 
   "headers": [
@@ -37,8 +37,10 @@
         { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" },
-        { "key": "X-XSS-Protection", "value": "1; mode=block" }
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains; preload"
+        }
       ]
     }
   ]
