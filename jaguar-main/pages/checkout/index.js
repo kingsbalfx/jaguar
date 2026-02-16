@@ -36,6 +36,15 @@ export default function Checkout() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
+  // Utility to get base URL
+  const getBaseUrl = () => {
+    const envUrl = process.env.NEXT_PUBLIC_SITE_URL;
+    if (envUrl) return envUrl.replace(/\/$/, "");
+    if (typeof window !== "undefined" && window.location?.origin)
+      return window.location.origin;
+    return "http://localhost:3000";
+  };
+
   // Prefill email if logged in
   useEffect(() => {
     (async () => {

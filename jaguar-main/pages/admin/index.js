@@ -133,9 +133,6 @@ export default function AdminPage({ profile, metrics }) {
             <Link href="/admin/messages" legacyBehavior>
               <a className="text-sm text-gray-300 hover:text-white px-3 py-2 rounded hover:bg-white/5">Messages Manager</a>
             </Link>
-            <Link href="/admin/settings" legacyBehavior>
-              <a className="text-sm text-gray-300 hover:text-white px-3 py-2 rounded hover:bg-white/5">Settings (MT5)</a>
-            </Link>
 
             {/* Quick action buttons */}
             <div className="mt-4 border-t border-white/5 pt-3">
@@ -232,7 +229,7 @@ export default function AdminPage({ profile, metrics }) {
             <div>
               <h2 className="text-2xl font-bold mb-4">Subscriptions</h2>
               <p className="text-gray-300 mb-4">
-                Payment logs, manual adjustments for users, and subscription history. Go to the Subscriptions manager for more.
+                Webhook logs, manual adjustments for users, and payment history. Go to the Subscriptions manager for more.
               </p>
               <Link href="/admin/subscriptions" legacyBehavior>
                 <a className="px-4 py-2 bg-green-600 text-white rounded">Open Subscriptions</a>
@@ -244,7 +241,7 @@ export default function AdminPage({ profile, metrics }) {
 
       <div className="mt-8 text-sm text-gray-400">
         <div>
-          Super admin actions: use the upload and manage pages to publish content and adjust roles.
+          Super admin actions: use the upload and manage pages to publish content, adjust roles and view webhook logs.
         </div>
       </div>
     </main>

@@ -3,37 +3,10 @@ import { createClient } from "@supabase/supabase-js";
 /**
  * ✅ Public (client-side) Supabase instance
  * Used in browser components (auth pages, dashboard, etc.)
- * Lazily initialized when needed
  */
-let supabaseInstance = null;
-
-export function getSupabase() {
-  if (!supabaseInstance) {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    
-    if (!url || !key) {
-      console.warn("⚠️ Supabase credentials not available yet");
-      return null;
-    }
-    
-    supabaseInstance = createClient(url, key);
-  }
-  return supabaseInstance;
-}
-
-// Export for backward compatibility
-export const supabase = new Proxy(
-  {},
-  {
-    get(target, prop) {
-      const instance = getSupabase();
-      if (!instance) {
-        throw new Error("❌ Supabase not initialized. Check your environment variables.");
-      }
-      return instance[prop];
-    },
-  }
+export const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
 /**

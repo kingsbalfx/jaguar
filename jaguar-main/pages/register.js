@@ -15,7 +15,7 @@ export default function Register() {
     const envUrl = process.env.NEXT_PUBLIC_SITE_URL;
     if (envUrl) return envUrl.replace(/\/$/, "");
     if (typeof window !== "undefined" && window.location?.origin) return window.location.origin;
-    return "https://kingsbalfx.name.ng";
+    return "http://localhost:3000";
   };
 
   const handleEmailSignUp = async (e) => {

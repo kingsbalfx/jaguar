@@ -14,9 +14,10 @@ class MyDocument extends NextDocument {
     // Fallback domain if req not available
     const defaultDomain = "kingsjaguar.vercel.app";
     const host = (req && req.headers && req.headers.host) || defaultDomain;
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || `https://${host}`;
-    const canonicalUrl = `${siteUrl.replace(/\/$/, "")}/`;
-    const ogImageUrl = `${siteUrl.replace(/\/$/, "")}/images/og-image.png`;
+    const protocol = host.includes("localhost") ? "http" : "https";
+
+    const canonicalUrl = `${protocol}://${host}/`;
+    const ogImageUrl = `${protocol}://${host}/images/og-image.png`;
 
     return (
       <Html lang="en">
