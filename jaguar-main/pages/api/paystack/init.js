@@ -1,11 +1,13 @@
 // pages/api/paystack/init.js
 import fetch from "node-fetch";
 import { getURL } from "../../../lib/getURL";
+import { PRICING_TIERS } from "../../../lib/pricing-config";
 
-const PLANS = {
-  vip: { price: 150000, name: "VIP Access" },
-  premium: { price: 90000, name: "Premium Access" }, // Updated premium price to 90000
-};
+function getTierById(plan) {
+  if (!plan) return null;
+  const planId = String(plan).toLowerCase();
+  return Object.values(PRICING_TIERS).find((tier) => tier.id === planId) || null;
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -14,13 +16,15 @@ export default async function handler(req, res) {
   }
 
   const { plan, email, userId } = req.body;
-  if (!plan || !PLANS[plan]) {
-    return res.status(400).json({ error: "Invalid plan" });
-  }
+  const tier = getTierById(plan);
+  if (!tier) return res.status(400).json({ error: "Invalid plan" });
   if (!email) {
     return res.status(400).json({ error: "Buyer email required" });
   }
-  const amount = PLANS[plan].price;
+  if (!tier.price || tier.price <= 0) {
+    return res.status(400).json({ error: "Selected plan is free" });
+  }
+  const amount = tier.price;
 
   try {
     const baseUrl = getURL().replace(/\/$/, "");
@@ -34,7 +38,13 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         email,
         amount: amount * 100, // NGN to kobo (subunit)
-        metadata: { plan, email, userId },
+        metadata: {
+          plan: tier.id,
+          planName: tier.name,
+          planPrice: tier.price,
+          email,
+          userId,
+        },
         callback_url: `${baseUrl}/checkout/success`,
       }),
     });

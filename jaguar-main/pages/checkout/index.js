@@ -4,25 +4,14 @@ import { useRouter } from "next/router";
 import { createClient } from "@supabase/supabase-js";
 import Header from "../../components/Header";
 import Footer from "../../components/Footer";
+import { PRICING_TIERS, formatPrice } from "../../lib/pricing-config";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-// Define prices (in Naira)
-const PRICES = {
-  vip: 150000,
-  premium: 90000,
-};
-
-function formatNGN(n) {
-  return new Intl.NumberFormat("en-NG", {
-    style: "currency",
-    currency: "NGN",
-    maximumFractionDigits: 0,
-  }).format(n);
-}
+const TIERS = Object.values(PRICING_TIERS);
 
 export default function Checkout() {
   const router = useRouter();
@@ -30,20 +19,14 @@ export default function Checkout() {
     ? router.query.plan[0]
     : router.query.plan;
   const plan = planQuery ? planQuery.toString().toLowerCase() : "vip";
-  const amount = PRICES[plan] ?? 0;
+  const tier = TIERS.find((t) => t.id === plan) || PRICING_TIERS.VIP;
+  const amount = tier?.price ?? 0;
+  const priceLabel = formatPrice(amount, tier?.currency || "NGN");
+  const isFree = !amount || amount <= 0;
 
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-
-  // Utility to get base URL
-  const getBaseUrl = () => {
-    const envUrl = process.env.NEXT_PUBLIC_SITE_URL;
-    if (envUrl) return envUrl.replace(/\/$/, "");
-    if (typeof window !== "undefined" && window.location?.origin)
-      return window.location.origin;
-    return "http://localhost:3000";
-  };
 
   // Prefill email if logged in
   useEffect(() => {
@@ -73,6 +56,10 @@ export default function Checkout() {
 
   async function startPayment() {
     setMessage("");
+    if (isFree) {
+      setMessage("This plan is free and does not require checkout.");
+      return;
+    }
     if (!email) {
       setMessage("Enter buyer email before continuing.");
       return;
@@ -90,13 +77,7 @@ export default function Checkout() {
         return;
       }
 
-      const payload = {
-        plan,
-        amount,
-        email,
-        userId,
-        // No need to send callback here (handled server-side)
-      };
+      const payload = { plan, email, userId };
 
       // Call the Init endpoint (omit the first try since we handle one endpoint)
       const resp = await fetch("/api/paystack/init", {
@@ -139,15 +120,15 @@ export default function Checkout() {
 
         <div className="mb-4">
           <div className="text-sm text-gray-400">Selected plan:</div>
-          <div className="text-lg font-semibold">{plan.toUpperCase()}</div>
-        </div>
+        <div className="text-lg font-semibold">{tier?.displayName || plan.toUpperCase()}</div>
+      </div>
 
         <div className="mb-6">
           <div className="text-sm text-gray-400">Price</div>
           <div className="text-2xl font-bold text-yellow-300">
-            {formatNGN(amount)}
-          </div>
+          {priceLabel}
         </div>
+      </div>
 
         <div className="mb-4 max-w-md">
           <label className="block text-sm mb-1">Buyer email</label>
@@ -176,7 +157,11 @@ export default function Checkout() {
             disabled={loading}
             className="px-4 py-2 bg-yellow-500 text-black rounded"
           >
-            {loading ? "Redirecting..." : `Pay ${formatNGN(amount)} (Paystack)`}
+            {loading
+              ? "Redirecting..."
+              : isFree
+              ? "No payment required"
+              : `Pay ${priceLabel} (Paystack)`}
           </button>
 
           <button
