@@ -1,7 +1,167 @@
+import { useEffect, useState } from "react";
+import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
+import { getSupabaseClient } from "../../lib/supabaseClient";
+
+export const getServerSideProps = async (ctx) => {
+  try {
+    const supabase = createPagesServerClient(ctx);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.user) {
+      return { redirect: { destination: "/login", permanent: false } };
+    }
+
+    const supabaseAdmin = getSupabaseClient({ server: true });
+    const userId = session.user.id;
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("role")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const role = (profile?.role || "user").toLowerCase();
+    if (role !== "admin") {
+      return { redirect: { destination: "/", permanent: false } };
+    }
+
+    return { props: {} };
+  } catch (err) {
+    console.error("Admin settings auth error:", err);
+    return { redirect: { destination: "/login", permanent: false } };
+  }
+};
+
 export default function Settings() {
+  const [login, setLogin] = useState("");
+  const [password, setPassword] = useState("");
+  const [server, setServer] = useState("");
+  const [updatedAt, setUpdatedAt] = useState(null);
+  const [hasPassword, setHasPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState({ type: "", message: "" });
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/admin/mt5-credentials")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!active || !data?.credentials) return;
+        setLogin(data.credentials.login || "");
+        setServer(data.credentials.server || "");
+        setUpdatedAt(data.credentials.updated_at || null);
+        setHasPassword(Boolean(data.credentials.hasPassword));
+      })
+      .catch(() => {
+        if (!active) return;
+        setStatus({ type: "error", message: "Failed to load MT5 credentials." });
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setStatus({ type: "", message: "" });
+
+    if (!login || !password || !server) {
+      setStatus({ type: "error", message: "Login, password, and server are required." });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/mt5-credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login, password, server }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to save credentials.");
+      }
+      setPassword("");
+      setHasPassword(true);
+      setUpdatedAt(new Date().toISOString());
+      setStatus({ type: "success", message: "MT5 credentials saved. Restart the bot to reconnect." });
+    } catch (err) {
+      setStatus({ type: "error", message: err.message || "Failed to save credentials." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="p-6">
-      Admin settings and integrations (Supabase, Paystack, Mailchimp, Twilio)
+    <div className="p-6 max-w-3xl">
+      <h2 className="text-2xl font-bold mb-2">Admin Settings</h2>
+      <p className="text-gray-300 mb-6">
+        Enter MT5 login details once. The bot will fetch these from Supabase and auto-connect on
+        startup. MT5 still must be running on a Windows machine with the broker account logged in.
+      </p>
+
+      <div className="bg-black/30 rounded-lg p-5 border border-white/5">
+        <h3 className="text-lg font-semibold mb-4">MT5 Credentials</h3>
+        <form onSubmit={submit} className="space-y-4">
+          <div>
+            <label className="block text-sm text-gray-300 mb-1">MT5 Login</label>
+            <input
+              type="text"
+              value={login}
+              onChange={(e) => setLogin(e.target.value)}
+              placeholder="e.g. 12345678"
+              className="w-full rounded bg-black/40 border border-white/10 px-3 py-2 text-white"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-300 mb-1">MT5 Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={hasPassword ? "•••••••• (enter new to update)" : "Enter MT5 password"}
+              className="w-full rounded bg-black/40 border border-white/10 px-3 py-2 text-white"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-300 mb-1">MT5 Server</label>
+            <input
+              type="text"
+              value={server}
+              onChange={(e) => setServer(e.target.value)}
+              placeholder="e.g. Broker-ServerName"
+              className="w-full rounded bg-black/40 border border-white/10 px-3 py-2 text-white"
+            />
+          </div>
+
+          {updatedAt && (
+            <div className="text-xs text-gray-400">
+              Last updated: {new Date(updatedAt).toLocaleString()}
+            </div>
+          )}
+
+          {status?.message && (
+            <div
+              className={`text-sm ${
+                status.type === "success" ? "text-green-400" : "text-red-400"
+              }`}
+            >
+              {status.message}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-60"
+          >
+            {loading ? "Saving..." : "Save Credentials"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

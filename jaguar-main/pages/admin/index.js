@@ -130,6 +130,14 @@ export default function AdminPage({ profile, metrics }) {
             >
               Subscriptions
             </button>
+            <Link href="/admin/settings" legacyBehavior>
+              <a
+                onClick={() => setSelected("settings")}
+                className={`block px-3 py-2 rounded ${selected === "settings" ? "bg-indigo-600 text-white" : "text-gray-200 hover:bg-white/5"}`}
+              >
+                Settings (MT5)
+              </a>
+            </Link>
             <Link href="/admin/messages" legacyBehavior>
               <a className="text-sm text-gray-300 hover:text-white px-3 py-2 rounded hover:bg-white/5">Messages Manager</a>
             </Link>
@@ -181,11 +189,14 @@ export default function AdminPage({ profile, metrics }) {
                   <Link href="/admin/subscriptions" legacyBehavior>
                     <a className="px-4 py-2 bg-green-600 text-white rounded">Subscriptions</a>
                   </Link>
-                  <Link href="/admin/messages" legacyBehavior>
-                    <a className="px-4 py-2 bg-gray-600 text-white rounded">Messages</a>
-                  </Link>
-                </div>
-              </div>
+              <Link href="/admin/messages" legacyBehavior>
+                <a className="px-4 py-2 bg-gray-600 text-white rounded">Messages</a>
+              </Link>
+              <Link href="/admin/settings" legacyBehavior>
+                <a className="px-4 py-2 bg-indigo-700 text-white rounded">MT5 Settings</a>
+              </Link>
+            </div>
+          </div>
 
               <div>
                 <h3 className="text-lg font-semibold mb-2">Notes</h3>
