@@ -41,6 +41,20 @@ def connect(credentials=None):
     return True
 
 
+def reconnect(credentials=None):
+    if mt5 is None:
+        raise RuntimeError(
+            "MetaTrader5 package not available on this platform. "
+            "Run the bot on Windows with MT5 installed, or set MT5_DISABLED=1 "
+            "to skip live trading in Linux environments."
+        )
+    try:
+        mt5.shutdown()
+    except Exception:
+        pass
+    return connect(credentials)
+
+
 def ensure_symbol(symbol):
     if not mt5.symbol_select(symbol, True):
         raise RuntimeError(f"Failed to select symbol {symbol}")

@@ -24,6 +24,13 @@ That's it! 🎉
 
 ## Quick Setup (5 Minutes)
 
+### One-Click Windows Setup (Recommended)
+```powershell
+# From the ict_trading_bot folder:
+.\setup_windows.ps1
+```
+This creates a virtual environment, installs dependencies, and copies `.env.example` to `.env`.
+
 ### Step 1: Install Everything
 ```bash
 # Open your terminal and type this:
@@ -91,6 +98,9 @@ curl -X POST https://your-bot-host:8000/control \
 curl -X POST https://your-bot-host:8000/control \
   -H "Content-Type: application/json" \
   -d '{"action":"start"}'
+
+# Restart MT5 connection (reload credentials):
+curl -X POST https://your-bot-host:8000/restart
 ```
 
 ## Files Explained (What Each Part Does)

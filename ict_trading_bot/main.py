@@ -3,6 +3,7 @@
 # =====================================================
 from execution.mt5_connector import (
     connect,
+    reconnect,
     ensure_symbol,
     get_price,
     get_open_positions
@@ -45,6 +46,7 @@ from dashboard.bridge import push_trade, persist_signal_to_supabase
 import time
 import traceback
 import os
+from bot_state import is_running, consume_restart_request
 
 
 # Start internal bot API (health / control) in a background thread
@@ -72,28 +74,34 @@ SYMBOLS = [
     "BTCUSD", "XAUUSD", "AUDJPY", "EURJPY", "ETHBTC"
 ]
 
-# Validate and resolve symbols using mapping candidates; keep a mapping original->resolved
-VALID_SYMBOLS = []
-RESOLVED_MAP = {}
-for symbol in SYMBOLS:
-    resolved = None
-    # try direct first, then mapping candidates
-    for cand in candidates_for(symbol):
-        try:
-            ensure_symbol(cand)
-            resolved = cand
-            break
-        except Exception:
-            continue
+def resolve_symbols():
+    # Validate and resolve symbols using mapping candidates; keep a mapping original->resolved
+    valid = []
+    resolved_map = {}
+    for symbol in SYMBOLS:
+        resolved = None
+        # try direct first, then mapping candidates
+        for cand in candidates_for(symbol):
+            try:
+                ensure_symbol(cand)
+                resolved = cand
+                break
+            except Exception:
+                continue
 
-    if resolved:
-        VALID_SYMBOLS.append(resolved)
-        RESOLVED_MAP[symbol] = resolved
-    else:
-        print(f"Warning: symbol {symbol} unavailable in MT5 (tried candidates), skipping")
+        if resolved:
+            valid.append(resolved)
+            resolved_map[symbol] = resolved
+        else:
+            print(f"Warning: symbol {symbol} unavailable in MT5 (tried candidates), skipping")
 
-if not VALID_SYMBOLS:
-    raise RuntimeError("No valid trading symbols available in MT5. Check account/instruments.")
+    if not valid:
+        raise RuntimeError("No valid trading symbols available in MT5. Check account/instruments.")
+
+    return valid, resolved_map
+
+
+VALID_SYMBOLS, RESOLVED_MAP = resolve_symbols()
 
 
 # =====================================================
@@ -101,6 +109,20 @@ if not VALID_SYMBOLS:
 # =====================================================
 while True:
     try:
+        if consume_restart_request():
+            try:
+                reconnect()
+                VALID_SYMBOLS, RESOLVED_MAP = resolve_symbols()
+                print("MT5 reconnect completed.")
+            except Exception as e:
+                print("MT5 reconnect failed:", e)
+                time.sleep(5)
+                continue
+
+        if not is_running():
+            time.sleep(1)
+            continue
+
         for symbol in VALID_SYMBOLS:
 
             # -----------------------------
