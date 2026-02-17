@@ -44,6 +44,7 @@ from portfolio.allocator import allocate_risk
 from dashboard.bridge import push_trade, persist_signal_to_supabase
 import time
 import traceback
+import os
 
 
 # Start internal bot API (health / control) in a background thread
@@ -57,6 +58,11 @@ except Exception as e:
 # =====================================================
 # 1️⃣ CONNECT TO MT5
 # =====================================================
+if os.getenv("MT5_DISABLED", "").lower() in ("1", "true", "yes"):
+    print("MT5_DISABLED=1 set. Skipping MT5 connection and trading loop.")
+    while True:
+        time.sleep(60)
+
 connect()
 
 SYMBOLS = [

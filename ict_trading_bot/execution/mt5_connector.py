@@ -1,9 +1,19 @@
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+except Exception as e:
+    mt5 = None
+    _MT5_IMPORT_ERROR = e
 import time
 
 from utils.mt5_credentials import fetch_mt5_credentials
 
 def connect(credentials=None):
+    if mt5 is None:
+        raise RuntimeError(
+            "MetaTrader5 package not available on this platform. "
+            "Run the bot on Windows with MT5 installed, or set MT5_DISABLED=1 "
+            "to skip live trading in Linux environments."
+        )
     if credentials is None:
         credentials = fetch_mt5_credentials()
 

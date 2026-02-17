@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -10,6 +12,22 @@ html, body, #__next {
   background-color: #071022; /* fallback base color */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #e5e7eb;
+}
+
+.display-font {
+  font-family: "Instrument Serif", ui-serif, Georgia, serif;
+}
+
+.glass-panel {
+  background: rgba(8, 12, 24, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.55);
+  backdrop-filter: blur(18px);
 }
 
 /* main app background container (apply this class to <main> or the overall wrapper) */

@@ -1,5 +1,5 @@
 # Core Trading
-MetaTrader5>=5.0.45
+MetaTrader5>=5.0.45; platform_system == "Windows"
 python-mt5-connector>=1.0.0
 
 # Data Processing
