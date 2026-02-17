@@ -1,8 +1,14 @@
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+except Exception:
+    mt5 = None
 
 from utils.mt5_credentials import fetch_mt5_credentials
 
 SYMBOLS_TO_CHECK = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "BTCUSD", "XAUUSD", "ETHBTC"]
+
+if mt5 is None:
+    raise SystemExit("MetaTrader5 is not available on this platform. Run on Windows with MT5 installed.")
 
 print('Initializing MT5...')
 creds = fetch_mt5_credentials()

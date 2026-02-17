@@ -1,5 +1,16 @@
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+except Exception:
+    mt5 = None
 from datetime import datetime
+
+
+def _require_mt5():
+    if mt5 is None:
+        raise RuntimeError(
+            "MetaTrader5 package not available on this platform. "
+            "Run the bot on Windows with MT5 installed."
+        )
 
 
 def calculate_lot_size(
@@ -10,6 +21,7 @@ def calculate_lot_size(
     """
     Calculate position size based on % risk.
     """
+    _require_mt5()
     account = mt5.account_info()
     if account is None:
         raise RuntimeError("MT5 not connected")
@@ -39,6 +51,7 @@ def execute_trade(
     Execute a market order on MT5.
     direction: 'buy' or 'sell'
     """
+    _require_mt5()
 
     tick = mt5.symbol_info_tick(symbol)
     if tick is None:

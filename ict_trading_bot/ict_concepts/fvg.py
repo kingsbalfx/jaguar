@@ -1,5 +1,16 @@
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+except Exception:
+    mt5 = None
 import pandas as pd
+
+
+def _require_mt5():
+    if mt5 is None:
+        raise RuntimeError(
+            "MetaTrader5 package not available on this platform. "
+            "Run the bot on Windows with MT5 installed."
+        )
 
 
 def detect_fvg_from_df(df):
@@ -42,6 +53,7 @@ def detect_fvg_from_df(df):
 
 
 def detect_fvgs(symbol, timeframe, bars=200):
+    _require_mt5()
     tf = _tf_to_mt5(timeframe)
     rates = mt5.copy_rates_from_pos(symbol, tf, 0, bars)
     if rates is None or len(rates) == 0:
@@ -57,6 +69,7 @@ def detect_fvgs(symbol, timeframe, bars=200):
 
 
 def _tf_to_mt5(tf):
+    _require_mt5()
     mapping = {
         'M1': mt5.TIMEFRAME_M1,
         'M5': mt5.TIMEFRAME_M5,

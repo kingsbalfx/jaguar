@@ -41,6 +41,8 @@ export default function Settings() {
   const [hasPassword, setHasPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState({ type: "", message: "" });
+  const [restarting, setRestarting] = useState(false);
+  const [restartStatus, setRestartStatus] = useState({ type: "", message: "" });
 
   useEffect(() => {
     let active = true;
@@ -93,6 +95,23 @@ export default function Settings() {
     }
   };
 
+  const restartBot = async () => {
+    setRestartStatus({ type: "", message: "" });
+    setRestarting(true);
+    try {
+      const res = await fetch("/api/admin/restart-bot", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to restart bot.");
+      }
+      setRestartStatus({ type: "success", message: "Restart requested. Bot will reconnect shortly." });
+    } catch (err) {
+      setRestartStatus({ type: "error", message: err.message || "Failed to restart bot." });
+    } finally {
+      setRestarting(false);
+    }
+  };
+
   return (
     <div className="p-6 max-w-3xl">
       <h2 className="text-2xl font-bold mb-2">Admin Settings</h2>
@@ -121,7 +140,7 @@ export default function Settings() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={hasPassword ? "•••••••• (enter new to update)" : "Enter MT5 password"}
+              placeholder={hasPassword ? "******** (enter new to update)" : "Enter MT5 password"}
               className="w-full rounded bg-black/40 border border-white/10 px-3 py-2 text-white"
             />
           </div>
@@ -161,7 +180,35 @@ export default function Settings() {
             {loading ? "Saving..." : "Save Credentials"}
           </button>
         </form>
+
+        <div className="mt-6 border-t border-white/5 pt-4">
+          <h4 className="text-sm font-semibold mb-2">Bot Controls</h4>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={restartBot}
+              disabled={restarting}
+              className="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-60"
+            >
+              {restarting ? "Restarting..." : "Restart Bot"}
+            </button>
+            <span className="text-xs text-gray-400">
+              Reloads MT5 credentials and reconnects.
+            </span>
+          </div>
+
+          {restartStatus?.message && (
+            <div
+              className={`mt-2 text-sm ${
+                restartStatus.type === "success" ? "text-green-400" : "text-red-400"
+              }`}
+            >
+              {restartStatus.message}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
+
