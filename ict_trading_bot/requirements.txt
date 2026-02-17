@@ -1,6 +1,6 @@
 # Core Trading
 MetaTrader5>=5.0.45; platform_system == "Windows"
-python-mt5-connector>=1.0.0
+python-mt5-connector>=1.0.0; platform_system == "Windows"
 
 # Data Processing
 pandas>=1.5.3
