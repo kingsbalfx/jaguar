@@ -34,12 +34,12 @@ export default function Home() {
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link href="/pricing">
-                <a className="px-6 py-3 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition">
+                <a className="px-6 py-3 rounded-lg text-white font-semibold btn-primary">
                   View Pricing
                 </a>
               </Link>
               <Link href="/register">
-                <a className="px-6 py-3 rounded-lg border border-white/20 text-white/90 hover:bg-white/10 transition">
+                <a className="px-6 py-3 rounded-lg text-white/90 btn-outline">
                   Start Free Trial
                 </a>
               </Link>
@@ -168,12 +168,12 @@ export default function Home() {
 
               <div className="mt-6 flex flex-wrap gap-3">
                 <Link href="/pricing">
-                  <a className="px-5 py-3 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition">
+                  <a className="px-5 py-3 rounded-lg text-white font-semibold btn-primary">
                     Explore Bot Plans
                   </a>
                 </Link>
                 <Link href="/register">
-                  <a className="px-5 py-3 rounded-lg border border-yellow-400/60 text-yellow-200 hover:bg-yellow-400/10 transition">
+                  <a className="px-5 py-3 rounded-lg text-yellow-200 border border-yellow-400/60 hover:bg-yellow-400/10 transition">
                     Start Free Trial
                   </a>
                 </Link>

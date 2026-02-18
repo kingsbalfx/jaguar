@@ -8,7 +8,7 @@ const AdminVideoPlayer = dynamic(
 );
 export default function Content() {
   return (
-    <div className="p-6 min-h-screen">
+    <div className="p-6 min-h-[calc(100vh-160px)]">
       <h2 className="text-2xl font-bold">Content Manager</h2>
       <p className="mt-2">
         Upload videos, audio, images, documents using Supabase Storage. Use the

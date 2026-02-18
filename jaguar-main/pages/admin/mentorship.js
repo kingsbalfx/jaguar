@@ -4,7 +4,7 @@ const Chat = dynamic(() => import("../../components/Chat"), { ssr: false });
 export default function Mentorship() {
   const [channel, setChannel] = useState("premium");
   return (
-    <div className="min-h-screen p-6">
+    <div className="min-h-[calc(100vh-160px)] p-6">
       <h2 className="text-2xl font-bold">Mentorship Dashboard</h2>
       <p className="mt-2">
         Toggle between Premium and VIP community chats and view

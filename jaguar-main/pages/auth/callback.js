@@ -98,7 +98,7 @@ export const getServerSideProps = async (ctx) => {
 
 export default function Callback() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-black text-gray-300">
+    <div className="min-h-[calc(100vh-160px)] flex items-center justify-center bg-black text-gray-300">
       Redirecting…
     </div>
   );

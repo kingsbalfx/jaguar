@@ -46,7 +46,7 @@ export default function LivePen() {
   };
 
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center">
+    <div className="min-h-[calc(100vh-160px)] bg-black flex items-center justify-center py-10">
       <canvas
         ref={canvasRef}
         width={800}

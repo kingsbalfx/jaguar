@@ -11,6 +11,7 @@ const NAV_ITEMS = [
 
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [liveMode, setLiveMode] = useState(true);
   const pathname = usePathname() || "/";
 
   useEffect(() => setMenuOpen(false), [pathname]);
@@ -19,8 +20,8 @@ export default function Header() {
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
   return (
-    <header className="sticky top-0 z-50 w-full bg-gray-900 text-gray-100 shadow-md">
-      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+    <header className="sticky top-0 z-50 w-full bg-slate-950/80 text-gray-100 shadow-lg shadow-black/30 backdrop-blur border-b border-white/10">
+      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
         <Link href="/" aria-label="KINGSBALFX homepage" className="flex items-center gap-2">
           <img
             src="/jaguar.png"
@@ -33,7 +34,7 @@ export default function Header() {
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden md:flex items-center gap-4">
+        <nav className="hidden md:flex items-center gap-2">
           {NAV_ITEMS.map((item) => (
             <Link
               key={item.href}
@@ -49,6 +50,16 @@ export default function Header() {
             </Link>
           ))}
         </nav>
+
+        <button
+          type="button"
+          aria-pressed={liveMode}
+          onClick={() => setLiveMode((v) => !v)}
+          className="hidden md:flex items-center gap-3 px-3 py-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 text-emerald-200 text-xs uppercase tracking-widest neon-toggle"
+        >
+          <span className={`neon-dot ${liveMode ? "neon-dot-live" : "neon-dot-off"}`} />
+          <span>{liveMode ? "Live Mode" : "Preview"}</span>
+        </button>
 
         {/* Mobile button */}
         <button
@@ -86,6 +97,15 @@ export default function Header() {
                 {item.label}
               </Link>
             ))}
+            <button
+              type="button"
+              aria-pressed={liveMode}
+              onClick={() => setLiveMode((v) => !v)}
+              className="mt-3 flex items-center gap-3 px-3 py-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 text-emerald-200 text-xs uppercase tracking-widest neon-toggle"
+            >
+              <span className={`neon-dot ${liveMode ? "neon-dot-live" : "neon-dot-off"}`} />
+              <span>{liveMode ? "Live Mode" : "Preview"}</span>
+            </button>
           </div>
         </nav>
       )}

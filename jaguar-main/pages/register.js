@@ -58,7 +58,7 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-indigo-900 to-black p-4">
+    <div className="min-h-[calc(100vh-160px)] flex items-center justify-center bg-gradient-to-br from-slate-900 via-indigo-900 to-black p-4 py-10">
       <div className="w-full max-w-md bg-black/70 backdrop-blur-lg border border-white/10 rounded-2xl shadow-2xl p-8 text-white">
         <h1 className="text-3xl font-bold text-center mb-2">Create an Account</h1>
         <p className="text-sm text-gray-400 text-center mb-4">Sign up with email or use Google</p>

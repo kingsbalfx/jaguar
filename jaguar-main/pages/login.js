@@ -64,7 +64,7 @@ export default function Login() {
   }, [next, router]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-black to-indigo-900 text-white px-6">
+    <div className="min-h-[calc(100vh-160px)] flex items-center justify-center bg-gradient-to-br from-gray-900 via-black to-indigo-900 text-white px-6 py-10">
       <div className="max-w-md w-full bg-black/70 p-8 rounded-lg">
         <div className="flex flex-col items-center mb-5">
           <Image src="/jaguar.png" alt="logo" width={80} height={80} />

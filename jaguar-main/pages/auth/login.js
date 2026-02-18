@@ -78,7 +78,7 @@ export default function AuthLoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="min-h-[calc(100vh-160px)] flex items-center justify-center p-4 py-10">
       <div className="max-w-md w-full bg-gray-800 p-8 rounded">
         <h2 className="text-2xl font-bold mb-4">Auth Login / Register</h2>
         {error && <p className="text-red-400">{error}</p>}
