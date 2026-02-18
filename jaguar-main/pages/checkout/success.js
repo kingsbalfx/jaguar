@@ -1,16 +1,12 @@
 // pages/checkout/success.js
 import React from "react";
-import Header from "../../components/Header";
-import Footer from "../../components/Footer";
 import Link from "next/link";
 
 export default function CheckoutSuccess({ success, message, reference, plan }) {
   const dashboardUrl = plan === 'vip' ? '/dashboard/vip' : plan === 'premium' ? '/dashboard/premium' : '/dashboard';
 
   return (
-    <>
-      <Header />
-      <main className="container mx-auto px-6 py-12 text-center">
+    <main className="container mx-auto px-6 py-12 text-center">
         <div className="max-w-lg mx-auto bg-gray-800/50 rounded-lg shadow-lg p-8">
           {success ? (
             <svg className="h-16 w-16 text-green-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -38,9 +34,7 @@ export default function CheckoutSuccess({ success, message, reference, plan }) {
             </div>
           )}
         </div>
-      </main>
-      <Footer />
-    </>
+    </main>
   );
 }
 

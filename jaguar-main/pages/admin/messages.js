@@ -1,7 +1,5 @@
 // pages/admin/messages.js
 import React, { useState, useEffect } from "react";
-import Header from "../../components/Header";
-import Footer from "../../components/Footer";
 
 // client-side supabase instance (may be null if NEXT_PUBLIC envs missing)
 import { supabase } from "../../lib/supabaseClient";
@@ -83,9 +81,7 @@ export default function Messages({ initialMessages = [] }) {
   }
 
   return (
-    <>
-      <Header />
-      <main className="container mx-auto px-6 py-8">
+    <main className="container mx-auto px-6 py-8">
         <h2 className="text-2xl font-bold mb-4">Landing Page Messages</h2>
 
         <div className="mb-4">
@@ -112,8 +108,6 @@ export default function Messages({ initialMessages = [] }) {
             ))}
           </ul>
         </div>
-      </main>
-      <Footer />
-    </>
+    </main>
   );
 }

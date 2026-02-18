@@ -1,7 +1,5 @@
 // pages/dashboard/vip.js
 import React, { useState, useEffect, useRef } from "react";
-import Header from "../../components/Header";
-import Footer from "../../components/Footer";
 import dynamic from "next/dynamic";
 import { supabase } from "../../lib/supabaseClient";
 import PriceButton from "../../components/PriceButton";
@@ -96,9 +94,7 @@ export default function VipDashboard() {
   }
 
   return (
-    <>
-      <Header />
-      <main className="container mx-auto px-6 py-8 text-white">
+    <main className="container mx-auto px-6 py-8 text-white">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold">VIP Dashboard</h2>
           <div className="text-right">
@@ -148,8 +144,6 @@ export default function VipDashboard() {
             ))}
           </div>
         </div>
-      </main>
-      <Footer />
-    </>
+    </main>
   );
 }

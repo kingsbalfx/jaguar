@@ -2,8 +2,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { createClient } from "@supabase/supabase-js";
-import Header from "../../components/Header";
-import Footer from "../../components/Footer";
 import { PRICING_TIERS, formatPrice } from "../../lib/pricing-config";
 
 const supabase = createClient(
@@ -113,9 +111,7 @@ export default function Checkout() {
   }
 
   return (
-    <>
-      <Header />
-      <main className="container mx-auto px-6 py-8">
+    <main className="container mx-auto px-6 py-8">
         <h1 className="text-2xl font-bold mb-4">Checkout</h1>
 
         <div className="mb-4">
@@ -171,8 +167,6 @@ export default function Checkout() {
             Cancel
           </button>
         </div>
-      </main>
-      <Footer />
-    </>
+    </main>
   );
 }
