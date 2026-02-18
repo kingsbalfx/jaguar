@@ -16,6 +16,8 @@ const NO_ADS_PATHS = [
   "/dashboard",
   "/dashboard/vip",
   "/dashboard/premium",
+  "/dashboard/pro",
+  "/dashboard/lifetime",
 ];
 
 function shouldShowAds(path) {

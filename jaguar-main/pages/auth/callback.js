@@ -62,6 +62,7 @@ export const getServerSideProps = async (ctx) => {
 
   async function hasPaid(plan) {
     try {
+      if (!supabaseAdmin) return false;
       const { data, error } = await supabaseAdmin
         .from("payments")
         .select("id")
@@ -89,6 +90,18 @@ export const getServerSideProps = async (ctx) => {
   if (role === "premium") {
     const paid = await hasPaid("premium");
     const dest = validatedNext || (paid ? "/dashboard/premium" : `/checkout?plan=premium&next=/auth/callback`);
+    return { redirect: { destination: dest, permanent: false } };
+  }
+
+  if (role === "pro") {
+    const paid = await hasPaid("pro");
+    const dest = validatedNext || (paid ? "/dashboard/pro" : `/checkout?plan=pro&next=/auth/callback`);
+    return { redirect: { destination: dest, permanent: false } };
+  }
+
+  if (role === "lifetime") {
+    const paid = await hasPaid("lifetime");
+    const dest = validatedNext || (paid ? "/dashboard/lifetime" : `/checkout?plan=lifetime&next=/auth/callback`);
     return { redirect: { destination: dest, permanent: false } };
   }
 

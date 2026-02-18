@@ -15,6 +15,11 @@ export default function PriceButton({ plan = "vip", initialPrice = null }) {
   const startPayment = async () => {
     setLoading(true);
     try {
+      if (!supabase) {
+        alert("Supabase not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+        setLoading(false);
+        return;
+      }
       const { data } = await supabase.auth.getSession();
       const user = data?.session?.user;
       if (!user) {

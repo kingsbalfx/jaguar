@@ -81,6 +81,8 @@ BOT_API_URL=https://kingsbalfx.name.ng/api/bot
 
 # ADMIN
 ADMIN_API_KEY=your_secure_random_admin_key_32_chars_min
+# Used for admin redirect in /auth/callback
+SUPER_ADMIN_EMAIL=you@example.com
 
 # PRICING
 PRICING_PREMIUM_PRICE_NGN=90000

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/router";
-import { supabase } from "../lib/supabaseClient";
+import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 
 /**
  * CompleteProfile Page
@@ -12,6 +12,20 @@ import { supabase } from "../lib/supabaseClient";
  */
 
 export default function CompleteProfile() {
+  if (!isSupabaseConfigured || !supabase) {
+    return (
+      <div className="min-h-[calc(100vh-160px)] flex items-center justify-center bg-black text-white px-6 py-10">
+        <div className="max-w-lg w-full bg-black/60 border border-white/10 rounded-xl p-6 text-center">
+          <h1 className="text-2xl font-bold mb-2">Configuration Required</h1>
+          <p className="text-gray-300">
+            Supabase is not configured. Set <code className="bg-white/10 px-1 rounded">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
+            <code className="bg-white/10 px-1 rounded">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> in Vercel.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
