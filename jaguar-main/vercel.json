@@ -1,8 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
 
-  "rootDirectory": "jaguar-main",
-
   "framework": "nextjs",
 
   "installCommand": "npm install",
