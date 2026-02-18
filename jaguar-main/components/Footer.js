@@ -38,8 +38,28 @@ function parseSocials(raw = "") {
   return [];
 }
 
+function buildSocials() {
+  const raw = process.env.NEXT_PUBLIC_SOCIALS || "";
+  const parsed = parseSocials(raw);
+  if (parsed.length > 0) return parsed;
+
+  const mapping = [
+    { label: "Twitter", value: process.env.NEXT_PUBLIC_SOCIAL_TWITTER },
+    { label: "Instagram", value: process.env.NEXT_PUBLIC_SOCIAL_INSTAGRAM },
+    { label: "YouTube", value: process.env.NEXT_PUBLIC_SOCIAL_YOUTUBE },
+    { label: "Facebook", value: process.env.NEXT_PUBLIC_SOCIAL_FACEBOOK },
+    { label: "Telegram", value: process.env.NEXT_PUBLIC_SOCIAL_TELEGRAM },
+    { label: "TikTok", value: process.env.NEXT_PUBLIC_SOCIAL_TIKTOK },
+    { label: "Website", value: process.env.NEXT_PUBLIC_SOCIAL_WEBSITE },
+  ];
+
+  return mapping
+    .filter((item) => item.value)
+    .map((item) => ({ label: item.label, url: item.value }));
+}
+
 export default function Footer() {
-  const socials = parseSocials(process.env.NEXT_PUBLIC_SOCIALS || "");
+  const socials = buildSocials();
 
   return (
     <footer className="w-full bg-gray-900 text-gray-400 border-t border-gray-700 mt-10">

@@ -115,7 +115,7 @@ export default function Login() {
         </button>
 
         <p className="mt-5 text-center text-sm text-gray-400">
-          New here? <a href="/auth/register" className="text-indigo-400 underline">Create account</a>
+          New here? <a href="/register" className="text-indigo-400 underline">Create account</a>
         </p>
       </div>
     </div>

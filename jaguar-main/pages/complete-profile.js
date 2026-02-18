@@ -19,7 +19,7 @@ export default function CompleteProfile() {
   const [user, setUser] = useState(null);
   const router = useRouter();
 
-  // ✅ Fetch authenticated user
+  //  Fetch authenticated user
   useEffect(() => {
     const fetchUser = async () => {
       const {
@@ -36,7 +36,7 @@ export default function CompleteProfile() {
     fetchUser();
   }, [router]);
 
-  // ✅ Handle form submission
+  //  Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!user) return;
@@ -45,17 +45,15 @@ export default function CompleteProfile() {
     setErr("");
 
     try {
-      const { error } = await supabase.from("profiles").upsert({
-        id: user.id,
-        email: user.email,
-        name,
-        phone,
-        role: "user",
-        updated_at: new Date().toISOString(),
+      const res = await fetch("/api/profile/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, phone }),
       });
-
-      if (error) throw error;
-
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to save profile");
+      }
       router.push("/dashboard");
     } catch (error) {
       setErr(error.message || "Something went wrong");
@@ -108,10 +106,11 @@ export default function CompleteProfile() {
             disabled={loading}
             className="w-full py-3 bg-indigo-600 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-60 transition"
           >
-            {loading ? "Saving…" : "Save & Continue"}
+            {loading ? "Saving..." : "Save & Continue"}
           </button>
         </form>
       </div>
     </div>
   );
 }
+
