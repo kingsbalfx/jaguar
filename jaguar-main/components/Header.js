@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useRouter } from "next/router";
 
 const NAV_ITEMS = [
   { label: "Home", href: "/" },
@@ -12,7 +12,8 @@ const NAV_ITEMS = [
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [liveMode, setLiveMode] = useState(true);
-  const pathname = usePathname() || "/";
+  const router = useRouter();
+  const pathname = router.pathname || "/";
 
   useEffect(() => setMenuOpen(false), [pathname]);
 
