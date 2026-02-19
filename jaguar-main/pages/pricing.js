@@ -1,6 +1,7 @@
 // pages/pricing.js
 import React from "react";
 import { PRICING_TIERS, formatPrice } from "../lib/pricing-config";
+import AdSense from "../components/AdSense";
 
 const COLOR_MAP = {
   yellow: "from-yellow-400/10 to-yellow-600/20 border-yellow-400/30",
@@ -52,6 +53,7 @@ export default function Pricing() {
         highlight: HIGHLIGHT_MAP[tier.color] || HIGHLIGHT_MAP.indigo,
       };
     });
+  const hasFreeTier = tiers.some((tier) => tier.price === "Free");
 
   return (
     <main id="maincontent" role="main" className="container mx-auto px-6 py-16 text-white">
@@ -109,6 +111,15 @@ export default function Pricing() {
           </div>
         ))}
       </div>
+
+      {hasFreeTier && (
+        <section className="mt-10 rounded-2xl border border-yellow-400/30 bg-yellow-500/5 p-4">
+          <div className="text-xs uppercase tracking-widest text-yellow-300 mb-2">
+            Sponsored (Free Tier)
+          </div>
+          <AdSense slot="1636184407" />
+        </section>
+      )}
     </main>
   );
 }

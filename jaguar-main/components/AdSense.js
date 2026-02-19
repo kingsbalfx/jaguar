@@ -1,20 +1,27 @@
 // components/AdSense.js
 import Script from "next/script";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export default function AdSense({
-  client = "ca-pub-9076762305803751",
-  slot = ""
+  client = process.env.NEXT_PUBLIC_ADSENSE_CLIENT || "ca-pub-9076762305803751",
+  slot,
+  style = {},
+  format = "auto",
+  responsive = true,
 }) {
+  const insRef = useRef(null);
+
   useEffect(() => {
     try {
-      if (typeof window !== "undefined" && window.adsbygoogle) {
+      if (typeof window !== "undefined" && window.adsbygoogle && insRef.current) {
         (window.adsbygoogle = window.adsbygoogle || []).push({});
       }
-    } catch (err) {
+    } catch {
       // ignore
     }
   }, []);
+
+  if (!slot) return null;
 
   return (
     <>
@@ -25,12 +32,13 @@ export default function AdSense({
         crossOrigin="anonymous"
       />
       <ins
+        ref={insRef}
         className="adsbygoogle"
-        style={{ display: "block" }}
+        style={{ display: "block", minHeight: 90, width: "100%", ...style }}
         data-ad-client={client}
         data-ad-slot={slot}
-        data-ad-format="auto"
-        data-full-width-responsive="true"
+        data-ad-format={format}
+        data-full-width-responsive={responsive ? "true" : "false"}
       />
     </>
   );

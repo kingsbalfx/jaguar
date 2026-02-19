@@ -1,6 +1,7 @@
 // pages/index.js
 import React, { useState } from "react";
 import Link from "next/link";
+import AdSense from "../components/AdSense";
 
 export default function Home() {
   const [mode, setMode] = useState("trial"); // trial | premium | vip
@@ -131,6 +132,15 @@ export default function Home() {
               </div>
             ))}
           </div>
+
+          {mode === "trial" && (
+            <div className="mt-8 rounded-2xl border border-yellow-400/30 bg-yellow-500/5 p-4">
+              <div className="text-xs uppercase tracking-widest text-yellow-300 mb-2">
+                Sponsored
+              </div>
+              <AdSense slot="1636184407" />
+            </div>
+          )}
         </section>
 
         <section className="mt-12 relative overflow-hidden rounded-2xl border border-indigo-500/30 bg-gradient-to-br from-slate-950 via-indigo-950/60 to-black p-8">
