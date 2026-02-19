@@ -1,6 +1,5 @@
-"use client";
 import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "next/router";
 import { supabase } from "../lib/supabaseClient";
 
 export default function PriceButton({ plan = "vip", initialPrice = null }) {

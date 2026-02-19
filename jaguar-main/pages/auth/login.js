@@ -1,4 +1,3 @@
-"use client";
 import { useState } from "react";
 import { supabase, isSupabaseConfigured } from "../../lib/supabaseClient"; // if you have a shared client
 import { getURL } from "../../lib/getURL";
