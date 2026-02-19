@@ -31,6 +31,12 @@ That's it! 🎉
 ```
 This creates a virtual environment, installs dependencies, and copies `.env.example` to `.env`.
 
+### Auto-Start on Windows (Optional)
+```powershell
+# Creates a Scheduled Task that runs the bot at logon
+.\setup_autostart.ps1
+```
+
 ### Step 1: Install Everything
 ```bash
 # Open your terminal and type this:
