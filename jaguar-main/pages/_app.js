@@ -8,6 +8,7 @@ import Footer from "../components/Footer";
 const NO_ADS_PATHS = [
   "/login",
   "/register",
+  "/auth",
   "/auth/callback",
   "/complete-profile",
   "/admin",
