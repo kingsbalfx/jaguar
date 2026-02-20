@@ -6,23 +6,10 @@ import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 import { getURL } from "../lib/getURL";
 
 export default function Login() {
-  if (!isSupabaseConfigured || !supabase) {
-    return (
-      <div className="min-h-[calc(100vh-160px)] flex items-center justify-center bg-black text-white px-6 py-10">
-        <div className="max-w-lg w-full bg-black/60 border border-white/10 rounded-xl p-6 text-center">
-          <h1 className="text-2xl font-bold mb-2">Configuration Required</h1>
-          <p className="text-gray-300">
-            Supabase is not configured. Set <code className="bg-white/10 px-1 rounded">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
-            <code className="bg-white/10 px-1 rounded">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> in Vercel.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   const router = useRouter();
   const next =
     typeof router.query?.next === "string" ? router.query.next : "";
+  const isConfigured = Boolean(isSupabaseConfigured && supabase);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -36,6 +23,11 @@ export default function Login() {
     setErrMsg("");
     setLoading(true);
     try {
+      if (!isConfigured) {
+        setErrMsg("Supabase is not configured.");
+        setLoading(false);
+        return;
+      }
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
 
@@ -51,6 +43,11 @@ export default function Login() {
     setErrMsg("");
     setLoading(true);
     try {
+      if (!isConfigured) {
+        setErrMsg("Supabase is not configured.");
+        setLoading(false);
+        return;
+      }
       const redirectTo = next
         ? `${base}auth/callback?next=${encodeURIComponent(next)}`
         : `${base}auth/callback`;
@@ -68,13 +65,28 @@ export default function Login() {
 
   useEffect(() => {
     (async () => {
+      if (!isConfigured) return;
       const { data } = await supabase.auth.getSession();
       if (data?.session?.user) {
         const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
         router.replace(`/auth/callback${nextParam}`);
       }
     })();
-  }, [next, router]);
+  }, [isConfigured, next, router]);
+
+  if (!isConfigured) {
+    return (
+      <div className="min-h-[calc(100vh-160px)] flex items-center justify-center bg-black text-white px-6 py-10">
+        <div className="max-w-lg w-full bg-black/60 border border-white/10 rounded-xl p-6 text-center">
+          <h1 className="text-2xl font-bold mb-2">Configuration Required</h1>
+          <p className="text-gray-300">
+            Supabase is not configured. Set <code className="bg-white/10 px-1 rounded">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
+            <code className="bg-white/10 px-1 rounded">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> in Vercel.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[calc(100vh-160px)] flex items-center justify-center bg-gradient-to-br from-gray-900 via-black to-indigo-900 text-white px-6 py-10">

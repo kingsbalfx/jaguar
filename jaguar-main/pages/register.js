@@ -6,7 +6,15 @@ import { getURL } from "../lib/getURL";
 import { FcGoogle } from "react-icons/fc";
 
 export default function Register() {
-  if (!isSupabaseConfigured || !supabase) {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [errMsg, setErrMsg] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
+  const [loading, setLoading] = useState(false);
+  const isConfigured = Boolean(isSupabaseConfigured && supabase);
+
+  if (!isConfigured) {
     return (
       <div className="min-h-[calc(100vh-160px)] flex items-center justify-center bg-black text-white px-6 py-10">
         <div className="max-w-lg w-full bg-black/60 border border-white/10 rounded-xl p-6 text-center">
@@ -20,19 +28,17 @@ export default function Register() {
     );
   }
 
-  const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [errMsg, setErrMsg] = useState("");
-  const [successMsg, setSuccessMsg] = useState("");
-  const [loading, setLoading] = useState(false);
-
   const handleEmailSignUp = async (e) => {
     e.preventDefault();
     setLoading(true);
     setErrMsg("");
     setSuccessMsg("");
     try {
+      if (!isConfigured) {
+        setErrMsg("Supabase is not configured.");
+        setLoading(false);
+        return;
+      }
       const base = getURL().replace(/\/$/, "");
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -58,6 +64,11 @@ export default function Register() {
     setErrMsg("");
     setSuccessMsg("");
     try {
+      if (!isConfigured) {
+        setErrMsg("Supabase is not configured.");
+        setLoading(false);
+        return;
+      }
       const base = getURL().replace(/\/$/, "");
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",

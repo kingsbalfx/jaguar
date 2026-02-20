@@ -12,7 +12,15 @@ import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
  */
 
 export default function CompleteProfile() {
-  if (!isSupabaseConfigured || !supabase) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+  const [user, setUser] = useState(null);
+  const router = useRouter();
+  const isConfigured = Boolean(isSupabaseConfigured && supabase);
+
+  if (!isConfigured) {
     return (
       <div className="min-h-[calc(100vh-160px)] flex items-center justify-center bg-black text-white px-6 py-10">
         <div className="max-w-lg w-full bg-black/60 border border-white/10 rounded-xl p-6 text-center">
@@ -26,16 +34,10 @@ export default function CompleteProfile() {
     );
   }
 
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
-  const [user, setUser] = useState(null);
-  const router = useRouter();
-
   //  Fetch authenticated user
   useEffect(() => {
     const fetchUser = async () => {
+      if (!isConfigured) return;
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -48,7 +50,7 @@ export default function CompleteProfile() {
     };
 
     fetchUser();
-  }, [router]);
+  }, [isConfigured, router]);
 
   //  Handle form submission
   const handleSubmit = async (e) => {

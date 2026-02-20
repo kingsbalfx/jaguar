@@ -5,7 +5,20 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 
 export default function AuthLoginPage() {
-  if (!isSupabaseConfigured || !supabase) {
+  const router = useRouter();
+  const [name, setName] = useState(""); // maybe unused if this is login
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const isConfigured = Boolean(isSupabaseConfigured && supabase);
+
+  const next =
+    typeof router.query?.next === "string" ? router.query.next : "";
+
+  if (!isConfigured) {
     return (
       <div className="min-h-[calc(100vh-160px)] flex items-center justify-center bg-black text-white px-6 py-10">
         <div className="max-w-lg w-full bg-black/60 border border-white/10 rounded-xl p-6 text-center">
@@ -19,22 +32,14 @@ export default function AuthLoginPage() {
     );
   }
 
-  const router = useRouter();
-  const [name, setName] = useState(""); // maybe unused if this is login
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-
-  const next =
-    typeof router.query?.next === "string" ? router.query.next : "";
-
   // If this page is meant for registration, but you also want it to support Google login:
   const handleGoogle = async () => {
     setError("");
     try {
+      if (!isConfigured) {
+        setError("Supabase is not configured.");
+        return;
+      }
       const base = getURL();
       const redirectTo = next
         ? `${base}auth/callback?next=${encodeURIComponent(next)}`
@@ -68,6 +73,10 @@ export default function AuthLoginPage() {
     }
     if (password !== confirmPassword) {
       setError("Passwords do not match");
+      return;
+    }
+    if (!isConfigured) {
+      setError("Supabase is not configured.");
       return;
     }
 

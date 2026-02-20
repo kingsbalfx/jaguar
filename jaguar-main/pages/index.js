@@ -18,7 +18,8 @@ export default function Home() {
   );
 
   return (
-    <main className="flex-grow app-bg text-white">
+    <main className="flex-grow app-bg text-white relative overflow-hidden">
+      <div className="candle-backdrop" aria-hidden="true" />
       <div className="app-content container mx-auto px-6 py-14">
         <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] items-center">
           <div>
