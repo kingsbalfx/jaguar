@@ -27,12 +27,16 @@ export default async function handler(req, res) {
   const amount = tier.price;
 
   try {
+    const secret = process.env.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_SECRET;
+    if (!secret) {
+      return res.status(500).json({ error: "Missing PAYSTACK_SECRET_KEY on server" });
+    }
     const baseUrl = getURL().replace(/\/$/, "");
     // Initialize Paystack transaction
     const initRes = await fetch("https://api.paystack.co/transaction/initialize", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`, // Use your Paystack secret key
+        Authorization: `Bearer ${secret}`, // Use your Paystack secret key
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

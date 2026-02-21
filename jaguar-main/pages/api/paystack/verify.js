@@ -17,12 +17,17 @@ export default async function handler(req, res) {
 
   try {
     // ✅ Verify transaction with Paystack
+    const secret = process.env.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_SECRET;
+    if (!secret) {
+      return res.status(500).json({ error: "Missing PAYSTACK_SECRET_KEY on server" });
+    }
+
     const verifyRes = await fetch(
       `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
       {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+          Authorization: `Bearer ${secret}`,
           "Content-Type": "application/json",
         },
       }
