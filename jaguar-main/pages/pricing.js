@@ -56,7 +56,9 @@ export default function Pricing() {
   const hasFreeTier = tiers.some((tier) => tier.price === "Free");
 
   return (
-    <main id="maincontent" role="main" className="container mx-auto px-6 py-16 text-white">
+    <main id="maincontent" role="main" className="app-bg text-white relative overflow-hidden">
+      <div className="candle-backdrop" aria-hidden="true" />
+      <div className="app-content container mx-auto px-6 py-16">
       <div className="mb-14 text-center">
         <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/40 bg-indigo-500/10 px-3 py-1 text-xs uppercase tracking-widest text-indigo-200 mb-4">
           Plans & Access
@@ -120,6 +122,7 @@ export default function Pricing() {
           <AdSense slot="1636184407" />
         </section>
       )}
+      </div>
     </main>
   );
 }

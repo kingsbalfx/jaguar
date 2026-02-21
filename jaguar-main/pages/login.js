@@ -89,8 +89,10 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-[calc(100vh-160px)] flex items-center justify-center bg-gradient-to-br from-gray-900 via-black to-indigo-900 text-white px-6 py-10">
-      <div className="max-w-md w-full bg-black/70 p-8 rounded-lg">
+    <div className="app-bg text-white relative overflow-hidden">
+      <div className="candle-backdrop" aria-hidden="true" />
+      <div className="app-content min-h-[calc(100vh-160px)] flex items-center justify-center bg-gradient-to-br from-gray-900 via-black to-indigo-900 text-white px-6 py-10">
+        <div className="max-w-md w-full bg-black/70 p-8 rounded-lg">
         <div className="flex flex-col items-center mb-5">
           <Image src="/jaguar.png" alt="logo" width={80} height={80} />
           <h1 className="text-2xl font-bold mt-3">KINGSBALFX</h1>
@@ -142,6 +144,7 @@ export default function Login() {
         <p className="mt-5 text-center text-sm text-gray-400">
           New here? <a href="/register" className="text-indigo-400 underline">Create account</a>
         </p>
+        </div>
       </div>
     </div>
   );
