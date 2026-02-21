@@ -79,8 +79,10 @@ export default function CompleteProfile() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-160px)] flex items-center justify-center bg-gradient-to-br from-gray-900 via-indigo-900 to-black p-4 py-10">
-      <div className="w-full max-w-md bg-black/70 backdrop-blur-lg border border-white/10 rounded-2xl shadow-2xl p-8 text-white space-y-6">
+    <div className="app-bg text-white relative overflow-hidden">
+      <div className="candle-backdrop" aria-hidden="true" />
+      <div className="app-content min-h-[calc(100vh-160px)] flex items-center justify-center bg-gradient-to-br from-gray-900 via-indigo-900 to-black p-4 py-10">
+        <div className="w-full max-w-md bg-black/70 backdrop-blur-lg border border-white/10 rounded-2xl shadow-2xl p-8 text-white space-y-6">
         <h1 className="text-3xl font-bold text-center">Complete Your Profile</h1>
         <p className="text-sm text-gray-400 text-center">
           Please fill in your details to finish setting up your account.
@@ -125,6 +127,7 @@ export default function CompleteProfile() {
             {loading ? "Saving..." : "Save & Continue"}
           </button>
         </form>
+        </div>
       </div>
     </div>
   );

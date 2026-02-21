@@ -33,8 +33,9 @@ export const getServerSideProps = async (ctx) => {
   const rawNext = ctx.query.next ?? ctx.query.redirectTo ?? null;
   const validatedNext = safeNextParam(rawNext);
 
-  // fetch profile
-  const { data: profile, error: profileError } = await supabase
+  // fetch profile (try anon first, fallback to service role)
+  let profile = null;
+  const { data: profileData, error: profileError } = await supabase
     .from("profiles")
     .select("id, role, email")
     .eq("id", user.id)
@@ -43,22 +44,48 @@ export const getServerSideProps = async (ctx) => {
   if (profileError) {
     console.error("Profile fetch error:", profileError);
   }
+  profile = profileData || null;
 
-  if (!profile) {
-    // If profile missing, send user to complete-profile (you can create that page)
-    return { redirect: { destination: "/complete-profile", permanent: false } };
+  const supabaseAdmin = getSupabaseClient({ server: true });
+  if (!profile && supabaseAdmin) {
+    const { data: adminProfile, error: adminErr } = await supabaseAdmin
+      .from("profiles")
+      .select("id, role, email")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (adminErr) console.error("Admin profile fetch error:", adminErr);
+    profile = adminProfile || null;
   }
 
   const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || "").toLowerCase();
+  const FALLBACK_ADMIN_EMAIL = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.ADMIN_EMAIL || "").toLowerCase();
+  const isAdminEmail = email && (email === SUPER_ADMIN_EMAIL || email === FALLBACK_ADMIN_EMAIL);
+
+  if (!profile) {
+    if (supabaseAdmin) {
+      const role = isAdminEmail ? "admin" : "user";
+      const { error: insertErr } = await supabaseAdmin.from("profiles").insert([
+        { id: user.id, email: user.email, role }
+      ]);
+      if (insertErr) {
+        console.error("Profile insert error:", insertErr);
+        return { redirect: { destination: "/complete-profile", permanent: false } };
+      }
+      profile = { id: user.id, email: user.email, role };
+    } else {
+      // If profile missing and no admin client, send user to complete-profile
+      return { redirect: { destination: "/complete-profile", permanent: false } };
+    }
+  }
+
   const role = profile.role || "user";
 
   // Admin or super admin email override
-  if (role === "admin" || email === SUPER_ADMIN_EMAIL) {
+  if (role === "admin" || isAdminEmail) {
     return { redirect: { destination: validatedNext || "/admin", permanent: false } };
   }
 
   // Use server admin client for secure payments table checks
-  const supabaseAdmin = getSupabaseClient({ server: true });
 
   async function hasPaid(plan) {
     try {
