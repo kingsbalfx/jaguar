@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/router";
-import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
+import { getBrowserSupabaseClient, isSupabaseConfigured } from "../lib/supabaseClient";
 
 /**
  * CompleteProfile Page
@@ -18,7 +18,7 @@ export default function CompleteProfile() {
   const [err, setErr] = useState("");
   const [user, setUser] = useState(null);
   const router = useRouter();
-  const isConfigured = Boolean(isSupabaseConfigured && supabase);
+  const isConfigured = Boolean(isSupabaseConfigured);
 
   if (!isConfigured) {
     return (
@@ -38,9 +38,11 @@ export default function CompleteProfile() {
   useEffect(() => {
     const fetchUser = async () => {
       if (!isConfigured) return;
+      const client = getBrowserSupabaseClient();
+      if (!client) return;
       const {
         data: { user },
-      } = await supabase.auth.getUser();
+      } = await client.auth.getUser();
 
       if (!user) {
         router.push("/login");

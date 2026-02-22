@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase, isSupabaseConfigured } from "../../lib/supabaseClient"; // if you have a shared client
+import { getBrowserSupabaseClient, isSupabaseConfigured } from "../../lib/supabaseClient"; // if you have a shared client
 import { getURL } from "../../lib/getURL";
 import { useRouter } from "next/router";
 import Link from "next/link";
@@ -13,7 +13,7 @@ export default function AuthLoginPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const isConfigured = Boolean(isSupabaseConfigured && supabase);
+  const isConfigured = Boolean(isSupabaseConfigured);
 
   const next =
     typeof router.query?.next === "string" ? router.query.next : "";
@@ -45,7 +45,12 @@ export default function AuthLoginPage() {
         ? `${base}auth/callback?next=${encodeURIComponent(next)}`
         : `${base}auth/callback`;
 
-      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
+      const client = getBrowserSupabaseClient();
+      if (!client) {
+        setError("Supabase client not available.");
+        return;
+      }
+      const { data, error: oauthError } = await client.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo },
       });
@@ -80,7 +85,12 @@ export default function AuthLoginPage() {
       return;
     }
 
-    const { error: signUpError } = await supabase.auth.signUp({
+    const client = getBrowserSupabaseClient();
+    if (!client) {
+      setError("Supabase client not available.");
+      return;
+    }
+    const { error: signUpError } = await client.auth.signUp({
       email,
       password,
       options: {

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { createPagesBrowserClient } from "@supabase/auth-helpers-nextjs";
 
 /**
  * ✅ Public (client-side) Supabase instance
@@ -8,9 +9,26 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON);
 
-export const supabase = isSupabaseConfigured
-  ? createClient(SUPABASE_URL, SUPABASE_ANON)
-  : null;
+let browserClient = null;
+
+/**
+ * ✅ Browser client (uses auth-helpers to set cookies for SSR)
+ */
+export function getBrowserSupabaseClient() {
+  if (!isSupabaseConfigured) return null;
+  if (typeof window === "undefined") return null;
+  if (!browserClient) {
+    browserClient = createPagesBrowserClient({
+      supabaseUrl: SUPABASE_URL,
+      supabaseKey: SUPABASE_ANON,
+    });
+  }
+  return browserClient;
+}
+
+// Keep legacy export for components that import { supabase }
+export const supabase =
+  typeof window !== "undefined" ? getBrowserSupabaseClient() : null;
 
 /**
  * ✅ Server/Admin Supabase instance factory

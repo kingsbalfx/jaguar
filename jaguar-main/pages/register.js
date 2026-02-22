@@ -1,7 +1,7 @@
 // pages/register.js
 import React, { useState } from "react";
 import { useRouter } from "next/router";
-import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
+import { getBrowserSupabaseClient, isSupabaseConfigured } from "../lib/supabaseClient";
 import { getURL } from "../lib/getURL";
 import { FcGoogle } from "react-icons/fc";
 
@@ -12,7 +12,7 @@ export default function Register() {
   const [errMsg, setErrMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [loading, setLoading] = useState(false);
-  const isConfigured = Boolean(isSupabaseConfigured && supabase);
+  const isConfigured = Boolean(isSupabaseConfigured);
 
   if (!isConfigured) {
     return (
@@ -40,7 +40,9 @@ export default function Register() {
         return;
       }
       const base = getURL().replace(/\/$/, "");
-      const { data, error } = await supabase.auth.signUp({
+      const client = getBrowserSupabaseClient();
+      if (!client) throw new Error("Supabase client not available.");
+      const { data, error } = await client.auth.signUp({
         email,
         password,
         options: { redirectTo: `${base}/auth/callback` }
@@ -70,7 +72,9 @@ export default function Register() {
         return;
       }
       const base = getURL().replace(/\/$/, "");
-      const { error } = await supabase.auth.signInWithOAuth({
+      const client = getBrowserSupabaseClient();
+      if (!client) throw new Error("Supabase client not available.");
+      const { error } = await client.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo: `${base}/auth/callback` }
       });

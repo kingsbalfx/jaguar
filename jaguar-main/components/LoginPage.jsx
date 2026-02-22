@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/router";
-import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
+import { getBrowserSupabaseClient, isSupabaseConfigured } from "../lib/supabaseClient";
 import { getURL } from "../lib/getURL";
 
 export default function LoginPage() {
   const router = useRouter();
   const next =
     typeof router.query?.next === "string" ? router.query.next : "";
-  const isConfigured = Boolean(isSupabaseConfigured && supabase);
+  const isConfigured = Boolean(isSupabaseConfigured);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,7 +26,9 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const client = getBrowserSupabaseClient();
+      if (!client) throw new Error("Supabase client not available.");
+      const { error } = await client.auth.signInWithPassword({ email, password });
       if (error) throw error;
 
       const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
@@ -50,7 +52,9 @@ export default function LoginPage() {
         ? `${base}auth/callback?next=${encodeURIComponent(next)}`
         : `${base}auth/callback`;
 
-      const { error } = await supabase.auth.signInWithOAuth({
+      const client = getBrowserSupabaseClient();
+      if (!client) throw new Error("Supabase client not available.");
+      const { error } = await client.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo },
       });
@@ -64,7 +68,9 @@ export default function LoginPage() {
   useEffect(() => {
     (async () => {
       if (!isConfigured) return;
-      const { data } = await supabase.auth.getSession();
+      const client = getBrowserSupabaseClient();
+      if (!client) return;
+      const { data } = await client.auth.getSession();
       if (data?.session?.user) {
         const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
         router.replace(`/auth/callback${nextParam}`);
