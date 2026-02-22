@@ -1,128 +1,177 @@
 // pages/admin/messages.js
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 
-// client-side supabase instance (may be null if NEXT_PUBLIC envs missing)
-import { supabase } from "../../lib/supabaseClient";
-
-/**
- * getServerSideProps - run on the server before the page is rendered.
- * This uses the server factory to create a supabase client using the service key
- * when available. If not available, we gracefully return empty props so the build doesn't crash.
- */
-import { getSupabaseClient } from "../../lib/supabaseClient";
-
-async function fetchMessagesWithFallback(client) {
-  let { data, error } = await client
-    .from("messages")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(20);
-
-  if (error && error.code === "42703") {
-    ({ data, error } = await client
-      .from("messages")
-      .select("*")
-      .order("id", { ascending: false })
-      .limit(20));
-  }
-
-  return { data, error };
-}
-
-export async function getServerSideProps(ctx) {
-  const sb = getSupabaseClient({ server: true });
-
-  if (!sb) {
-    // envs missing: return empty messages so build & preview won't fail
-    return { props: { initialMessages: [] } };
-  }
-
-  try {
-    const { data, error } = await fetchMessagesWithFallback(sb);
-
-    if (error) {
-      console.error("Server fetch messages error:", error);
-      return { props: { initialMessages: [] } };
-    }
-
-    return { props: { initialMessages: data || [] } };
-  } catch (err) {
-    console.error("Unexpected server error fetching messages:", err);
-    return { props: { initialMessages: [] } };
-  }
-}
-
-export default function Messages({ initialMessages = [] }) {
+export default function Messages() {
   const [msg, setMsg] = useState("");
-  const [items, setItems] = useState(initialMessages || []);
+  const [segment, setSegment] = useState("all");
+  const [items, setItems] = useState([]);
+  const [editingId, setEditingId] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Keep local fetch in case client-side supabase exists and we want live refresh.
-    // But if supabase is null (no NEXT_PUBLIC envs), we skip client fetch.
-    if (supabase) {
-      fetchMessages();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchMessages();
   }, []);
 
   async function fetchMessages() {
-    if (!supabase) {
-      // nothing to do on the client if public client isn't configured
-      return;
+    try {
+      const res = await fetch("/api/admin/messages");
+      const json = await res.json();
+      if (res.ok) {
+        setItems(json.items || []);
+      } else {
+        console.error("Client fetch messages error:", json.error);
+      }
+    } catch (err) {
+      console.error("Client fetch messages error:", err);
     }
-    const { data, error } = await fetchMessagesWithFallback(supabase);
-    if (!error) setItems(data || []);
-    else console.error("Client fetch messages error:", error);
   }
 
   async function saveMessage() {
-    if (!supabase) {
-      alert("Supabase client not configured (client). Message cannot be saved from browser.");
-      return;
-    }
-
-    const { data, error } = await supabase.from("messages").insert([{ content: msg }]);
-    if (!error) {
+    if (!msg.trim()) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: msg, segment }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Unable to save message");
       setMsg("");
-      fetchMessages();
-    } else {
-      alert("Unable to save message: " + (error.message || JSON.stringify(error)));
+      setSegment("all");
+      await fetchMessages();
+    } catch (err) {
+      alert(err.message || "Unable to save message");
+    } finally {
+      setLoading(false);
     }
   }
 
+  async function updateMessage(id) {
+    if (!msg.trim()) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/admin/messages/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: msg, segment }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Unable to update message");
+      setEditingId(null);
+      setMsg("");
+      setSegment("all");
+      await fetchMessages();
+    } catch (err) {
+      alert(err.message || "Unable to update message");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteMessage(id) {
+    if (!confirm("Delete this message?")) return;
+    try {
+      const res = await fetch(`/api/admin/messages/${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Unable to delete message");
+      await fetchMessages();
+    } catch (err) {
+      alert(err.message || "Unable to delete message");
+    }
+  }
+
+  const startEdit = (item) => {
+    setEditingId(item.id);
+    setMsg(item.content || "");
+    setSegment(item.segment || "all");
+  };
+
   return (
     <main className="container mx-auto px-6 py-8">
-        <h2 className="text-2xl font-bold mb-4">Landing Page Messages</h2>
+      <h2 className="text-2xl font-bold mb-4">Landing Page Messages</h2>
 
-        <div className="mb-4">
-          <textarea
-            value={msg}
-            onChange={(e) => setMsg(e.target.value)}
-            className="w-full p-3 bg-gray-900 rounded"
-            rows={4}
-          />
-          <div className="mt-2">
-            <button onClick={saveMessage} className="px-4 py-2 bg-green-600 rounded">
-              Save
+      <div className="mb-4 space-y-3">
+        <textarea
+          value={msg}
+          onChange={(e) => setMsg(e.target.value)}
+          className="w-full p-3 bg-gray-900 rounded"
+          rows={4}
+          placeholder="Write a message for the landing page..."
+        />
+        <div className="flex flex-wrap gap-3">
+          <select
+            className="rounded bg-black/40 border border-white/10 px-3 py-2 text-white"
+            value={segment}
+            onChange={(e) => setSegment(e.target.value)}
+          >
+            <option value="all">All</option>
+            <option value="free">Free</option>
+            <option value="premium">Premium</option>
+            <option value="vip">VIP</option>
+            <option value="pro">Pro</option>
+            <option value="lifetime">Lifetime</option>
+          </select>
+          {editingId ? (
+            <>
+              <button
+                onClick={() => updateMessage(editingId)}
+                className="px-4 py-2 bg-indigo-600 rounded"
+                disabled={loading}
+              >
+                {loading ? "Saving..." : "Update Message"}
+              </button>
+              <button
+                onClick={() => {
+                  setEditingId(null);
+                  setMsg("");
+                  setSegment("all");
+                }}
+                className="px-4 py-2 bg-gray-700 rounded"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={saveMessage}
+              className="px-4 py-2 bg-green-600 rounded"
+              disabled={loading}
+            >
+              {loading ? "Saving..." : "Save Message"}
             </button>
-          </div>
+          )}
         </div>
+      </div>
 
-        <div>
-          <h3 className="font-semibold mb-2">Recent messages</h3>
-          <ul>
-            {items.map((it) => (
-              <li key={it.id} className="mb-3 text-gray-300">
-                <div className="text-sm">{it.content}</div>
-                {it.created_at && (
-                  <div className="text-xs text-gray-500 mt-1">
-                    {new Date(it.created_at).toLocaleString()}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
+      <div>
+        <h3 className="font-semibold mb-2">Recent messages</h3>
+        <ul>
+          {items.map((it) => (
+            <li key={it.id} className="mb-3 rounded border border-white/10 bg-black/30 p-3 text-gray-300">
+              <div className="text-sm">{it.content}</div>
+              <div className="mt-1 text-xs text-gray-500 flex flex-wrap gap-3">
+                <span>Segment: {it.segment || "all"}</span>
+                {it.created_at && <span>{new Date(it.created_at).toLocaleString()}</span>}
+              </div>
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={() => startEdit(it)}
+                  className="px-3 py-1 rounded bg-indigo-600 text-xs"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => deleteMessage(it.id)}
+                  className="px-3 py-1 rounded bg-red-600 text-xs"
+                >
+                  Delete
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
     </main>
   );
 }

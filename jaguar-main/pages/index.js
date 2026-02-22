@@ -3,6 +3,43 @@ import React, { useState } from "react";
 import Link from "next/link";
 import AdSense from "../components/AdSense";
 import { getSupabaseClient } from "../lib/supabaseClient";
+import dynamic from "next/dynamic";
+import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
+
+const TwilioVideoClient = dynamic(() => import("../components/TwilioVideoClient"), { ssr: false });
+
+const ROLE_RANK = {
+  free: 0,
+  user: 0,
+  premium: 1,
+  vip: 2,
+  pro: 3,
+  lifetime: 4,
+  admin: 99,
+  all: 0,
+};
+
+function canAccess(role, segment) {
+  const r = ROLE_RANK[role] ?? 0;
+  const s = ROLE_RANK[segment] ?? 0;
+  return r >= s;
+}
+
+function toYouTubeEmbed(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.includes("youtu.be")) {
+      const id = parsed.pathname.replace("/", "");
+      return `https://www.youtube.com/embed/${id}`;
+    }
+    if (parsed.searchParams.get("v")) {
+      return `https://www.youtube.com/embed/${parsed.searchParams.get("v")}`;
+    }
+    return url;
+  } catch {
+    return url;
+  }
+}
 
 async function fetchMessagesWithFallback(client) {
   let { data, error } = await client
@@ -22,17 +59,21 @@ async function fetchMessagesWithFallback(client) {
   return { data, error };
 }
 
-export async function getServerSideProps() {
+export async function getServerSideProps(ctx) {
+  const authClient = createPagesServerClient(ctx);
+  const {
+    data: { session },
+  } = await authClient.auth.getSession();
   const supabaseAdmin = getSupabaseClient({ server: true });
   if (!supabaseAdmin) {
-    return { props: { initialMessages: [], liveSession: null } };
+    return { props: { initialMessages: [], liveSession: null, canViewLive: false } };
   }
 
   try {
     const { data, error } = await fetchMessagesWithFallback(supabaseAdmin);
     if (error) {
       console.error("Landing messages error:", error);
-      return { props: { initialMessages: [], liveSession: null } };
+      return { props: { initialMessages: [], liveSession: null, canViewLive: false } };
     }
 
     let liveSession = null;
@@ -52,14 +93,29 @@ export async function getServerSideProps() {
       console.error("Live session fetch error:", err);
     }
 
-    return { props: { initialMessages: data || [], liveSession } };
+    let viewerRole = "user";
+    if (session?.user) {
+      const { data: profile } = await supabaseAdmin
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .maybeSingle();
+      viewerRole = (profile?.role || "user").toLowerCase();
+    }
+    const subscriberRoles = new Set(["premium", "vip", "pro", "lifetime", "admin"]);
+    const canViewLive =
+      Boolean(session?.user) &&
+      subscriberRoles.has(viewerRole) &&
+      (liveSession ? canAccess(viewerRole, liveSession.segment || "all") : false);
+
+    return { props: { initialMessages: data || [], liveSession, canViewLive } };
   } catch (err) {
     console.error("Landing messages error:", err);
-    return { props: { initialMessages: [], liveSession: null } };
+    return { props: { initialMessages: [], liveSession: null, canViewLive: false } };
   }
 }
 
-export default function Home({ initialMessages = [], liveSession = null }) {
+export default function Home({ initialMessages = [], liveSession = null, canViewLive = false }) {
   const [mode, setMode] = useState("trial"); // trial | premium | vip
   const defaultMessages = [
     { id: 1, text: "Precision entries. Disciplined exits. Every signal measured.", segments: ["all"] },
@@ -175,6 +231,34 @@ export default function Home({ initialMessages = [], liveSession = null }) {
                 {liveSession.ends_at ? ` — ${new Date(liveSession.ends_at).toLocaleTimeString()}` : ""}
                 {liveSession.timezone ? ` (${liveSession.timezone})` : ""}
               </div>
+              {canViewLive ? (
+                <div className="mt-4">
+                  {liveSession.media_type === "youtube" && liveSession.media_url && (
+                    <div className="aspect-video w-full overflow-hidden rounded-lg border border-white/10">
+                      <iframe
+                        title="YouTube Live"
+                        src={toYouTubeEmbed(liveSession.media_url)}
+                        className="w-full h-full"
+                        allow="autoplay; encrypted-media"
+                        allowFullScreen
+                      />
+                    </div>
+                  )}
+                  {(liveSession.media_type === "twilio_video" ||
+                    liveSession.media_type === "twilio_audio") && (
+                    <div className="mt-3">
+                      <TwilioVideoClient
+                        roomName={liveSession.room_name || "global-room"}
+                        audioOnly={Boolean(liveSession.audio_only)}
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-4 text-sm text-emerald-100/70">
+                  Live sessions are available to active subscribers.
+                </div>
+              )}
             </div>
           )}
           <div className="flex flex-wrap gap-3 mb-6">
