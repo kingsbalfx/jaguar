@@ -1,36 +1,95 @@
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
+import { getBrowserSupabaseClient } from "../lib/supabaseClient";
 
-const LINKS = [
-  { label: "Home", href: "/" },
-  { label: "Pricing", href: "/pricing" },
-  { label: "Login", href: "/login" },
-  { label: "Register", href: "/register" },
-  { label: "Dashboard (Premium)", href: "/dashboard/premium" },
-  { label: "Dashboard (VIP)", href: "/dashboard/vip" },
-  { label: "Dashboard (Pro)", href: "/dashboard/pro" },
-  { label: "Dashboard (Lifetime)", href: "/dashboard/lifetime" },
-  { label: "Admin Home", href: "/admin" },
-  { label: "Admin Messages", href: "/admin/messages" },
-  { label: "Admin Settings", href: "/admin/settings" },
-  { label: "Mentorship", href: "/admin/mentorship" },
-];
+const ROLE_DASHBOARD = {
+  premium: { label: "Dashboard (Premium)", href: "/dashboard/premium" },
+  vip: { label: "Dashboard (VIP)", href: "/dashboard/vip" },
+  pro: { label: "Dashboard (Pro)", href: "/dashboard/pro" },
+  lifetime: { label: "Dashboard (Lifetime)", href: "/dashboard/lifetime" },
+};
+
+function buildLinks(role) {
+  const links = [
+    { label: "Home", href: "/" },
+    { label: "Pricing", href: "/pricing" },
+  ];
+
+  if (ROLE_DASHBOARD[role]) {
+    links.push(ROLE_DASHBOARD[role]);
+  }
+
+  if (role === "admin") {
+    links.push(
+      { label: "Admin Home", href: "/admin" },
+      { label: "Admin Settings", href: "/admin/settings" },
+      { label: "Admin Messages", href: "/admin/messages" },
+      { label: "Mentorship", href: "/admin/mentorship" },
+      { label: "Users", href: "/admin/users" },
+      { label: "Subscriptions", href: "/admin/subscriptions" }
+    );
+  }
+
+  return links;
+}
 
 export default function QuickNav() {
   const [open, setOpen] = useState(false);
+  const [role, setRole] = useState(null);
+  const [allowed, setAllowed] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
     setOpen(false);
   }, [router.pathname]);
 
+  useEffect(() => {
+    let active = true;
+    const loadRole = async () => {
+      const client = getBrowserSupabaseClient();
+      if (!client) return;
+      const { data } = await client.auth.getSession();
+      const user = data?.session?.user;
+      if (!user) return;
+
+      try {
+        const res = await fetch("/api/get-role", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: user.id }),
+        });
+        const json = await res.json();
+        const resolvedRole = (json?.role || "user").toLowerCase();
+        if (!active) return;
+        setRole(resolvedRole);
+        const allowedRoles = new Set(["admin", "premium", "vip", "pro", "lifetime"]);
+        const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || "").toLowerCase();
+        const isAdminEmail = adminEmail && user.email?.toLowerCase() === adminEmail;
+        setAllowed(allowedRoles.has(resolvedRole) || isAdminEmail);
+      } catch {
+        if (!active) return;
+        setRole("user");
+        setAllowed(false);
+      }
+    };
+
+    loadRole();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const links = useMemo(() => buildLinks(role), [role]);
+
+  if (!allowed) return null;
+
   return (
-    <div className="fixed left-4 top-20 z-[60]">
+    <div className="relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="h-11 w-11 rounded-full bg-indigo-600 text-white shadow-lg shadow-black/30 border border-white/10 flex items-center justify-center"
+        className="h-10 w-10 rounded-full bg-indigo-600 text-white shadow-lg shadow-black/30 border border-white/10 flex items-center justify-center"
         aria-expanded={open}
         aria-label="Quick navigation"
       >
@@ -38,9 +97,13 @@ export default function QuickNav() {
       </button>
 
       {open && (
-        <div className="mt-3 w-56 rounded-xl bg-slate-950/95 border border-white/10 shadow-xl backdrop-blur p-2 text-sm">
-          {LINKS.map((item) => (
-            <Link key={item.href} href={item.href} className="block px-3 py-2 rounded-md text-gray-200 hover:bg-white/10">
+        <div className="absolute left-0 mt-3 w-60 rounded-xl bg-slate-950/95 border border-white/10 shadow-xl backdrop-blur p-2 text-sm">
+          {links.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="block px-3 py-2 rounded-md text-gray-200 hover:bg-white/10"
+            >
               {item.label}
             </Link>
           ))}

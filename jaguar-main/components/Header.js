@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
+import QuickNav from "./QuickNav";
 
 const NAV_ITEMS = [
   { label: "Home", href: "/" },
@@ -51,15 +52,18 @@ export default function Header() {
           ))}
         </nav>
 
-        <button
-          type="button"
-          aria-pressed={liveMode}
-          onClick={() => setLiveMode((v) => !v)}
-          className="hidden md:flex items-center gap-3 px-3 py-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 text-emerald-200 text-xs uppercase tracking-widest neon-toggle"
-        >
-          <span className={`neon-dot ${liveMode ? "neon-dot-live" : "neon-dot-off"}`} />
-          <span>{liveMode ? "Live Mode" : "Preview"}</span>
-        </button>
+        <div className="hidden md:flex items-center gap-3">
+          <QuickNav />
+          <button
+            type="button"
+            aria-pressed={liveMode}
+            onClick={() => setLiveMode((v) => !v)}
+            className="flex items-center gap-3 px-3 py-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 text-emerald-200 text-xs uppercase tracking-widest neon-toggle"
+          >
+            <span className={`neon-dot ${liveMode ? "neon-dot-live" : "neon-dot-off"}`} />
+            <span>{liveMode ? "Live Mode" : "Preview"}</span>
+          </button>
+        </div>
 
         {/* Mobile button */}
         <button

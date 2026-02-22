@@ -2,7 +2,6 @@ import "../styles/globals.css";
 import Head from "next/head";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
-import QuickNav from "../components/QuickNav";
 
 export default function MyApp({ Component, pageProps }) {
   return (
@@ -44,7 +43,6 @@ export default function MyApp({ Component, pageProps }) {
       </Head>
 
       <Header />
-      <QuickNav />
 
       <main className="flex-grow app-bg">
         <div className="app-content">
