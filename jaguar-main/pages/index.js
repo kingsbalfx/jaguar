@@ -2,21 +2,70 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import AdSense from "../components/AdSense";
+import { getSupabaseClient } from "../lib/supabaseClient";
 
-export default function Home() {
+async function fetchMessagesWithFallback(client) {
+  let { data, error } = await client
+    .from("messages")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (error && error.code === "42703") {
+    ({ data, error } = await client
+      .from("messages")
+      .select("*")
+      .order("id", { ascending: false })
+      .limit(20));
+  }
+
+  return { data, error };
+}
+
+export async function getServerSideProps() {
+  const supabaseAdmin = getSupabaseClient({ server: true });
+  if (!supabaseAdmin) {
+    return { props: { initialMessages: [] } };
+  }
+
+  try {
+    const { data, error } = await fetchMessagesWithFallback(supabaseAdmin);
+    if (error) {
+      console.error("Landing messages error:", error);
+      return { props: { initialMessages: [] } };
+    }
+    return { props: { initialMessages: data || [] } };
+  } catch (err) {
+    console.error("Landing messages error:", err);
+    return { props: { initialMessages: [] } };
+  }
+}
+
+export default function Home({ initialMessages = [] }) {
   const [mode, setMode] = useState("trial"); // trial | premium | vip
-
-  const messages = [
+  const defaultMessages = [
     { id: 1, text: "Precision entries. Disciplined exits. Every signal measured.", segments: ["all"] },
     { id: 2, text: "VIP weekly signals are live with full trade walkthroughs.", segments: ["vip"] },
     { id: 3, text: "New lesson drop: Market Structure & Liquidity Sweeps.", segments: ["premium", "vip"] },
     { id: 4, text: "Premium & VIP challenge starts this week — join the desk.", segments: ["premium", "vip"] },
     { id: 5, text: "VIP 1:1 mentorship slots open for serious traders.", segments: ["vip"] }
   ];
-  const visibleMessages = messages.filter(
+  const normalizedMessages = (initialMessages.length ? initialMessages : defaultMessages).map((m, i) => {
+    const segments = Array.isArray(m.segments)
+      ? m.segments
+      : m.segment
+        ? [m.segment]
+        : ["all"];
+    return {
+      id: m.id ?? i + 1,
+      text: m.content ?? m.text ?? m.message ?? "",
+      segments,
+    };
+  });
+
+  const visibleMessages = normalizedMessages.filter(
     (m) => m.segments.includes("all") || m.segments.includes(mode)
   );
-
   return (
     <main className="flex-grow app-bg text-white relative overflow-hidden">
       <div className="candle-backdrop" aria-hidden="true" />
@@ -213,3 +262,4 @@ export default function Home() {
     </main>
   );
 }
+
