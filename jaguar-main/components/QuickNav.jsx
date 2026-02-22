@@ -38,6 +38,7 @@ export default function QuickNav() {
   const [open, setOpen] = useState(false);
   const [role, setRole] = useState(null);
   const [allowed, setAllowed] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
   const router = useRouter();
 
   useEffect(() => {
@@ -52,6 +53,9 @@ export default function QuickNav() {
       const { data } = await client.auth.getSession();
       const user = data?.session?.user;
       if (!user) return;
+      if (!active) return;
+      setAllowed(true);
+      setUserEmail(user.email || "");
 
       try {
         const res = await fetch("/api/get-role", {
@@ -63,14 +67,9 @@ export default function QuickNav() {
         const resolvedRole = (json?.role || "user").toLowerCase();
         if (!active) return;
         setRole(resolvedRole);
-        const allowedRoles = new Set(["admin", "premium", "vip", "pro", "lifetime"]);
-        const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || "").toLowerCase();
-        const isAdminEmail = adminEmail && user.email?.toLowerCase() === adminEmail;
-        setAllowed(allowedRoles.has(resolvedRole) || isAdminEmail);
       } catch {
         if (!active) return;
         setRole("user");
-        setAllowed(false);
       }
     };
 
@@ -80,9 +79,22 @@ export default function QuickNav() {
     };
   }, []);
 
-  const links = useMemo(() => buildLinks(role), [role]);
+  const links = useMemo(() => {
+    const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || "").toLowerCase();
+    const isAdminEmail = adminEmail && userEmail.toLowerCase() === adminEmail;
+    const effectiveRole = role === "admin" || isAdminEmail ? "admin" : role;
+    return buildLinks(effectiveRole);
+  }, [role, userEmail]);
 
   if (!allowed) return null;
+
+  const handleSignOut = async () => {
+    const client = getBrowserSupabaseClient();
+    if (client) {
+      await client.auth.signOut();
+    }
+    router.push("/login");
+  };
 
   return (
     <div className="relative">
@@ -107,6 +119,13 @@ export default function QuickNav() {
               {item.label}
             </Link>
           ))}
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="w-full text-left px-3 py-2 rounded-md text-red-200 hover:bg-white/10"
+          >
+            Sign Out
+          </button>
         </div>
       )}
     </div>
