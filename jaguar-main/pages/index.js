@@ -25,23 +25,41 @@ async function fetchMessagesWithFallback(client) {
 export async function getServerSideProps() {
   const supabaseAdmin = getSupabaseClient({ server: true });
   if (!supabaseAdmin) {
-    return { props: { initialMessages: [] } };
+    return { props: { initialMessages: [], liveSession: null } };
   }
 
   try {
     const { data, error } = await fetchMessagesWithFallback(supabaseAdmin);
     if (error) {
       console.error("Landing messages error:", error);
-      return { props: { initialMessages: [] } };
+      return { props: { initialMessages: [], liveSession: null } };
     }
-    return { props: { initialMessages: data || [] } };
+
+    let liveSession = null;
+    try {
+      const { data: sessionData, error: sessionErr } = await supabaseAdmin
+        .from("live_sessions")
+        .select("id, title, starts_at, ends_at, timezone, status")
+        .eq("active", true)
+        .order("starts_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (!sessionErr) liveSession = sessionData || null;
+      if (sessionErr && sessionErr.code !== "42P01") {
+        console.error("Live session fetch error:", sessionErr);
+      }
+    } catch (err) {
+      console.error("Live session fetch error:", err);
+    }
+
+    return { props: { initialMessages: data || [], liveSession } };
   } catch (err) {
     console.error("Landing messages error:", err);
-    return { props: { initialMessages: [] } };
+    return { props: { initialMessages: [], liveSession: null } };
   }
 }
 
-export default function Home({ initialMessages = [] }) {
+export default function Home({ initialMessages = [], liveSession = null }) {
   const [mode, setMode] = useState("trial"); // trial | premium | vip
   const defaultMessages = [
     { id: 1, text: "Precision entries. Disciplined exits. Every signal measured.", segments: ["all"] },
@@ -142,6 +160,23 @@ export default function Home({ initialMessages = [] }) {
         </div>
 
         <section className="mt-12">
+          {liveSession && (
+            <div className="mb-6 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-4">
+              <div className="text-xs uppercase tracking-widest text-emerald-200 mb-2">
+                Live Session
+              </div>
+              <div className="text-lg font-semibold text-white">
+                {liveSession.title || "Next Live Session"}
+              </div>
+              <div className="mt-1 text-sm text-emerald-100/80">
+                {liveSession.starts_at
+                  ? new Date(liveSession.starts_at).toLocaleString()
+                  : "Time not set"}
+                {liveSession.ends_at ? ` — ${new Date(liveSession.ends_at).toLocaleTimeString()}` : ""}
+                {liveSession.timezone ? ` (${liveSession.timezone})` : ""}
+              </div>
+            </div>
+          )}
           <div className="flex flex-wrap gap-3 mb-6">
             <button
               onClick={() => setMode("trial")}
