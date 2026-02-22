@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createPagesBrowserClient } from "@supabase/auth-helpers-nextjs";
 
 /**
- * ✅ Public (client-side) Supabase instance
+ * Public (client-side) Supabase instance
  * Used in browser components (auth pages, dashboard, etc.)
  */
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -12,7 +12,7 @@ export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON);
 let browserClient = null;
 
 /**
- * ✅ Browser client (uses auth-helpers to set cookies for SSR)
+ * Browser client (uses auth-helpers to set cookies for SSR)
  */
 export function getBrowserSupabaseClient() {
   if (!isSupabaseConfigured) return null;
@@ -27,18 +27,17 @@ export function getBrowserSupabaseClient() {
 }
 
 // Keep legacy export for components that import { supabase }
-export const supabase =
-  typeof window !== "undefined" ? getBrowserSupabaseClient() : null;
+export const supabase = typeof window !== "undefined" ? getBrowserSupabaseClient() : null;
 
 /**
- * ✅ Server/Admin Supabase instance factory
+ * Server/Admin Supabase instance factory
  * Use { server: true } when calling from getServerSideProps or API routes.
- * Automatically uses the secure SERVICE_ROLE_KEY for admin actions.
+ * Requires SUPABASE_SERVICE_ROLE_KEY set as a server-only environment variable.
  */
 export function getSupabaseClient({ server = false } = {}) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
 
   if (!url) {
     console.warn("Missing Supabase URL (NEXT_PUBLIC_SUPABASE_URL).");
@@ -47,12 +46,8 @@ export function getSupabaseClient({ server = false } = {}) {
 
   if (server) {
     if (!service) {
-      if (!anon) {
-        console.warn("Missing SUPABASE_SERVICE_ROLE_KEY and NEXT_PUBLIC_SUPABASE_ANON_KEY.");
-        return null;
-      }
-      console.warn("Missing SUPABASE_SERVICE_ROLE_KEY — falling back to anon key (not recommended).");
-      return createClient(url, anon);
+      console.warn("Missing SUPABASE_SERVICE_ROLE_KEY. Set it as a server-only env var.");
+      return null;
     }
     return createClient(url, service);
   }

@@ -80,7 +80,7 @@ export async function getServerSideProps(ctx) {
     try {
       const { data: sessionData, error: sessionErr } = await supabaseAdmin
         .from("live_sessions")
-        .select("id, title, starts_at, ends_at, timezone, status")
+        .select("id, title, starts_at, ends_at, timezone, status, media_type, media_url, room_name, segment, audio_only")
         .eq("active", true)
         .order("starts_at", { ascending: true })
         .limit(1)
@@ -116,12 +116,12 @@ export async function getServerSideProps(ctx) {
 }
 
 export default function Home({ initialMessages = [], liveSession = null, canViewLive = false }) {
-  const [mode, setMode] = useState("trial"); // trial | premium | vip
+  const [mode, setMode] = useState("free"); // free | premium | vip
   const defaultMessages = [
     { id: 1, text: "Precision entries. Disciplined exits. Every signal measured.", segments: ["all"] },
     { id: 2, text: "VIP weekly signals are live with full trade walkthroughs.", segments: ["vip"] },
     { id: 3, text: "New lesson drop: Market Structure & Liquidity Sweeps.", segments: ["premium", "vip"] },
-    { id: 4, text: "Premium & VIP challenge starts this week — join the desk.", segments: ["premium", "vip"] },
+    { id: 4, text: "Premium & VIP challenge starts this week - join the desk.", segments: ["premium", "vip"] },
     { id: 5, text: "VIP 1:1 mentorship slots open for serious traders.", segments: ["vip"] }
   ];
   const normalizedMessages = (initialMessages.length ? initialMessages : defaultMessages).map((m, i) => {
@@ -263,9 +263,9 @@ export default function Home({ initialMessages = [], liveSession = null, canView
           )}
           <div className="flex flex-wrap gap-3 mb-6">
             <button
-              onClick={() => setMode("trial")}
+              onClick={() => setMode("free")}
               className={`px-4 py-2 rounded-full ${
-                mode === "trial"
+                mode === "free"
                   ? "bg-yellow-400 text-black"
                   : "bg-transparent border border-yellow-400 text-yellow-400"
               }`}
@@ -302,7 +302,7 @@ export default function Home({ initialMessages = [], liveSession = null, canView
             ))}
           </div>
 
-          {mode === "trial" && (
+          {mode === "free" && (
             <div className="mt-8 rounded-2xl border border-yellow-400/30 bg-yellow-500/5 p-4">
               <div className="text-xs uppercase tracking-widest text-yellow-300 mb-2">
                 Sponsored

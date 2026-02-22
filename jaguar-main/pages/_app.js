@@ -1,9 +1,14 @@
 import "../styles/globals.css";
 import Head from "next/head";
+import { useRouter } from "next/router";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
 
 export default function MyApp({ Component, pageProps }) {
+  const router = useRouter();
+  const showCandle =
+    router.pathname.startsWith("/admin") || router.pathname.startsWith("/dashboard");
+
   return (
     <div className="min-h-screen flex flex-col bg-black text-white">
       <Head>
@@ -13,38 +18,36 @@ export default function MyApp({ Component, pageProps }) {
         <meta name="theme-color" content="#071022" />
         <meta name="google-adsense-account" content="ca-pub-9076762305803751" />
 
-        {/* ✅ Jaguar logo setup */}
         <link rel="icon" href="/jaguar.png" />
         <link rel="apple-touch-icon" href="/jaguar.png" />
         <meta name="title" content="KINGSBALFX - Trade Smart, Live Smart" />
         <meta
           name="description"
-          content="KINGSBALFX — professional forex and crypto trading solutions for serious investors."
+          content="KINGSBALFX - professional forex and crypto trading solutions for serious investors."
         />
 
-        {/* ✅ Open Graph (Facebook, WhatsApp, etc.) */}
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://kingsbalfx.name.ng/" />
         <meta property="og:title" content="KINGSBALFX - Trade Smart, Live Smart" />
         <meta
           property="og:description"
-          content="Join KINGSBALFX today — access VIP and premium trading insights to grow your portfolio."
+          content="Join KINGSBALFX today - access VIP and premium trading insights to grow your portfolio."
         />
         <meta property="og:image" content="https://kingsbalfx.name.ng/jaguar.png" />
 
-        {/* ✅ Twitter Card (for X / Twitter link previews) */}
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="KINGSBALFX - Trade Smart, Live Smart" />
         <meta
           name="twitter:description"
-          content="Join KINGSBALFX today — access VIP and premium trading insights to grow your portfolio."
+          content="Join KINGSBALFX today - access VIP and premium trading insights to grow your portfolio."
         />
         <meta name="twitter:image" content="https://kingsbalfx.name.ng/jaguar.png" />
       </Head>
 
       <Header />
 
-      <main className="flex-grow app-bg">
+      <main className="flex-grow app-bg relative overflow-hidden">
+        {showCandle && <div className="candle-backdrop" aria-hidden="true" />}
         <div className="app-content">
           <Component {...pageProps} />
         </div>

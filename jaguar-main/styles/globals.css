@@ -30,6 +30,14 @@ body {
   backdrop-filter: blur(18px);
 }
 
+.card {
+  background: rgba(8, 12, 24, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 18px;
+  box-shadow: 0 20px 50px rgba(2, 6, 23, 0.45);
+  backdrop-filter: blur(18px);
+}
+
 .btn-primary {
   background: linear-gradient(135deg, #4f46e5 0%, #9333ea 100%);
   box-shadow: 0 12px 30px rgba(79, 70, 229, 0.35);
@@ -145,7 +153,7 @@ body {
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  opacity: 0.22;
+  opacity: 0.28;
   background-image: url("/candles.svg");
   background-repeat: repeat-x;
   background-size: 1200px 320px;
