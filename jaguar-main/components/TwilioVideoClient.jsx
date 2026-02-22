@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from "react";
  *
  * Server: pages/api/twilio/token.js (provided below)
  */
-export default function TwilioVideoClient() {
+export default function TwilioVideoClient({ roomName = "global-room", audioOnly = false }) {
   const [status, setStatus] = useState("idle");
   const localRef = useRef(null);
   const remoteRef = useRef(null);
@@ -18,7 +18,11 @@ export default function TwilioVideoClient() {
     async function init() {
       setStatus("requesting-token");
       try {
-        const res = await fetch("/api/twilio/token", { method: "POST" });
+        const res = await fetch("/api/twilio/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomName }),
+        });
         if (!res.ok) {
           setStatus("token-failed");
           return;
@@ -32,7 +36,7 @@ export default function TwilioVideoClient() {
         const room = await TwilioVideo.connect(token, {
           name: roomName,
           audio: true,
-          video: { width: 640 },
+          video: audioOnly ? false : { width: 640 },
         });
         roomRef.current = room;
         setStatus("connected");

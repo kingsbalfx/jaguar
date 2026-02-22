@@ -29,8 +29,8 @@ export default async function handler(req, res) {
 
     token.identity = identity;
 
-    // optionally: room name or pass from request
-    const roomName = "global-room"; // or derive based on user/plan
+    const requestedRoom = (req.body?.roomName || "").toString().trim();
+    const roomName = requestedRoom || "global-room";
     const videoGrant = new VideoGrant({ room: roomName });
     token.addGrant(videoGrant);
 

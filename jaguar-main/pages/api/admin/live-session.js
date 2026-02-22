@@ -43,7 +43,7 @@ export default async function handler(req, res) {
     if (req.method === "GET") {
       const { data, error } = await supabaseAdmin
         .from("live_sessions")
-        .select("id, title, starts_at, ends_at, timezone, status, active, updated_at")
+        .select("id, title, starts_at, ends_at, timezone, status, active, media_type, media_url, room_name, segment, audio_only, updated_at")
         .eq("active", true)
         .order("starts_at", { ascending: true })
         .limit(1)
@@ -55,7 +55,18 @@ export default async function handler(req, res) {
       return res.status(200).json({ session: data || null });
     }
 
-    const { title, startsAt, endsAt, timezone, status } = req.body || {};
+    const {
+      title,
+      startsAt,
+      endsAt,
+      timezone,
+      status,
+      mediaType,
+      mediaUrl,
+      roomName,
+      segment,
+      audioOnly,
+    } = req.body || {};
     const starts_at = parseIso(startsAt);
     const ends_at = parseIso(endsAt);
 
@@ -73,10 +84,15 @@ export default async function handler(req, res) {
         ends_at,
         timezone: timezone || "Africa/Lagos",
         status: status || "scheduled",
+        media_type: mediaType || "twilio_video",
+        media_url: mediaUrl || null,
+        room_name: roomName || "global-room",
+        segment: segment || "all",
+        audio_only: Boolean(audioOnly),
         active: true,
         updated_at: new Date().toISOString(),
       })
-      .select("id, title, starts_at, ends_at, timezone, status, active, updated_at")
+      .select("id, title, starts_at, ends_at, timezone, status, active, media_type, media_url, room_name, segment, audio_only, updated_at")
       .maybeSingle();
 
     if (insertError) {
