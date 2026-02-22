@@ -33,21 +33,11 @@ export const getServerSideProps = async (ctx) => {
   const rawNext = ctx.query.next ?? ctx.query.redirectTo ?? null;
   const validatedNext = safeNextParam(rawNext);
 
-  // fetch profile (try anon first, fallback to service role)
-  let profile = null;
-  const { data: profileData, error: profileError } = await supabase
-    .from("profiles")
-    .select("id, role, email")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (profileError) {
-    console.error("Profile fetch error:", profileError);
-  }
-  profile = profileData || null;
-
   const supabaseAdmin = getSupabaseClient({ server: true });
-  if (!profile && supabaseAdmin) {
+  let profile = null;
+
+  // Prefer service-role (avoids RLS issues)
+  if (supabaseAdmin) {
     const { data: adminProfile, error: adminErr } = await supabaseAdmin
       .from("profiles")
       .select("id, role, email")
@@ -55,6 +45,20 @@ export const getServerSideProps = async (ctx) => {
       .maybeSingle();
     if (adminErr) console.error("Admin profile fetch error:", adminErr);
     profile = adminProfile || null;
+  }
+
+  // Fallback to session client if admin client not available
+  if (!profile) {
+    const { data: profileData, error: profileError } = await supabase
+      .from("profiles")
+      .select("id, role, email")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profileError && profileError.code !== "42501") {
+      console.error("Profile fetch error:", profileError);
+    }
+    profile = profileData || null;
   }
 
   const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || "").toLowerCase();

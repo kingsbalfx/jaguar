@@ -11,6 +11,24 @@ import { supabase } from "../../lib/supabaseClient";
  */
 import { getSupabaseClient } from "../../lib/supabaseClient";
 
+async function fetchMessagesWithFallback(client) {
+  let { data, error } = await client
+    .from("messages")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (error && error.code === "42703") {
+    ({ data, error } = await client
+      .from("messages")
+      .select("*")
+      .order("id", { ascending: false })
+      .limit(20));
+  }
+
+  return { data, error };
+}
+
 export async function getServerSideProps(ctx) {
   const sb = getSupabaseClient({ server: true });
 
@@ -20,11 +38,7 @@ export async function getServerSideProps(ctx) {
   }
 
   try {
-    const { data, error } = await sb
-      .from("messages")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(20);
+    const { data, error } = await fetchMessagesWithFallback(sb);
 
     if (error) {
       console.error("Server fetch messages error:", error);
@@ -56,11 +70,7 @@ export default function Messages({ initialMessages = [] }) {
       // nothing to do on the client if public client isn't configured
       return;
     }
-    const { data, error } = await supabase
-      .from("messages")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(20);
+    const { data, error } = await fetchMessagesWithFallback(supabase);
     if (!error) setItems(data || []);
     else console.error("Client fetch messages error:", error);
   }
@@ -102,8 +112,13 @@ export default function Messages({ initialMessages = [] }) {
           <h3 className="font-semibold mb-2">Recent messages</h3>
           <ul>
             {items.map((it) => (
-              <li key={it.id} className="mb-2 text-gray-300">
-                {it.content}
+              <li key={it.id} className="mb-3 text-gray-300">
+                <div className="text-sm">{it.content}</div>
+                {it.created_at && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    {new Date(it.created_at).toLocaleString()}
+                  </div>
+                )}
               </li>
             ))}
           </ul>

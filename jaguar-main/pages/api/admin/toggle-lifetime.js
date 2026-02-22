@@ -1,11 +1,11 @@
-import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
+import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
 
   try {
-    const supabase = createServerSupabaseClient({ req, res });
+    const supabase = createPagesServerClient({ req, res });
     const {
       data: { session },
     } = await supabase.auth.getSession();
