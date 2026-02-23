@@ -11,14 +11,19 @@ export default function TwilioVideoClient({
   roomName = "global-room",
   audioOnly = false,
   allowScreenShare = false,
+  showControls = false,
 }) {
   const [status, setStatus] = useState("idle");
   const [isSharing, setIsSharing] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [audienceMuted, setAudienceMuted] = useState(false);
   const localRef = useRef(null);
   const screenRef = useRef(null);
   const remoteRef = useRef(null);
   const roomRef = useRef(null);
   const screenTrackRef = useRef(null);
+  const localAudioTrackRef = useRef(null);
+  const remoteAudioElsRef = useRef(new Set());
 
   useEffect(() => {
     let mounted = true;
@@ -52,6 +57,9 @@ export default function TwilioVideoClient({
         const localTracks = Array.from(room.localParticipant.tracks.values());
         localTracks.forEach((publication) => {
           const track = publication.track;
+          if (track?.kind === "audio") {
+            localAudioTrackRef.current = track;
+          }
           if (track && localRef.current) {
             const el = track.attach();
             localRef.current.appendChild(el);
@@ -67,13 +75,31 @@ export default function TwilioVideoClient({
           participant.tracks.forEach((pub) => {
             if (pub.isSubscribed) {
               const el = pub.track.attach();
+              if (pub.track.kind === "audio") {
+                el.muted = audienceMuted;
+                remoteAudioElsRef.current.add(el);
+              }
               container.appendChild(el);
             }
           });
 
           participant.on("trackSubscribed", (track) => {
             const el = track.attach();
+            if (track.kind === "audio") {
+              el.muted = audienceMuted;
+              remoteAudioElsRef.current.add(el);
+            }
             container.appendChild(el);
+          });
+
+          participant.on("trackUnsubscribed", (track) => {
+            if (track.kind === "audio") {
+              remoteAudioElsRef.current.forEach((el) => {
+                if (el.srcObject === track.mediaStreamTrack) {
+                  remoteAudioElsRef.current.delete(el);
+                }
+              });
+            }
           });
         }
 
@@ -109,6 +135,24 @@ export default function TwilioVideoClient({
       }
     };
   }, []);
+
+  useEffect(() => {
+    // apply audience mute to existing remote audio elements
+    remoteAudioElsRef.current.forEach((el) => {
+      el.muted = audienceMuted;
+    });
+  }, [audienceMuted]);
+
+  const toggleMute = () => {
+    const track = localAudioTrackRef.current;
+    if (!track) return;
+    if (muted) {
+      track.enable();
+    } else {
+      track.disable();
+    }
+    setMuted(!muted);
+  };
 
   const startScreenShare = async () => {
     if (audioOnly) return;
@@ -162,24 +206,42 @@ export default function TwilioVideoClient({
   return (
     <div>
       <div className="mb-2">Status: {status}</div>
-      {!audioOnly && allowScreenShare && (
-        <div className="mb-3">
-          {!isSharing ? (
-            <button
-              type="button"
-              onClick={startScreenShare}
-              className="px-3 py-2 rounded bg-emerald-600 text-white"
-            >
-              Start Screen Share
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={stopScreenShare}
-              className="px-3 py-2 rounded bg-red-600 text-white"
-            >
-              Stop Screen Share
-            </button>
+      {showControls && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={toggleMute}
+            className="px-3 py-2 rounded bg-indigo-600 text-white"
+          >
+            {muted ? "Unmute Mic" : "Mute Mic"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setAudienceMuted((v) => !v)}
+            className="px-3 py-2 rounded bg-slate-700 text-white"
+          >
+            {audienceMuted ? "Hear Audience" : "Mute Audience"}
+          </button>
+          {!audioOnly && allowScreenShare && (
+            <>
+              {!isSharing ? (
+                <button
+                  type="button"
+                  onClick={startScreenShare}
+                  className="px-3 py-2 rounded bg-emerald-600 text-white"
+                >
+                  Start Screen Share
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={stopScreenShare}
+                  className="px-3 py-2 rounded bg-red-600 text-white"
+                >
+                  Stop Screen Share
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
@@ -193,7 +255,7 @@ export default function TwilioVideoClient({
           <div ref={remoteRef} className="bg-black/60 p-2 rounded min-h-[160px]" />
         </div>
       </div>
-      {!audioOnly && allowScreenShare && (
+      {!audioOnly && allowScreenShare && showControls && (
         <div className="mt-4">
           <div className="font-medium mb-1">Screen Share</div>
           <div ref={screenRef} className="bg-black/60 p-2 rounded min-h-[160px]" />

@@ -245,7 +245,8 @@ export default function Home({ initialMessages = [], liveSession = null, canView
                     </div>
                   )}
                   {(liveSession.media_type === "twilio_video" ||
-                    liveSession.media_type === "twilio_audio") && (
+                    liveSession.media_type === "twilio_audio" ||
+                    liveSession.media_type === "twilio_screen") && (
                     <div className="mt-3">
                       <TwilioVideoClient
                         roomName={liveSession.room_name || "global-room"}

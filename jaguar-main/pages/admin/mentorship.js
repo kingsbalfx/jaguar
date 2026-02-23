@@ -236,13 +236,16 @@ export default function Mentorship() {
                     setTwilioActive(false);
                   }}
                 >
-                  <option value="twilio_video">Twilio Video</option>
-                  <option value="twilio_audio">Twilio Audio</option>
+                  <option value="twilio_video">Twilio Live (Camera)</option>
+                  <option value="twilio_screen">Twilio Screen Share</option>
+                  <option value="twilio_audio">Twilio Audio Only</option>
                   <option value="youtube">YouTube Live</option>
                 </select>
               </div>
 
-              {(mediaType === "twilio_video" || mediaType === "twilio_audio") && (
+              {(mediaType === "twilio_video" ||
+                mediaType === "twilio_audio" ||
+                mediaType === "twilio_screen") && (
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">Twilio Room Name</label>
                   <input
@@ -287,7 +290,9 @@ export default function Mentorship() {
                   />
                 </div>
               )}
-              {(mediaType === "twilio_video" || mediaType === "twilio_audio") && (
+              {(mediaType === "twilio_video" ||
+                mediaType === "twilio_audio" ||
+                mediaType === "twilio_screen") && (
                 <div>
                   {!twilioActive ? (
                     <button
@@ -302,7 +307,8 @@ export default function Mentorship() {
                       <TwilioVideoClient
                         roomName={roomName || "global-room"}
                         audioOnly={mediaType === "twilio_audio"}
-                        allowScreenShare
+                        allowScreenShare={mediaType === "twilio_screen"}
+                        showControls
                       />
                     </div>
                   )}

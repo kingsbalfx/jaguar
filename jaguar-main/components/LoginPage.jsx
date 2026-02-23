@@ -7,6 +7,8 @@ export default function LoginPage() {
   const router = useRouter();
   const next =
     typeof router.query?.next === "string" ? router.query.next : "";
+  const oauthError =
+    typeof router.query?.error === "string" ? router.query.error : "";
   const isConfigured = Boolean(isSupabaseConfigured);
 
   const [email, setEmail] = useState("");
@@ -71,6 +73,9 @@ export default function LoginPage() {
   };
 
   useEffect(() => {
+    if (oauthError) {
+      setErrMsg(`Google login failed: ${oauthError}`);
+    }
     (async () => {
       if (!isConfigured) return;
       const client = getBrowserSupabaseClient();

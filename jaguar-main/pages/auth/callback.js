@@ -16,6 +16,20 @@ function safeNextParam(rawNext) {
 }
 
 export const getServerSideProps = async (ctx) => {
+  const oauthError =
+    (typeof ctx.query?.error === "string" && ctx.query.error) ||
+    (typeof ctx.query?.error_description === "string" && ctx.query.error_description) ||
+    (ctx.query?.status === "failed" ? "OAuth status failed" : null);
+
+  if (oauthError) {
+    return {
+      redirect: {
+        destination: `/login?error=${encodeURIComponent(oauthError)}`,
+        permanent: false,
+      },
+    };
+  }
+
   const supabase = createPagesServerClient(ctx);
   // try to get session (server-side)
   const { data: { session }, error: sessionError } = await supabase.auth.getSession();
