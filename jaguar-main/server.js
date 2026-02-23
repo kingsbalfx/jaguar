@@ -8,10 +8,9 @@ import { createServer } from "http";
 import next from "next";
 import { parse } from "url";
 import { WebSocketServer } from "ws";
-import crypto from "crypto";
 // Import Supabase AFTER dotenv config loads
 import { getSupabaseClient } from "./lib/supabaseClient.js";
-import { verifySignature, handlePaystackEvent } from "./lib/paystack.js";
+import { verifyKorapaySignature, handleKorapayEvent } from "./lib/korapay.js";
 
 const dev = process.env.NODE_ENV !== "production";
 const app = next({ dev });
@@ -31,18 +30,22 @@ app.prepare().then(() => {
 
     // NOTE: Trade webhook removed per configuration — bot should write directly to Supabase.
     // The /api/trades incoming webhook handler was intentionally removed to rely on
-    // Supabase as the single source of truth for signals and logs. Retain Paystack
+    // Supabase as the single source of truth for signals and logs. Retain Korapay
     // webhook handling below for payment processing.
 
-    // Paystack webhook receiver: verifies signature and saves event to Supabase
-    if (req.method === "POST" && parsedUrl.pathname === "/api/paystack-webhook") {
+    // Korapay webhook receiver: verifies signature and saves event to Supabase
+    if (req.method === "POST" && parsedUrl.pathname === "/api/korapay-webhook") {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       req.on("end", async () => {
-        const sig = req.headers["x-paystack-signature"] || req.headers["x-paystack-signature".toLowerCase()];
-        const secret = process.env.PAYSTACK_WEBHOOK_SECRET || process.env.PAYSTACK_SECRET;
+        const sig =
+          req.headers["x-korapay-signature"] ||
+          req.headers["x-kora-signature"] ||
+          req.headers["x-korapay-signature".toLowerCase()] ||
+          req.headers["x-kora-signature".toLowerCase()];
+        const secret = process.env.KORAPAY_WEBHOOK_SECRET || process.env.KORAPAY_SECRET_KEY;
         if (secret) {
-          if (!verifySignature(body, sig, secret)) {
+          if (!verifyKorapaySignature(body, sig, secret)) {
             res.statusCode = 401;
             res.end("Invalid signature");
             return;
@@ -51,7 +54,7 @@ app.prepare().then(() => {
 
         try {
           const eventJson = JSON.parse(body);
-          await handlePaystackEvent(body, eventJson);
+          await handleKorapayEvent(body, eventJson);
           res.statusCode = 200;
           res.end("ok");
         } catch (e) {

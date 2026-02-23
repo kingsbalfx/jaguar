@@ -19,19 +19,26 @@ export const openAPISchema = {
         responses: { 200: { description: "Service is healthy", content: { "application/json": { example: { status: "ok", ts: Date.now() } } } } },
       },
     },
-    "/api/init-paystack": {
+    "/api/korapay/init": {
       post: {
-        summary: "Initialize Paystack payment",
-        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/PaystackInit" } } } },
-        responses: { 200: { description: "Payment initialized", content: { "application/json": { schema: { $ref: "#/components/schemas/PaystackResponse" } } } } },
+        summary: "Initialize Korapay payment",
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/KorapayInit" } } } },
+        responses: { 200: { description: "Payment initialized", content: { "application/json": { schema: { $ref: "#/components/schemas/KorapayResponse" } } } } },
       },
     },
-    "/api/paystack-webhook": {
+    "/api/korapay/webhook": {
       post: {
-        summary: "Paystack webhook (payment confirmation)",
-        security: [{ HmacSha512: [] }],
-        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/PaystackEvent" } } } },
+        summary: "Korapay webhook (payment confirmation)",
+        security: [{ KoraSignature: [] }],
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/KorapayEvent" } } } },
         responses: { 200: { description: "Event processed" } },
+      },
+    },
+    "/api/korapay/verify": {
+      post: {
+        summary: "Verify Korapay payment",
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/KorapayVerify" } } } },
+        responses: { 200: { description: "Payment verified" } },
       },
     },
     "/api/admin/payments": {
@@ -87,15 +94,20 @@ export const openAPISchema = {
           ml_probability: { type: "number", example: 0.85 },
         },
       },
-      PaystackInit: {
+      KorapayInit: {
         type: "object",
         required: ["email", "amount"],
         properties: { email: { type: "string" }, amount: { type: "integer" } },
       },
-      PaystackResponse: { type: "object", properties: { data: { properties: { authorization_url: { type: "string" }, access_code: { type: "string" } } } } },
-      PaystackEvent: {
+      KorapayResponse: { type: "object", properties: { data: { properties: { checkout_url: { type: "string" }, reference: { type: "string" } } } } },
+      KorapayEvent: {
         type: "object",
         properties: { event: { type: "string", example: "charge.success" }, data: { type: "object" } },
+      },
+      KorapayVerify: {
+        type: "object",
+        required: ["reference"],
+        properties: { reference: { type: "string" } },
       },
       PaymentsList: { type: "object", properties: { payments: { type: "array", items: { $ref: "#/components/schemas/Payment" } } } },
       Payment: { type: "object", properties: { id: { type: "string" }, amount: { type: "integer" }, status: { type: "string" }, received_at: { type: "string" } } },
@@ -122,7 +134,7 @@ export const openAPISchema = {
       },
     },
     securitySchemes: {
-      HmacSha512: { type: "apiKey", in: "header", name: "x-paystack-signature" },
+      KoraSignature: { type: "apiKey", in: "header", name: "x-korapay-signature" },
       AdminKey: { type: "apiKey", in: "header", name: "x-admin-secret" },
       SessionAuth: { type: "http", scheme: "bearer" },
     },

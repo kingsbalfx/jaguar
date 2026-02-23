@@ -30,7 +30,7 @@ export function validatePrice(price) {
 }
 
 export function validateRole(role) {
-  return ["admin", "user", "vip", "premium"].includes((role || "").toLowerCase());
+  return ["admin", "user", "vip", "premium", "pro", "lifetime"].includes((role || "").toLowerCase());
 }
 
 export function sanitizeString(str, maxLen = 500) {
@@ -49,7 +49,7 @@ export function validateTrade(trade) {
   return { valid: true };
 }
 
-export function validatePaystackInit(data) {
+export function validateKorapayInit(data) {
   if (!data || typeof data !== "object") return { valid: false, error: "Invalid request" };
   if (!validateEmail(data.email)) return { valid: false, error: "Invalid email" };
   if (!validateAmount(data.amount)) return { valid: false, error: "Invalid amount" };
@@ -68,6 +68,6 @@ export function withValidation(validator) {
 }
 
 const validators = {
-  paystack_init: validatePaystackInit,
+  korapay_init: validateKorapayInit,
   trade: validateTrade,
 };

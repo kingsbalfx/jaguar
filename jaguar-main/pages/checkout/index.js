@@ -78,7 +78,7 @@ export default function Checkout() {
       const payload = { plan, email, userId };
 
       // Call the Init endpoint (omit the first try since we handle one endpoint)
-      const resp = await fetch("/api/paystack/init", {
+      const resp = await fetch("/api/korapay/init", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -88,11 +88,12 @@ export default function Checkout() {
         throw new Error(json?.error || json?.message || "Payment init failed");
       }
 
-      // Redirect to Paystack checkout
-      if (!json.authorization_url) {
-        throw new Error("No authorization_url returned from server");
+      // Redirect to Korapay checkout
+      const checkoutUrl = json.checkout_url || json.authorization_url || json?.data?.checkout_url;
+      if (!checkoutUrl) {
+        throw new Error("No checkout URL returned from server");
       }
-      window.location.href = json.authorization_url;
+      window.location.href = checkoutUrl;
     } catch (err) {
       console.error("checkout error:", err);
       setMessage(err?.message || "Unable to start payment");
@@ -159,7 +160,7 @@ export default function Checkout() {
               ? "Redirecting..."
               : isFree
               ? "No payment required"
-              : `Pay ${priceLabel} (Paystack)`}
+              : `Pay ${priceLabel} (Korapay)`}
           </button>
 
           <button

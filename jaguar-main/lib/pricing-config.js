@@ -1,6 +1,6 @@
 /**
  * PRICING CONFIGURATION - Centralized Pricing System
- * Aligns pricing across web (Paystack), bot signals, and mentorship
+ * Aligns pricing across web (Korapay), bot signals, and mentorship
  * Domain: kingsbalfx.name.ng
  * All prices in NGN (₦)
  */

@@ -26,7 +26,7 @@ export default function PriceButton({ plan = "vip", initialPrice = null }) {
         return;
       }
 
-      const res = await fetch("/api/paystack/init", {
+      const res = await fetch("/api/korapay/init", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ plan, email: user.email, userId: user.id }),
@@ -34,7 +34,9 @@ export default function PriceButton({ plan = "vip", initialPrice = null }) {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Payment init failed");
 
-      window.location.href = json.authorization_url;
+      const checkoutUrl = json.checkout_url || json.authorization_url || json?.data?.checkout_url;
+      if (!checkoutUrl) throw new Error("No checkout URL returned from server");
+      window.location.href = checkoutUrl;
     } catch (err) {
       alert(err.message || "Payment error");
     } finally {

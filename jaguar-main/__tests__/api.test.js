@@ -107,8 +107,8 @@ describe("API Integration Tests", () => {
     expect(data.status).toBe("ok");
   });
 
-  test("POST /api/init-paystack requires email and amount", async () => {
-    const res = await fetch(`${BASE_URL}/api/init-paystack`, {
+  test("POST /api/korapay/init requires email and amount", async () => {
+    const res = await fetch(`${BASE_URL}/api/korapay/init`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),

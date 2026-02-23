@@ -11,7 +11,7 @@ export default function Terms() {
       <h2 className="text-2xl font-semibold mt-6 mb-2">Use of Service</h2>
       <p>You must be at least 18 years old or have permission to use our services. Do not misrepresent your identity or share accounts.</p>
       <h2 className="text-2xl font-semibold mt-6 mb-2">Payment & Subscriptions</h2>
-      <p>Access to Premium and VIP features requires payment via Paystack. Your plan remains active only after successful verification.</p>
+      <p>Access to Premium and VIP features requires payment via Korapay. Your plan remains active only after successful verification.</p>
       <h2 className="text-2xl font-semibold mt-6 mb-2">Refunds & Cancellations</h2>
       <p>Refunds are not guaranteed. If you believe there’s been an error, contact support with your payment reference and details.</p>
       <h2 className="text-2xl font-semibold mt-6 mb-2">Limitations of Liability</h2>

@@ -32,14 +32,14 @@ async function run() {
     if (data.status !== "ok") throw new Error("status not ok");
   });
 
-  // Paystack init endpoint
-  await test("Paystack init endpoint", async () => {
-    const resp = await fetch(`${BASE_URL}/api/init-paystack`, {
+  // Korapay init endpoint
+  await test("Korapay init endpoint", async () => {
+    const resp = await fetch(`${BASE_URL}/api/korapay/init`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: "test@example.com", amount: 100000 }),
     });
-    // should fail gracefully without PAYSTACK_SECRET, or return proper auth error
+    // should fail gracefully without KORAPAY_SECRET_KEY, or return proper auth error
     if (resp.status >= 500) throw new Error(`server error ${resp.status}`);
   });
 

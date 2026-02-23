@@ -13,15 +13,15 @@ export default function Subscribe() {
     try {
       const lifetime = PRICING_TIERS.LIFETIME;
       const plan = lifetime.id;
-      const resp = await fetch("/api/paystack/init", {
+      const resp = await fetch("/api/korapay/init", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, plan }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data?.error || "init failed");
-      // redirect to Paystack authorization_url
-      const url = data?.authorization_url || data?.data?.authorization_url;
+      // redirect to Korapay checkout url
+      const url = data?.checkout_url || data?.authorization_url || data?.data?.checkout_url;
       if (url) window.location.href = url;
       else throw new Error("No authorization URL returned");
     } catch (e) {

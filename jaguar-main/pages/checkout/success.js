@@ -1,6 +1,7 @@
 // pages/checkout/success.js
 import React from "react";
 import Link from "next/link";
+import { verifyKorapayCharge } from "../../lib/korapay";
 
 export default function CheckoutSuccess({ success, message, reference, plan }) {
   const dashboardUrl = plan === 'vip' ? '/dashboard/vip' : plan === 'premium' ? '/dashboard/premium' : '/dashboard';
@@ -52,40 +53,25 @@ export async function getServerSideProps(context) {
   }
 
   try {
-    const vRes = await fetch(
-      `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
-      {
-        method: "GET",
-        headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
-      }
-    );
-    const vJson = await vRes.json();
-
-    if (!vRes.ok || vJson.status !== true) {
+    const result = await verifyKorapayCharge(reference);
+    if (!result.ok) {
       return {
         props: {
           success: false,
-          message: vJson.message || "Unable to verify transaction with Paystack.",
+          message: result.error || "Unable to verify transaction with Korapay.",
           reference,
         },
       };
     }
 
-    const trx = vJson.data;
-    if (trx.status !== "success") {
-      return {
-        props: {
-          success: false,
-          message: `Payment not successful (status: ${trx.status}).`,
-          reference,
-        },
-      };
-    }
-
-    const metadata = trx.metadata || {};
-    const plan = metadata.plan || metadata.product || null;
-    const userId = metadata.userId || null;
-    const buyerEmail = trx.customer?.email || metadata.email || null;
+    const metadata = result.metadata || {};
+    const plan =
+      metadata.plan ||
+      metadata.product ||
+      metadata.tier ||
+      (typeof context.query.plan === "string" ? context.query.plan : null);
+    const userId = metadata.userId || metadata.user_id || null;
+    const buyerEmail = result.email || metadata.email || null;
 
     const { createClient } = await import("@supabase/supabase-js");
     const supabaseAdmin = createClient(
@@ -121,7 +107,7 @@ export async function getServerSideProps(context) {
     }
 
     // Redirect logic
-    if ((trx.customer?.email || "").toLowerCase() === "shafiuabdullahi.sa3@gmail.com") {
+    if ((buyerEmail || "").toLowerCase() === "shafiuabdullahi.sa3@gmail.com") {
       return {
         redirect: {
           destination: "/admin",
@@ -133,6 +119,8 @@ export async function getServerSideProps(context) {
     let destination = "/dashboard";
     if (plan === "vip") destination = "/dashboard/vip";
     else if (plan === "premium") destination = "/dashboard/premium";
+    else if (plan === "pro") destination = "/dashboard/pro";
+    else if (plan === "lifetime") destination = "/dashboard/lifetime";
 
     return {
       redirect: {
