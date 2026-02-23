@@ -34,7 +34,12 @@ export default function LoginPage() {
       const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
       router.push(`/auth/callback${nextParam}`);
     } catch (err) {
-      setErrMsg(err.message || "Login failed");
+      const message = err?.message || "Login failed";
+      if (message.toLowerCase().includes("invalid login credentials")) {
+        setErrMsg("Invalid credentials or email not confirmed. Check your email for a confirmation link or reset your password.");
+      } else {
+        setErrMsg(message);
+      }
       setLoading(false);
     }
   };

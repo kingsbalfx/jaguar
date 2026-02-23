@@ -43,7 +43,7 @@ export default async function handler(req, res) {
     if (req.method === "GET") {
       const { data, error } = await supabaseAdmin
         .from("live_sessions")
-        .select("id, title, starts_at, ends_at, timezone, status, active, media_type, media_url, room_name, segment, audio_only, updated_at")
+        .select("*")
         .eq("active", true)
         .order("starts_at", { ascending: true })
         .limit(1)
@@ -76,7 +76,10 @@ export default async function handler(req, res) {
 
     await supabaseAdmin.from("live_sessions").update({ active: false }).eq("active", true);
 
-    const { data: inserted, error: insertError } = await supabaseAdmin
+    let inserted = null;
+    let insertError = null;
+
+    const fullInsert = await supabaseAdmin
       .from("live_sessions")
       .insert({
         title: String(title).trim(),
@@ -92,8 +95,30 @@ export default async function handler(req, res) {
         active: true,
         updated_at: new Date().toISOString(),
       })
-      .select("id, title, starts_at, ends_at, timezone, status, active, media_type, media_url, room_name, segment, audio_only, updated_at")
+      .select("*")
       .maybeSingle();
+
+    inserted = fullInsert.data || null;
+    insertError = fullInsert.error || null;
+
+    if (insertError && insertError.code === "42703") {
+      // Fallback insert if the table schema is missing newer columns.
+      const fallback = await supabaseAdmin
+        .from("live_sessions")
+        .insert({
+          title: String(title).trim(),
+          starts_at,
+          ends_at,
+          timezone: timezone || "Africa/Lagos",
+          status: status || "scheduled",
+          active: true,
+          updated_at: new Date().toISOString(),
+        })
+        .select("*")
+        .maybeSingle();
+      inserted = fallback.data || null;
+      insertError = fallback.error || null;
+    }
 
     if (insertError) {
       return res.status(500).json({ error: "failed to save live session" });

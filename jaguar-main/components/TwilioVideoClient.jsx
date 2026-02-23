@@ -7,11 +7,18 @@ import React, { useEffect, useRef, useState } from "react";
  *
  * Server: pages/api/twilio/token.js (provided below)
  */
-export default function TwilioVideoClient({ roomName = "global-room", audioOnly = false }) {
+export default function TwilioVideoClient({
+  roomName = "global-room",
+  audioOnly = false,
+  allowScreenShare = false,
+}) {
   const [status, setStatus] = useState("idle");
+  const [isSharing, setIsSharing] = useState(false);
   const localRef = useRef(null);
+  const screenRef = useRef(null);
   const remoteRef = useRef(null);
   const roomRef = useRef(null);
+  const screenTrackRef = useRef(null);
 
   useEffect(() => {
     let mounted = true;
@@ -94,12 +101,88 @@ export default function TwilioVideoClient({ roomName = "global-room", audioOnly 
       if (r) {
         r.disconnect();
       }
+      if (screenTrackRef.current) {
+        try {
+          screenTrackRef.current.stop();
+        } catch {}
+        screenTrackRef.current = null;
+      }
     };
   }, []);
+
+  const startScreenShare = async () => {
+    if (audioOnly) return;
+    if (!roomRef.current) return;
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false,
+      });
+      const TwilioVideo = await import("twilio-video");
+      const [videoTrack] = stream.getVideoTracks();
+      if (!videoTrack) return;
+
+      const screenTrack = new TwilioVideo.LocalVideoTrack(videoTrack, {
+        name: "screen",
+      });
+      screenTrackRef.current = screenTrack;
+      roomRef.current.localParticipant.publishTrack(screenTrack);
+      setIsSharing(true);
+
+      if (screenRef.current) {
+        screenRef.current.innerHTML = "";
+        const el = screenTrack.attach();
+        screenRef.current.appendChild(el);
+      }
+
+      videoTrack.onended = () => {
+        stopScreenShare();
+      };
+    } catch (err) {
+      console.error("Screen share error:", err);
+    }
+  };
+
+  const stopScreenShare = () => {
+    const room = roomRef.current;
+    const screenTrack = screenTrackRef.current;
+    if (room && screenTrack) {
+      try {
+        room.localParticipant.unpublishTrack(screenTrack);
+      } catch {}
+      try {
+        screenTrack.stop();
+      } catch {}
+    }
+    screenTrackRef.current = null;
+    setIsSharing(false);
+    if (screenRef.current) screenRef.current.innerHTML = "";
+  };
 
   return (
     <div>
       <div className="mb-2">Status: {status}</div>
+      {!audioOnly && allowScreenShare && (
+        <div className="mb-3">
+          {!isSharing ? (
+            <button
+              type="button"
+              onClick={startScreenShare}
+              className="px-3 py-2 rounded bg-emerald-600 text-white"
+            >
+              Start Screen Share
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={stopScreenShare}
+              className="px-3 py-2 rounded bg-red-600 text-white"
+            >
+              Stop Screen Share
+            </button>
+          )}
+        </div>
+      )}
       <div className="grid md:grid-cols-2 gap-4">
         <div>
           <div className="font-medium mb-1">Your Camera</div>
@@ -110,6 +193,12 @@ export default function TwilioVideoClient({ roomName = "global-room", audioOnly 
           <div ref={remoteRef} className="bg-black/60 p-2 rounded min-h-[160px]" />
         </div>
       </div>
+      {!audioOnly && allowScreenShare && (
+        <div className="mt-4">
+          <div className="font-medium mb-1">Screen Share</div>
+          <div ref={screenRef} className="bg-black/60 p-2 rounded min-h-[160px]" />
+        </div>
+      )}
     </div>
   );
 }

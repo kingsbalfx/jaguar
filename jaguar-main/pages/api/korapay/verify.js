@@ -38,6 +38,9 @@ export default async function handler(req, res) {
             amount: result.amount,
             status: result.status || "success",
             received_at: new Date().toISOString(),
+            plan,
+            user_id: userId,
+            reference: result.reference || reference,
           },
         ]);
       } catch (e) {

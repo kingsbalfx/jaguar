@@ -302,6 +302,7 @@ export default function Mentorship() {
                       <TwilioVideoClient
                         roomName={roomName || "global-room"}
                         audioOnly={mediaType === "twilio_audio"}
+                        allowScreenShare
                       />
                     </div>
                   )}

@@ -7,6 +7,8 @@ import { FcGoogle } from "react-icons/fc";
 
 export default function Register() {
   const router = useRouter();
+  const next =
+    typeof router.query?.next === "string" ? router.query.next : "";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errMsg, setErrMsg] = useState("");
@@ -40,16 +42,20 @@ export default function Register() {
         return;
       }
       const base = getURL().replace(/\/$/, "");
+      const redirectTo = next
+        ? `${base}/auth/callback?next=${encodeURIComponent(next)}`
+        : `${base}/auth/callback`;
       const client = getBrowserSupabaseClient();
       if (!client) throw new Error("Supabase client not available.");
       const { data, error } = await client.auth.signUp({
         email,
         password,
-        options: { redirectTo: `${base}/auth/callback` }
+        options: { redirectTo }
       });
       if (error) throw error;
       if (data?.session) {
-        router.push("/auth/callback");
+        const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
+        router.push(`/auth/callback${nextParam}`);
       } else {
         setSuccessMsg("Signup successful. Please check your email to confirm your account.");
         setLoading(false);
@@ -72,11 +78,14 @@ export default function Register() {
         return;
       }
       const base = getURL().replace(/\/$/, "");
+      const redirectTo = next
+        ? `${base}/auth/callback?next=${encodeURIComponent(next)}`
+        : `${base}/auth/callback`;
       const client = getBrowserSupabaseClient();
       if (!client) throw new Error("Supabase client not available.");
       const { error } = await client.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: `${base}/auth/callback` }
+        options: { redirectTo }
       });
       if (error) throw error;
     } catch (err) {

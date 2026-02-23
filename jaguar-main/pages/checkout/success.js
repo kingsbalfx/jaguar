@@ -4,7 +4,16 @@ import Link from "next/link";
 import { verifyKorapayCharge } from "../../lib/korapay";
 
 export default function CheckoutSuccess({ success, message, reference, plan }) {
-  const dashboardUrl = plan === 'vip' ? '/dashboard/vip' : plan === 'premium' ? '/dashboard/premium' : '/dashboard';
+  const dashboardUrl =
+    plan === "vip"
+      ? "/dashboard/vip"
+      : plan === "premium"
+      ? "/dashboard/premium"
+      : plan === "pro"
+      ? "/dashboard/pro"
+      : plan === "lifetime"
+      ? "/dashboard/lifetime"
+      : "/dashboard";
 
   return (
     <main className="container mx-auto px-6 py-12 text-center">

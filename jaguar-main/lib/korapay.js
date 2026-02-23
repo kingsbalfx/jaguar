@@ -170,6 +170,7 @@ export async function handleKorapayEvent(rawBody, eventJson) {
     const metadata = payload.metadata || payload.meta || {};
     const plan = metadata.plan || metadata.product || metadata.tier || null;
     const userId = metadata.userId || metadata.user_id || null;
+    const reference = payload.reference || eventJson?.reference || metadata.reference || null;
 
     await supabase.from("payments").insert([
       {
@@ -179,6 +180,9 @@ export async function handleKorapayEvent(rawBody, eventJson) {
         amount,
         status: typeof status === "string" ? status : JSON.stringify(status),
         received_at: new Date().toISOString(),
+        plan,
+        user_id: userId,
+        reference,
       },
     ]);
 

@@ -80,7 +80,7 @@ export async function getServerSideProps(ctx) {
     try {
       const { data: sessionData, error: sessionErr } = await supabaseAdmin
         .from("live_sessions")
-        .select("id, title, starts_at, ends_at, timezone, status, media_type, media_url, room_name, segment, audio_only")
+        .select("*")
         .eq("active", true)
         .order("starts_at", { ascending: true })
         .limit(1)
