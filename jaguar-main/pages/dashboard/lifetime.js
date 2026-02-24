@@ -42,6 +42,19 @@ export default function LifetimeDashboard() {
           </div>
         </div>
 
+        <div className="mt-6 glass-panel rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-widest text-emerald-200">Top Tier</div>
+            <div className="text-lg font-semibold">You are on the highest plan</div>
+            <p className="text-sm text-gray-300">
+              Keep enjoying every update, live session, and priority access.
+            </p>
+          </div>
+          <a href="/pricing" className="px-3 py-2 bg-emerald-600 rounded">
+            View Plan Details
+          </a>
+        </div>
+
         <ContentLibrary />
       </div>
     </section>

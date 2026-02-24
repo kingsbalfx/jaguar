@@ -5,6 +5,8 @@ import AdSense from "../components/AdSense";
 import { getSupabaseClient } from "../lib/supabaseClient";
 import dynamic from "next/dynamic";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
+import { PRICING_TIERS, formatPrice } from "../lib/pricing-config";
+import { useRouter } from "next/router";
 
 const TwilioVideoClient = dynamic(() => import("../components/TwilioVideoClient"), { ssr: false });
 
@@ -66,14 +68,14 @@ export async function getServerSideProps(ctx) {
   } = await authClient.auth.getSession();
   const supabaseAdmin = getSupabaseClient({ server: true });
   if (!supabaseAdmin) {
-    return { props: { initialMessages: [], liveSession: null, canViewLive: false } };
+    return { props: { initialMessages: [], liveSession: null, canViewLive: false, isAuthenticated: Boolean(session?.user) } };
   }
 
   try {
     const { data, error } = await fetchMessagesWithFallback(supabaseAdmin);
     if (error) {
       console.error("Landing messages error:", error);
-      return { props: { initialMessages: [], liveSession: null, canViewLive: false } };
+      return { props: { initialMessages: [], liveSession: null, canViewLive: false, isAuthenticated: Boolean(session?.user) } };
     }
 
     let liveSession = null;
@@ -108,14 +110,15 @@ export async function getServerSideProps(ctx) {
       subscriberRoles.has(viewerRole) &&
       (liveSession ? canAccess(viewerRole, liveSession.segment || "all") : false);
 
-    return { props: { initialMessages: data || [], liveSession, canViewLive } };
+    return { props: { initialMessages: data || [], liveSession, canViewLive, isAuthenticated: Boolean(session?.user) } };
   } catch (err) {
     console.error("Landing messages error:", err);
-    return { props: { initialMessages: [], liveSession: null, canViewLive: false } };
+    return { props: { initialMessages: [], liveSession: null, canViewLive: false, isAuthenticated: Boolean(session?.user) } };
   }
 }
 
-export default function Home({ initialMessages = [], liveSession = null, canViewLive = false }) {
+export default function Home({ initialMessages = [], liveSession = null, canViewLive = false, isAuthenticated = false }) {
+  const router = useRouter();
   const [mode, setMode] = useState("free"); // free | premium | vip | pro | lifetime
   const defaultMessages = [
     { id: 1, text: "Precision entries. Disciplined exits. Every signal measured.", segments: ["all"] },
@@ -159,6 +162,25 @@ export default function Home({ initialMessages = [], liveSession = null, canView
   const visibleMessages = normalizedMessages.filter(
     (m) => m.segments.includes("all") || m.segments.includes(mode)
   );
+
+  const tierKey = mode.toUpperCase();
+  const tier = PRICING_TIERS[tierKey];
+  const tierPrice =
+    tier?.price === 0 ? "Free" : tier ? formatPrice(tier.price, tier.currency) : "";
+  const tierBadge = tier?.badge || "Access";
+  const tierHighlights = tier?.features
+    ? [
+        `Signal quality: ${tier.features.signalQuality || "standard"}`,
+        `Signals/day: ${tier.features.maxSignalsPerDay || 0}`,
+        `Mentorship: ${tier.features.mentorship ? "Yes" : "No"}`,
+        `Bot access: ${tier.features.botAccess ? "Yes" : "No"}`,
+      ]
+    : [];
+
+  const nextTarget = mode === "free" ? "/register" : `/checkout?plan=${mode}`;
+  const loginUrl = `/login?next=${encodeURIComponent(nextTarget)}`;
+  const accessUrl = isAuthenticated ? nextTarget : loginUrl;
+
   return (
     <main className="flex-grow app-bg text-white relative overflow-hidden">
       <div className="candle-backdrop" aria-hidden="true" />
@@ -291,6 +313,7 @@ export default function Home({ initialMessages = [], liveSession = null, canView
                 <button
                   key={key}
                   onClick={() => setMode(key)}
+                  onDoubleClick={() => router.push(accessUrl)}
                   className={`fire-toggle ${isActive ? "is-active" : ""}`}
                   style={{
                     "--fire-color": style.color,
@@ -306,6 +329,42 @@ export default function Home({ initialMessages = [], liveSession = null, canView
           <p className="text-sm text-gray-300 mb-6 max-w-3xl">
             {toggleDescriptions[mode]}
           </p>
+
+          {tier && (
+            <div className="tier-spotlight mb-8">
+              <div className="tier-spotlight__glow" aria-hidden="true" />
+              <div className="tier-spotlight__content">
+                <div className="tier-spotlight__badge">{tierBadge}</div>
+                <div className="tier-spotlight__title">
+                  {tier.displayName} Tier
+                </div>
+                <div className="tier-spotlight__price">{tierPrice}</div>
+                <p className="tier-spotlight__desc">{tier.description}</p>
+                <ul className="tier-spotlight__list">
+                  {tierHighlights.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+                <div className="tier-spotlight__actions">
+                  <button
+                    onClick={() => router.push(accessUrl)}
+                    className="tier-spotlight__cta"
+                  >
+                    {isAuthenticated ? "Upgrade / Access" : "Sign in to access"}
+                  </button>
+                  <button
+                    onClick={() => router.push("/pricing")}
+                    className="tier-spotlight__secondary"
+                  >
+                    Compare all plans
+                  </button>
+                </div>
+                <div className="tier-spotlight__note">
+                  Double-tap a tier toggle to jump directly to sign in.
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="grid gap-4 md:grid-cols-2">
             {visibleMessages.map((m) => (

@@ -207,6 +207,107 @@ body {
   100% { opacity: 0.6; }
 }
 
+/* Tier spotlight advert */
+.tier-spotlight {
+  position: relative;
+  border-radius: 24px;
+  padding: 24px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(120deg, rgba(6, 11, 23, 0.9), rgba(20, 10, 30, 0.75));
+  box-shadow: 0 30px 80px rgba(3, 6, 20, 0.6);
+}
+
+.tier-spotlight__glow {
+  position: absolute;
+  inset: -40% 20% -20% 20%;
+  background: radial-gradient(circle at 50% 70%, rgba(255, 140, 0, 0.35), transparent 65%);
+  filter: blur(30px);
+  opacity: 0.7;
+  animation: flameFlicker 3s infinite;
+  pointer-events: none;
+}
+
+.tier-spotlight__content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 10px;
+}
+
+.tier-spotlight__badge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(255, 167, 38, 0.15);
+  color: #fcd34d;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+}
+
+.tier-spotlight__title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.tier-spotlight__price {
+  font-size: 22px;
+  font-weight: 600;
+  color: #fbbf24;
+}
+
+.tier-spotlight__desc {
+  color: #d1d5db;
+  max-width: 640px;
+}
+
+.tier-spotlight__list {
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  color: #e2e8f0;
+  font-size: 14px;
+}
+
+.tier-spotlight__list li::before {
+  content: "🔥";
+  margin-right: 8px;
+}
+
+.tier-spotlight__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.tier-spotlight__cta {
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: linear-gradient(120deg, #f97316, #ef4444);
+  color: #0f172a;
+  font-weight: 700;
+  box-shadow: 0 12px 30px rgba(249, 115, 22, 0.35);
+}
+
+.tier-spotlight__secondary {
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(15, 23, 42, 0.4);
+  color: #e2e8f0;
+}
+
+.tier-spotlight__note {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
 /* main app background container (apply this class to <main> or the overall wrapper) */
 .app-bg {
   position: relative; /* needed so ::before sits on top */

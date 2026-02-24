@@ -42,6 +42,22 @@ export default function PremiumDashboard() {
           </div>
         </div>
 
+        <div className="mt-6 glass-panel rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-widest text-purple-200">Upgrade Option</div>
+            <div className="text-lg font-semibold">Move up to VIP</div>
+            <p className="text-sm text-gray-300">
+              Unlock mentorship sessions and high-frequency VIP signals.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <a href="/checkout?plan=vip" className="px-3 py-2 bg-purple-600 rounded">
+              Upgrade Now
+            </a>
+            <PriceButton plan="vip" initialPrice={PRICING_TIERS.VIP.price} />
+          </div>
+        </div>
+
         <ContentLibrary />
       </div>
     </section>

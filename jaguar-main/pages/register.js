@@ -66,6 +66,7 @@ export default function Register() {
   const next = typeof router.query?.next === "string" ? router.query.next : "";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
@@ -75,6 +76,7 @@ export default function Register() {
   const [successMsg, setSuccessMsg] = useState("");
   const [loading, setLoading] = useState(false);
   const isConfigured = Boolean(isSupabaseConfigured);
+  const passwordsMatch = password && confirmPassword && password === confirmPassword;
 
   if (!isConfigured) {
     return (
@@ -98,6 +100,16 @@ export default function Register() {
     try {
       if (!ageConfirmed) {
         setErrMsg("You must confirm you are at least 16 years old.");
+        setLoading(false);
+        return;
+      }
+      if (!password || password.length < 6) {
+        setErrMsg("Password must be at least 6 characters.");
+        setLoading(false);
+        return;
+      }
+      if (password !== confirmPassword) {
+        setErrMsg("Passwords do not match.");
         setLoading(false);
         return;
       }
@@ -134,10 +146,29 @@ export default function Register() {
         const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
         router.push(`/auth/callback${nextParam}`);
       } else {
-        setSuccessMsg(
-          "Signup successful. If email confirmation is disabled, you can log in now. Otherwise, check your email to confirm your account."
-        );
-        setLoading(false);
+        try {
+          const { data: loginData, error: loginError } = await client.auth.signInWithPassword({
+            email,
+            password,
+          });
+          if (loginError || !loginData?.session) {
+            setSuccessMsg(
+              "Signup successful. If email confirmation is disabled, you can log in now. Otherwise, check your email to confirm your account."
+            );
+            setLoading(false);
+            return;
+          }
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem("enforce_single_session", "1");
+          }
+          const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
+          router.push(`/auth/callback${nextParam}`);
+        } catch (loginErr) {
+          setSuccessMsg(
+            "Signup successful. If email confirmation is disabled, you can log in now. Otherwise, check your email to confirm your account."
+          );
+          setLoading(false);
+        }
       }
     } catch (err) {
       console.error("signup error:", err);
@@ -255,6 +286,17 @@ export default function Register() {
               placeholder="********"
               className="w-full px-4 py-3 rounded-lg bg-white/10"
             />
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              placeholder="Confirm password"
+              className="w-full px-4 py-3 rounded-lg bg-white/10"
+            />
+            {confirmPassword && !passwordsMatch && (
+              <div className="text-xs text-red-300">Passwords do not match.</div>
+            )}
             <label className="flex items-start gap-2 text-sm text-gray-300">
               <input
                 type="checkbox"
@@ -265,7 +307,11 @@ export default function Register() {
               />
               I confirm that I am at least 16 years old.
             </label>
-            <button type="submit" disabled={loading} className="w-full py-3 bg-indigo-600 rounded-lg text-white">
+            <button
+              type="submit"
+              disabled={loading || (confirmPassword && !passwordsMatch)}
+              className="w-full py-3 bg-indigo-600 rounded-lg text-white disabled:opacity-60"
+            >
               {loading ? "Creating account..." : "Sign Up"}
             </button>
           </form>
