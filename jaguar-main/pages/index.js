@@ -140,6 +140,22 @@ export default function Home({ initialMessages = [], liveSession = null, canView
     };
   });
 
+  const toggleDescriptions = {
+    free: "Free trial access to starter signals and weekly lesson drops.",
+    premium: "Premium adds daily signals, bot access, and advanced analytics.",
+    vip: "VIP unlocks mentorship sessions, priority support, and deeper trade guidance.",
+    pro: "Pro gives 1:1 coaching, custom strategies, and elite execution rules.",
+    lifetime: "Lifetime members keep every upgrade, session, and signal forever.",
+  };
+
+  const toggleStyles = {
+    free: { color: "#fbbf24", border: "rgba(251, 191, 36, 0.6)", label: "Free Trial" },
+    premium: { color: "#3b82f6", border: "rgba(59, 130, 246, 0.6)", label: "Premium" },
+    vip: { color: "#a855f7", border: "rgba(168, 85, 247, 0.6)", label: "VIP" },
+    pro: { color: "#6366f1", border: "rgba(99, 102, 241, 0.6)", label: "Pro" },
+    lifetime: { color: "#ec4899", border: "rgba(236, 72, 153, 0.6)", label: "Lifetime" },
+  };
+
   const visibleMessages = normalizedMessages.filter(
     (m) => m.segments.includes("all") || m.segments.includes(mode)
   );
@@ -267,58 +283,29 @@ export default function Home({ initialMessages = [], liveSession = null, canView
               )}
             </div>
           )}
-          <div className="flex flex-wrap gap-3 mb-6">
-            <button
-              onClick={() => setMode("free")}
-              className={`px-4 py-2 rounded-full ${
-                mode === "free"
-                  ? "bg-yellow-400 text-black"
-                  : "bg-transparent border border-yellow-400 text-yellow-400"
-              }`}
-            >
-              Free Trial
-            </button>
-            <button
-              onClick={() => setMode("premium")}
-              className={`px-4 py-2 rounded-full ${
-                mode === "premium"
-                  ? "bg-blue-500 text-white"
-                  : "bg-transparent border border-blue-500 text-blue-300"
-              }`}
-            >
-              Premium
-            </button>
-            <button
-              onClick={() => setMode("vip")}
-              className={`px-4 py-2 rounded-full ${
-                mode === "vip"
-                  ? "bg-purple-600 text-white"
-                  : "bg-transparent border border-purple-600 text-purple-300"
-              }`}
-            >
-              VIP
-            </button>
-            <button
-              onClick={() => setMode("pro")}
-              className={`px-4 py-2 rounded-full ${
-                mode === "pro"
-                  ? "bg-indigo-600 text-white"
-                  : "bg-transparent border border-indigo-600 text-indigo-300"
-              }`}
-            >
-              Pro
-            </button>
-            <button
-              onClick={() => setMode("lifetime")}
-              className={`px-4 py-2 rounded-full ${
-                mode === "lifetime"
-                  ? "bg-pink-600 text-white"
-                  : "bg-transparent border border-pink-600 text-pink-300"
-              }`}
-            >
-              Lifetime
-            </button>
+          <div className="flex flex-wrap gap-3 mb-3">
+            {Object.keys(toggleStyles).map((key) => {
+              const style = toggleStyles[key];
+              const isActive = mode === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => setMode(key)}
+                  className={`fire-toggle ${isActive ? "is-active" : ""}`}
+                  style={{
+                    "--fire-color": style.color,
+                    "--fire-border": style.border,
+                  }}
+                >
+                  <span className={`fire-dot ${isActive ? "is-active" : ""}`} />
+                  <span className="toggle-label">{style.label}</span>
+                </button>
+              );
+            })}
           </div>
+          <p className="text-sm text-gray-300 mb-6 max-w-3xl">
+            {toggleDescriptions[mode]}
+          </p>
 
           <div className="grid gap-4 md:grid-cols-2">
             {visibleMessages.map((m) => (
