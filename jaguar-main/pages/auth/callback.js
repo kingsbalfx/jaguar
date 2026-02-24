@@ -15,6 +15,14 @@ function safeNextParam(rawNext) {
   return null;
 }
 
+function normalizeBool(value) {
+  if (value === true) return true;
+  if (value === "true") return true;
+  if (value === 1) return true;
+  if (value === "1") return true;
+  return false;
+}
+
 export const getServerSideProps = async (ctx) => {
   const oauthError =
     (typeof ctx.query?.error === "string" && ctx.query.error) ||
@@ -31,6 +39,14 @@ export const getServerSideProps = async (ctx) => {
   }
 
   const supabase = createPagesServerClient(ctx);
+  const code = typeof ctx.query?.code === "string" ? ctx.query.code : null;
+  if (code) {
+    try {
+      await supabase.auth.exchangeCodeForSession(code);
+    } catch (err) {
+      console.error("OAuth code exchange failed:", err);
+    }
+  }
   // try to get session (server-side)
   const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
@@ -49,55 +65,112 @@ export const getServerSideProps = async (ctx) => {
 
   const supabaseAdmin = getSupabaseClient({ server: true });
   let profile = null;
+  let profileColumnsMissing = false;
 
-  // Prefer service-role (avoids RLS issues)
-  if (supabaseAdmin) {
-    const { data: adminProfile, error: adminErr } = await supabaseAdmin
+  async function fetchProfile(client) {
+    if (!client) return { data: null, missingColumns: false };
+    let data = null;
+    let missingColumns = false;
+    const { data: fullData, error: fullErr } = await client
       .from("profiles")
-      .select("id, role, email")
+      .select("id, role, email, name, phone, address, country, age_confirmed")
       .eq("id", user.id)
       .maybeSingle();
-    if (adminErr) console.error("Admin profile fetch error:", adminErr);
-    profile = adminProfile || null;
+    if (fullErr && fullErr.code === "42703") {
+      missingColumns = true;
+      const { data: fallbackData, error: fallbackErr } = await client
+        .from("profiles")
+        .select("id, role, email, name, phone")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (fallbackErr && fallbackErr.code !== "42501") {
+        console.error("Profile fetch error:", fallbackErr);
+      }
+      data = fallbackData || null;
+    } else {
+      if (fullErr && fullErr.code !== "42501") {
+        console.error("Profile fetch error:", fullErr);
+      }
+      data = fullData || null;
+    }
+    return { data, missingColumns };
   }
 
-  // Fallback to session client if admin client not available
-  if (!profile) {
-    const { data: profileData, error: profileError } = await supabase
-      .from("profiles")
-      .select("id, role, email")
-      .eq("id", user.id)
-      .maybeSingle();
+  if (supabaseAdmin) {
+    const result = await fetchProfile(supabaseAdmin);
+    profile = result.data;
+    profileColumnsMissing = result.missingColumns;
+  }
 
-    if (profileError && profileError.code !== "42501") {
-      console.error("Profile fetch error:", profileError);
-    }
-    profile = profileData || null;
+  if (!profile) {
+    const result = await fetchProfile(supabase);
+    profile = result.data;
+    profileColumnsMissing = profileColumnsMissing || result.missingColumns;
   }
 
   const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || "").toLowerCase();
   const FALLBACK_ADMIN_EMAIL = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.ADMIN_EMAIL || "").toLowerCase();
   const isAdminEmail = email && (email === SUPER_ADMIN_EMAIL || email === FALLBACK_ADMIN_EMAIL);
+  const metadata = user.user_metadata || {};
+  const metaName = metadata.full_name || metadata.name || null;
+  const metaPhone = metadata.phone || null;
+  const metaAddress = metadata.address || null;
+  const metaCountry = metadata.country || null;
+  const metaAgeConfirmed = normalizeBool(metadata.age_confirmed);
+  const hasMetaProfile = Boolean(metaName && metaPhone && metaAddress && metaCountry && metaAgeConfirmed);
 
   if (!profile) {
-    if (supabaseAdmin) {
+    if (supabaseAdmin && hasMetaProfile) {
       const role = isAdminEmail ? "admin" : "user";
-      const { error: insertErr } = await supabaseAdmin.from("profiles").insert([
-        { id: user.id, email: user.email, role }
-      ]);
+      const payload = {
+        id: user.id,
+        email: user.email,
+        role,
+        name: metaName,
+        phone: metaPhone,
+        address: metaAddress,
+        country: metaCountry,
+        age_confirmed: true,
+        updated_at: new Date().toISOString(),
+      };
+
+      let insertErr = null;
+      try {
+        const { error } = await supabaseAdmin.from("profiles").insert([payload]);
+        insertErr = error || null;
+      } catch (e) {
+        insertErr = e;
+      }
+
+      if (insertErr && insertErr.code === "42703") {
+        // Fallback to minimal columns if profile schema is missing new fields.
+        const { error } = await supabaseAdmin.from("profiles").insert([
+          { id: user.id, email: user.email, role },
+        ]);
+        insertErr = error || null;
+      }
+
       if (insertErr) {
         console.error("Profile insert error:", insertErr);
         return { redirect: { destination: "/complete-profile", permanent: false } };
       }
       profile = { id: user.id, email: user.email, role };
     } else {
-      // If profile missing and no admin client, send user to complete-profile
+      // If profile missing or metadata incomplete, send user to complete-profile
       return { redirect: { destination: "/complete-profile", permanent: false } };
     }
   }
 
   const role = profile.role || "user";
   const effectiveRole = role === "admin" && isAdminEmail ? "admin" : role;
+
+  const needsProfileCompletion =
+    !profileColumnsMissing &&
+    (!profile.name || !profile.phone || !profile.address || !profile.country || profile.age_confirmed !== true);
+
+  if (needsProfileCompletion) {
+    return { redirect: { destination: "/complete-profile", permanent: false } };
+  }
 
   if (role === "admin" && !isAdminEmail && supabaseAdmin) {
     try {

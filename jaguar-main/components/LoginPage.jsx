@@ -76,17 +76,24 @@ export default function LoginPage() {
     if (oauthError) {
       setErrMsg(`Google login failed: ${oauthError}`);
     }
-    (async () => {
-      if (!isConfigured) return;
-      const client = getBrowserSupabaseClient();
-      if (!client) return;
-      const { data } = await client.auth.getSession();
-      if (data?.session?.user) {
-        const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
-        router.replace(`/auth/callback${nextParam}`);
-      }
-    })();
-  }, [isConfigured, next, router]);
+  }, [oauthError]);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const code = typeof router.query?.code === "string" ? router.query.code : null;
+    if (!code) return;
+    const query = router.asPath.includes("?") ? router.asPath.slice(router.asPath.indexOf("?")) : "";
+    router.replace(`/auth/callback${query}`);
+  }, [router]);
+
+  useEffect(() => {
+    if (!isConfigured) return;
+    if (!router.isReady) return;
+    if (router.query?.code) return;
+    const client = getBrowserSupabaseClient();
+    if (!client) return;
+    client.auth.signOut().catch(() => {});
+  }, [isConfigured, router]);
 
   if (!isConfigured) {
     return (

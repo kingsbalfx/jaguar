@@ -16,20 +16,51 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: "not authenticated" });
     }
 
-    const { name, phone } = req.body || {};
-    if (!name || !phone) {
-      return res.status(400).json({ error: "name and phone are required" });
+    const { name, phone, address, country, ageConfirmed } = req.body || {};
+    if (!name || !phone || !address || !country) {
+      return res.status(400).json({ error: "name, phone, address, and country are required" });
+    }
+    if (!ageConfirmed) {
+      return res.status(400).json({ error: "You must confirm you are at least 16 years old" });
     }
 
     const supabaseAdmin = getSupabaseClient({ server: true });
-    const { error } = await supabaseAdmin.from("profiles").upsert({
+    const client = supabaseAdmin || supabase;
+    if (!client) {
+      return res.status(500).json({ error: "Supabase client not available" });
+    }
+
+    const payload = {
       id: session.user.id,
       email: session.user.email,
       name,
       phone,
+      address,
+      country,
+      age_confirmed: true,
       role: "user",
       updated_at: new Date().toISOString(),
-    });
+    };
+
+    let error = null;
+    try {
+      const resUpsert = await client.from("profiles").upsert(payload);
+      error = resUpsert.error || null;
+    } catch (e) {
+      error = e;
+    }
+
+    if (error && error.code === "42703") {
+      const { error: fallbackErr } = await client.from("profiles").upsert({
+        id: session.user.id,
+        email: session.user.email,
+        name,
+        phone,
+        role: "user",
+        updated_at: new Date().toISOString(),
+      });
+      error = fallbackErr || null;
+    }
 
     if (error) {
       return res.status(500).json({ error: "failed to save profile" });

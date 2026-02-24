@@ -2,6 +2,62 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import { getBrowserSupabaseClient, isSupabaseConfigured } from "../lib/supabaseClient";
 
+const COUNTRIES = [
+  "Nigeria",
+  "United States",
+  "United Kingdom",
+  "Canada",
+  "Ghana",
+  "South Africa",
+  "Kenya",
+  "Egypt",
+  "United Arab Emirates",
+  "Saudi Arabia",
+  "France",
+  "Germany",
+  "Italy",
+  "Spain",
+  "Netherlands",
+  "Sweden",
+  "Norway",
+  "Denmark",
+  "Ireland",
+  "Portugal",
+  "Switzerland",
+  "Austria",
+  "Belgium",
+  "Poland",
+  "Turkey",
+  "India",
+  "Pakistan",
+  "Bangladesh",
+  "Sri Lanka",
+  "China",
+  "Japan",
+  "South Korea",
+  "Indonesia",
+  "Malaysia",
+  "Philippines",
+  "Thailand",
+  "Vietnam",
+  "Australia",
+  "New Zealand",
+  "Mexico",
+  "Brazil",
+  "Argentina",
+  "Chile",
+  "Colombia",
+  "Peru",
+  "Morocco",
+  "Algeria",
+  "Tunisia",
+  "Uganda",
+  "Tanzania",
+  "Rwanda",
+  "Zambia",
+  "Zimbabwe",
+];
+
 /**
  * CompleteProfile Page
  * --------------------
@@ -14,6 +70,9 @@ import { getBrowserSupabaseClient, isSupabaseConfigured } from "../lib/supabaseC
 export default function CompleteProfile() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [country, setCountry] = useState("");
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [user, setUser] = useState(null);
@@ -34,7 +93,7 @@ export default function CompleteProfile() {
     );
   }
 
-  //  Fetch authenticated user
+  //  Fetch authenticated user + prefill metadata
   useEffect(() => {
     const fetchUser = async () => {
       if (!isConfigured) return;
@@ -48,11 +107,33 @@ export default function CompleteProfile() {
         router.push("/login");
       } else {
         setUser(user);
+        const metadata = user.user_metadata || {};
+        setName((prev) => prev || metadata.full_name || metadata.name || "");
+        setPhone((prev) => prev || metadata.phone || "");
+        setAddress((prev) => prev || metadata.address || "");
+        setCountry((prev) => prev || metadata.country || "");
+        if (metadata.age_confirmed === true || metadata.age_confirmed === "true") {
+          setAgeConfirmed(true);
+        }
       }
     };
 
     fetchUser();
   }, [isConfigured, router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem("pending_profile");
+      if (!raw) return;
+      const pending = JSON.parse(raw);
+      setName((prev) => prev || pending.fullName || "");
+      setPhone((prev) => prev || pending.phone || "");
+      setAddress((prev) => prev || pending.address || "");
+      setCountry((prev) => prev || pending.country || "");
+      if (pending.ageConfirmed) setAgeConfirmed(true);
+    } catch {}
+  }, []);
 
   //  Handle form submission
   const handleSubmit = async (e) => {
@@ -63,14 +144,27 @@ export default function CompleteProfile() {
     setErr("");
 
     try {
+      if (!ageConfirmed) {
+        setErr("You must confirm you are at least 16 years old.");
+        setLoading(false);
+        return;
+      }
+      if (!name || !phone || !address || !country) {
+        setErr("Please complete all profile fields.");
+        setLoading(false);
+        return;
+      }
       const res = await fetch("/api/profile/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, phone }),
+        body: JSON.stringify({ name, phone, address, country, ageConfirmed }),
       });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.error || "Failed to save profile");
+      }
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem("pending_profile");
       }
       router.push("/dashboard");
     } catch (error) {
@@ -120,6 +214,46 @@ export default function CompleteProfile() {
               className="w-full px-4 py-3 rounded-lg bg-white/10 placeholder-gray-400 focus:bg-white/20 focus:ring-2 focus:ring-indigo-500 outline-none transition"
             />
           </div>
+
+          <div>
+            <label className="block text-sm text-gray-300 mb-1">Address</label>
+            <input
+              type="text"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              required
+              placeholder="Street, City, State"
+              className="w-full px-4 py-3 rounded-lg bg-white/10 placeholder-gray-400 focus:bg-white/20 focus:ring-2 focus:ring-indigo-500 outline-none transition"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-300 mb-1">Country</label>
+            <select
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              required
+              className="w-full px-4 py-3 rounded-lg bg-white/10 text-white"
+            >
+              <option value="">Select country</option>
+              {COUNTRIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <label className="flex items-start gap-2 text-sm text-gray-300">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={ageConfirmed}
+              onChange={(e) => setAgeConfirmed(e.target.checked)}
+              required
+            />
+            I confirm that I am at least 16 years old.
+          </label>
 
           <button
             type="submit"
