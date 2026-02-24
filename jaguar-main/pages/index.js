@@ -116,13 +116,16 @@ export async function getServerSideProps(ctx) {
 }
 
 export default function Home({ initialMessages = [], liveSession = null, canViewLive = false }) {
-  const [mode, setMode] = useState("free"); // free | premium | vip
+  const [mode, setMode] = useState("free"); // free | premium | vip | pro | lifetime
   const defaultMessages = [
     { id: 1, text: "Precision entries. Disciplined exits. Every signal measured.", segments: ["all"] },
     { id: 2, text: "VIP weekly signals are live with full trade walkthroughs.", segments: ["vip"] },
     { id: 3, text: "New lesson drop: Market Structure & Liquidity Sweeps.", segments: ["premium", "vip"] },
     { id: 4, text: "Premium & VIP challenge starts this week - join the desk.", segments: ["premium", "vip"] },
-    { id: 5, text: "VIP 1:1 mentorship slots open for serious traders.", segments: ["vip"] }
+    { id: 5, text: "VIP 1:1 mentorship slots open for serious traders.", segments: ["vip"] },
+    { id: 6, text: "Pro tier unlocks 1:1 coaching, custom strategies, and advanced analytics.", segments: ["pro"] },
+    { id: 7, text: "Lifetime members get permanent access to every update, session, and signal.", segments: ["lifetime"] },
+    { id: 8, text: "Pro & Lifetime tiers include priority execution and concierge support.", segments: ["pro", "lifetime"] },
   ];
   const normalizedMessages = (initialMessages.length ? initialMessages : defaultMessages).map((m, i) => {
     const segments = Array.isArray(m.segments)
@@ -294,6 +297,26 @@ export default function Home({ initialMessages = [], liveSession = null, canView
               }`}
             >
               VIP
+            </button>
+            <button
+              onClick={() => setMode("pro")}
+              className={`px-4 py-2 rounded-full ${
+                mode === "pro"
+                  ? "bg-indigo-600 text-white"
+                  : "bg-transparent border border-indigo-600 text-indigo-300"
+              }`}
+            >
+              Pro
+            </button>
+            <button
+              onClick={() => setMode("lifetime")}
+              className={`px-4 py-2 rounded-full ${
+                mode === "lifetime"
+                  ? "bg-pink-600 text-white"
+                  : "bg-transparent border border-pink-600 text-pink-300"
+              }`}
+            >
+              Lifetime
             </button>
           </div>
 

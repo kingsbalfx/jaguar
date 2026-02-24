@@ -33,6 +33,12 @@ export default function LoginPage() {
       const { error } = await client.auth.signInWithPassword({ email, password });
       if (error) throw error;
 
+      try {
+        await client.auth.signOut({ scope: "others" });
+      } catch {}
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("enforce_single_session", "1");
+      }
       const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
       router.push(`/auth/callback${nextParam}`);
     } catch (err) {
@@ -61,6 +67,9 @@ export default function LoginPage() {
 
       const client = getBrowserSupabaseClient();
       if (!client) throw new Error("Supabase client not available.");
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("enforce_single_session", "1");
+      }
       const { error } = await client.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo },

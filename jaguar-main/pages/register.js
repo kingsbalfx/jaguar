@@ -128,6 +128,9 @@ export default function Register() {
       });
       if (error) throw error;
       if (data?.session) {
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem("enforce_single_session", "1");
+        }
         const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
         router.push(`/auth/callback${nextParam}`);
       } else {
@@ -168,6 +171,7 @@ export default function Register() {
       if (typeof window !== "undefined") {
         const payload = { fullName, phone, address, country, ageConfirmed: true };
         window.localStorage.setItem("pending_profile", JSON.stringify(payload));
+        window.localStorage.setItem("enforce_single_session", "1");
       }
 
       const { error } = await client.auth.signInWithOAuth({

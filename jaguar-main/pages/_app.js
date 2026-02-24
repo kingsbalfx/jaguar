@@ -1,13 +1,33 @@
 import "../styles/globals.css";
 import Head from "next/head";
 import { useRouter } from "next/router";
+import { useEffect } from "react";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
+import { getBrowserSupabaseClient, isSupabaseConfigured } from "../lib/supabaseClient";
 
 export default function MyApp({ Component, pageProps }) {
   const router = useRouter();
   const showCandle =
     router.pathname.startsWith("/admin") || router.pathname.startsWith("/dashboard");
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    if (typeof window === "undefined") return;
+    const flag = window.localStorage.getItem("enforce_single_session");
+    if (!flag) return;
+    const client = getBrowserSupabaseClient();
+    if (!client) return;
+    (async () => {
+      try {
+        const { data } = await client.auth.getSession();
+        if (data?.session) {
+          await client.auth.signOut({ scope: "others" });
+        }
+      } catch {}
+      window.localStorage.removeItem("enforce_single_session");
+    })();
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col bg-black text-white">
