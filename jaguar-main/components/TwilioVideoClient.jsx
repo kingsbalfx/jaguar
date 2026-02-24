@@ -12,6 +12,8 @@ export default function TwilioVideoClient({
   audioOnly = false,
   allowScreenShare = false,
   showControls = false,
+  joinAudio = true,
+  joinVideo = true,
 }) {
   const [status, setStatus] = useState("idle");
   const [isSharing, setIsSharing] = useState(false);
@@ -47,8 +49,8 @@ export default function TwilioVideoClient({
 
         const room = await TwilioVideo.connect(token, {
           name: roomName,
-          audio: true,
-          video: audioOnly ? false : { width: 640 },
+          audio: joinAudio,
+          video: joinVideo && !audioOnly ? { width: 640 } : false,
         });
         roomRef.current = room;
         setStatus("connected");

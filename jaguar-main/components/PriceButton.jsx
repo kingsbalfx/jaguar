@@ -22,7 +22,8 @@ export default function PriceButton({ plan = "vip", initialPrice = null }) {
       const { data } = await supabase.auth.getSession();
       const user = data?.session?.user;
       if (!user) {
-        router.push(`/login?next=/checkout?plan=${plan}`);
+        const next = `/checkout?plan=${plan}`;
+        router.push(`/login?next=${encodeURIComponent(next)}`);
         return;
       }
 

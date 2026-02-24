@@ -155,7 +155,13 @@ export default function LoginPage() {
           </button>
 
           <p className="mt-5 text-center text-sm text-gray-400">
-            New here? <a href="/register" className="text-indigo-400 underline">Create account</a>
+            New here?{" "}
+            <a
+              href={next ? `/register?next=${encodeURIComponent(next)}` : "/register"}
+              className="text-indigo-400 underline"
+            >
+              Create account
+            </a>
           </p>
         </div>
       </div>

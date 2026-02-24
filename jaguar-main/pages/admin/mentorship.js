@@ -67,6 +67,9 @@ export default function Mentorship() {
   const [twilioActive, setTwilioActive] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
+  const [participants, setParticipants] = useState([]);
+  const [participantsLoading, setParticipantsLoading] = useState(false);
+  const [participantsError, setParticipantsError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -93,6 +96,65 @@ export default function Mentorship() {
       active = false;
     };
   }, []);
+
+  const isTwilio =
+    mediaType === "twilio_video" ||
+    mediaType === "twilio_audio" ||
+    mediaType === "twilio_screen";
+
+  const loadParticipants = async () => {
+    if (!roomName) return;
+    setParticipantsError("");
+    setParticipantsLoading(true);
+    try {
+      const res = await fetch(
+        `/api/admin/twilio/participants?roomName=${encodeURIComponent(roomName)}`
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to load participants");
+      setParticipants(Array.isArray(data.participants) ? data.participants : []);
+    } catch (err) {
+      setParticipantsError(err.message || "Failed to load participants");
+    } finally {
+      setParticipantsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (twilioActive && isTwilio) {
+      loadParticipants();
+    }
+  }, [twilioActive, roomName, mediaType]);
+
+  const muteParticipant = async (participantSid, mute) => {
+    try {
+      const res = await fetch("/api/admin/twilio/participants/mute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomName, participantSid, mute }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Mute failed");
+      await loadParticipants();
+    } catch (err) {
+      setParticipantsError(err.message || "Mute failed");
+    }
+  };
+
+  const kickParticipant = async (participantSid) => {
+    try {
+      const res = await fetch("/api/admin/twilio/participants/kick", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomName, participantSid }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Kick failed");
+      await loadParticipants();
+    } catch (err) {
+      setParticipantsError(err.message || "Kick failed");
+    }
+  };
 
   const saveLiveSession = async (e) => {
     e.preventDefault();
@@ -310,6 +372,58 @@ export default function Mentorship() {
                         allowScreenShare={mediaType === "twilio_screen"}
                         showControls
                       />
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between">
+                          <h5 className="text-sm font-semibold">Participants</h5>
+                          <button
+                            type="button"
+                            onClick={loadParticipants}
+                            className="text-xs px-2 py-1 rounded bg-white/10"
+                          >
+                            Refresh
+                          </button>
+                        </div>
+                        {participantsLoading && (
+                          <div className="text-xs text-gray-400 mt-2">Loading participants...</div>
+                        )}
+                        {participantsError && (
+                          <div className="text-xs text-red-300 mt-2">{participantsError}</div>
+                        )}
+                        {!participantsLoading && !participantsError && (
+                          <div className="mt-2 space-y-2">
+                            {participants.length === 0 && (
+                              <div className="text-xs text-gray-400">No active participants yet.</div>
+                            )}
+                            {participants.map((p) => (
+                              <div
+                                key={p.sid}
+                                className="flex flex-wrap items-center justify-between gap-2 rounded bg-white/5 p-2 text-xs"
+                              >
+                                <div>
+                                  <div className="font-semibold">{p.identity || "unknown"}</div>
+                                  <div className="text-gray-400">{p.status}</div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => muteParticipant(p.sid, !p.muted)}
+                                    className="px-2 py-1 rounded bg-slate-700 text-white"
+                                  >
+                                    {p.muted ? "Unmute" : "Mute"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => kickParticipant(p.sid)}
+                                    className="px-2 py-1 rounded bg-red-600 text-white"
+                                  >
+                                    Kick
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

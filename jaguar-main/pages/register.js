@@ -127,7 +127,13 @@ export default function Register() {
         </button>
 
         <div className="mt-4 text-center text-sm">
-          Already have an account? <a href="/login" className="text-indigo-300 underline">Sign in</a>
+          Already have an account?{" "}
+          <a
+            href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}
+            className="text-indigo-300 underline"
+          >
+            Sign in
+          </a>
         </div>
         </div>
       </div>
