@@ -97,9 +97,18 @@ export const getServerSideProps = async (ctx) => {
   }
 
   const role = profile.role || "user";
+  const effectiveRole = role === "admin" && isAdminEmail ? "admin" : role;
+
+  if (role === "admin" && !isAdminEmail && supabaseAdmin) {
+    try {
+      await supabaseAdmin.from("profiles").update({ role: "user" }).eq("id", user.id);
+    } catch (e) {
+      console.warn("Failed to downgrade non-admin email:", e?.message || e);
+    }
+  }
 
   // Admin or super admin email override
-  if (role === "admin" || isAdminEmail) {
+  if (effectiveRole === "admin" || isAdminEmail) {
     return { redirect: { destination: validatedNext || "/admin", permanent: false } };
   }
 
@@ -126,25 +135,25 @@ export const getServerSideProps = async (ctx) => {
     }
   }
 
-  if (role === "vip") {
+  if (effectiveRole === "vip") {
     const paid = await hasPaid("vip");
     const dest = validatedNext || (paid ? "/dashboard/vip" : `/checkout?plan=vip&next=/auth/callback`);
     return { redirect: { destination: dest, permanent: false } };
   }
 
-  if (role === "premium") {
+  if (effectiveRole === "premium") {
     const paid = await hasPaid("premium");
     const dest = validatedNext || (paid ? "/dashboard/premium" : `/checkout?plan=premium&next=/auth/callback`);
     return { redirect: { destination: dest, permanent: false } };
   }
 
-  if (role === "pro") {
+  if (effectiveRole === "pro") {
     const paid = await hasPaid("pro");
     const dest = validatedNext || (paid ? "/dashboard/pro" : `/checkout?plan=pro&next=/auth/callback`);
     return { redirect: { destination: dest, permanent: false } };
   }
 
-  if (role === "lifetime") {
+  if (effectiveRole === "lifetime") {
     const paid = await hasPaid("lifetime");
     const dest = validatedNext || (paid ? "/dashboard/lifetime" : `/checkout?plan=lifetime&next=/auth/callback`);
     return { redirect: { destination: dest, permanent: false } };

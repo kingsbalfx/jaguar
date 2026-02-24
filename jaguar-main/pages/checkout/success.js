@@ -116,7 +116,11 @@ export async function getServerSideProps(context) {
     }
 
     // Redirect logic
-    if ((buyerEmail || "").toLowerCase() === "shafiuabdullahi.sa3@gmail.com") {
+    const SUPER = (process.env.SUPER_ADMIN_EMAIL || "").toLowerCase();
+    const FALLBACK_ADMIN =
+      (process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.ADMIN_EMAIL || "").toLowerCase();
+    const buyerLower = (buyerEmail || "").toLowerCase();
+    if (buyerLower && (buyerLower === SUPER || buyerLower === FALLBACK_ADMIN)) {
       return {
         redirect: {
           destination: "/admin",
