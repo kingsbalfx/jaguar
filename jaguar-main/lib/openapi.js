@@ -96,8 +96,13 @@ export const openAPISchema = {
       },
       KorapayInit: {
         type: "object",
-        required: ["email", "amount"],
-        properties: { email: { type: "string" }, amount: { type: "integer" } },
+        required: ["email", "plan", "termsAccepted"],
+        properties: {
+          email: { type: "string" },
+          plan: { type: "string", example: "vip" },
+          userId: { type: "string" },
+          termsAccepted: { type: "boolean", example: true },
+        },
       },
       KorapayResponse: { type: "object", properties: { data: { properties: { checkout_url: { type: "string" }, reference: { type: "string" } } } } },
       KorapayEvent: {

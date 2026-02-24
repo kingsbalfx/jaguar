@@ -19,11 +19,16 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { plan, email, userId } = req.body || {};
+  const { plan, email, userId, termsAccepted } = req.body || {};
   const tier = getTierById(plan);
   if (!tier) return res.status(400).json({ error: "Invalid plan" });
   if (!email) {
     return res.status(400).json({ error: "Buyer email required" });
+  }
+  if (termsAccepted !== true) {
+    return res
+      .status(400)
+      .json({ error: "You must accept the Terms & Refund Policy before payment." });
   }
   if (!tier.price || tier.price <= 0) {
     return res.status(400).json({ error: "Selected plan is free" });

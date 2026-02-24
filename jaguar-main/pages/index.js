@@ -251,7 +251,7 @@ export default function Home({ initialMessages = [], liveSession = null, canView
                       <TwilioVideoClient
                         roomName={liveSession.room_name || "global-room"}
                         audioOnly={Boolean(liveSession.audio_only)}
-                        joinAudio
+                        joinAudio={false}
                         joinVideo={false}
                       />
                     </div>

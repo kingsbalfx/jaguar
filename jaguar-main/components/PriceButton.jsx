@@ -27,17 +27,7 @@ export default function PriceButton({ plan = "vip", initialPrice = null }) {
         return;
       }
 
-      const res = await fetch("/api/korapay/init", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ plan, email: user.email, userId: user.id }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Payment init failed");
-
-      const checkoutUrl = json.checkout_url || json.authorization_url || json?.data?.checkout_url;
-      if (!checkoutUrl) throw new Error("No checkout URL returned from server");
-      window.location.href = checkoutUrl;
+      router.push(`/checkout?plan=${encodeURIComponent(plan)}`);
     } catch (err) {
       alert(err.message || "Payment error");
     } finally {

@@ -25,6 +25,7 @@ export default function Checkout() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   // Prefill email if logged in
   useEffect(() => {
@@ -58,6 +59,10 @@ export default function Checkout() {
       setMessage("This plan is free and does not require checkout.");
       return;
     }
+    if (!termsAccepted) {
+      setMessage("Please accept the Terms & Refund Policy before continuing.");
+      return;
+    }
     if (!email) {
       setMessage("Enter buyer email before continuing.");
       return;
@@ -75,7 +80,7 @@ export default function Checkout() {
         return;
       }
 
-      const payload = { plan, email, userId };
+      const payload = { plan, email, userId, termsAccepted: true };
 
       // Call the Init endpoint (omit the first try since we handle one endpoint)
       const resp = await fetch("/api/korapay/init", {
@@ -141,6 +146,31 @@ export default function Checkout() {
         </div>
 
         {message && <div className="mb-4 text-red-400">{message}</div>}
+
+        <div className="mb-5 max-w-2xl rounded-xl border border-white/10 bg-black/40 p-4 text-sm text-gray-300">
+          <div className="font-semibold mb-2">Refund Policy (Summary)</div>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Refunds are only considered if you have not benefited or used the service.</li>
+            <li>You must request a refund within 7 days of payment.</li>
+            <li>After 7 days, refunds are not allowed.</li>
+            <li>If any usage or benefit is detected, refunds are not granted.</li>
+          </ul>
+          <div className="mt-3 flex items-start gap-2">
+            <input
+              id="termsAccepted"
+              type="checkbox"
+              className="mt-1"
+              checked={termsAccepted}
+              onChange={(e) => setTermsAccepted(e.target.checked)}
+            />
+            <label htmlFor="termsAccepted" className="text-gray-200">
+              I agree to the Terms & Refund Policy.{" "}
+              <a className="text-indigo-300 underline" href="/terms" target="_blank" rel="noreferrer">
+                Read full terms
+              </a>
+            </label>
+          </div>
+        </div>
 
         <div className="flex gap-3">
           <button
