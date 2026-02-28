@@ -124,53 +124,50 @@ export default function Register() {
         : `${base}/auth/callback`;
       const client = getBrowserSupabaseClient();
       if (!client) throw new Error("Supabase client not available.");
-      const { data, error } = await client.auth.signUp({
+      const apiRes = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          password,
+          fullName,
+          phone,
+          address,
+          country,
+          ageConfirmed: true,
+        }),
+      });
+
+      if (!apiRes.ok) {
+        const apiJson = await apiRes.json().catch(() => ({}));
+        const apiError = apiJson?.error || "Unable to create account.";
+        if (apiRes.status === 409) {
+          setErrMsg("An account with this email already exists. Please sign in.");
+          setLoading(false);
+          return;
+        }
+        setErrMsg(apiError);
+        setLoading(false);
+        return;
+      }
+
+      const { data: loginData, error: loginError } = await client.auth.signInWithPassword({
         email,
         password,
-        options: {
-          redirectTo,
-          data: {
-            full_name: fullName,
-            phone,
-            address,
-            country,
-            age_confirmed: true,
-          },
-        },
       });
-      if (error) throw error;
-      if (data?.session) {
-        if (typeof window !== "undefined") {
-          window.localStorage.setItem("enforce_single_session", "1");
-        }
-        const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
-        router.push(`/auth/callback${nextParam}`);
-      } else {
-        try {
-          await new Promise((resolve) => setTimeout(resolve, 800));
-          const { data: loginData, error: loginError } = await client.auth.signInWithPassword({
-            email,
-            password,
-          });
-          if (loginError || !loginData?.session) {
-            setSuccessMsg(
-              "Signup successful. Email confirmation is enabled on this project, so you must confirm your email before login. Disable email confirmation in Supabase Auth settings to allow instant login."
-            );
-            setLoading(false);
-            return;
-          }
-          if (typeof window !== "undefined") {
-            window.localStorage.setItem("enforce_single_session", "1");
-          }
-          const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
-          router.push(`/auth/callback${nextParam}`);
-        } catch (loginErr) {
-          setSuccessMsg(
-            "Signup successful. Email confirmation is enabled on this project, so you must confirm your email before login. Disable email confirmation in Supabase Auth settings to allow instant login."
-          );
-          setLoading(false);
-        }
+      if (loginError || !loginData?.session) {
+        setSuccessMsg(
+          "Account created but auto-login failed. Please sign in to continue."
+        );
+        setLoading(false);
+        return;
       }
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("enforce_single_session", "1");
+      }
+      const nextParam = next ? `?next=${encodeURIComponent(next)}` : "";
+      router.push(`/auth/callback${nextParam}`);
     } catch (err) {
       console.error("signup error:", err);
       setErrMsg(err?.message || "Sign up failed");

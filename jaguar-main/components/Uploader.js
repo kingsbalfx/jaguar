@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
 
-export default function Uploader({ bucket = "public", folder = "" }) {
+const DEFAULT_BUCKET = process.env.NEXT_PUBLIC_STORAGE_BUCKET || "public";
+
+export default function Uploader({ bucket = DEFAULT_BUCKET, folder = "" }) {
   const [files, setFiles] = useState([]);
   const [selected, setSelected] = useState(null);
   const [listing, setListing] = useState([]);

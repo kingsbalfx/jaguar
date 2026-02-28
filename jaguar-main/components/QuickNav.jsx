@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import { getBrowserSupabaseClient } from "../lib/supabaseClient";
 
 const ROLE_DASHBOARD = {
+  user: { label: "Dashboard", href: "/dashboard" },
   premium: { label: "Dashboard (Premium)", href: "/dashboard/premium" },
   vip: { label: "Dashboard (VIP)", href: "/dashboard/vip" },
   pro: { label: "Dashboard (Pro)", href: "/dashboard/pro" },
@@ -61,7 +62,7 @@ export default function QuickNav() {
         const res = await fetch("/api/get-role", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: user.id }),
+          body: JSON.stringify({ userId: user.id, userEmail: user.email }),
         });
         const json = await res.json();
         const resolvedRole = (json?.role || "user").toLowerCase();

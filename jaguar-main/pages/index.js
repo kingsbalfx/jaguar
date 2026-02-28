@@ -373,8 +373,8 @@ export default function Home({ initialMessages = [], liveSession = null, canView
 
           <div className="grid gap-4 md:grid-cols-2">
             {visibleMessages.map((m) => (
-              <div key={m.id} className="glass-panel rounded-2xl p-4">
-                {m.text}
+              <div key={m.id} className="glass-panel rounded-2xl p-4 moving-italic">
+                <span>{m.text}</span>
               </div>
             ))}
           </div>

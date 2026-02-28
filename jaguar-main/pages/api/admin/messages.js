@@ -25,9 +25,27 @@ async function requireAdmin(req, res) {
     .maybeSingle();
 
   const role = (profile?.role || "user").toLowerCase();
-  if (role !== "admin") {
+  const email = (session.user.email || "").toLowerCase();
+  const adminEmail =
+    (process.env.SUPER_ADMIN_EMAIL || process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.ADMIN_EMAIL || "").toLowerCase();
+  const isAdminEmail = adminEmail && email === adminEmail;
+
+  if (role !== "admin" && !isAdminEmail) {
     res.status(403).json({ error: "forbidden" });
     return null;
+  }
+
+  if (isAdminEmail && role !== "admin") {
+    try {
+      await supabaseAdmin.from("profiles").upsert({
+        id: session.user.id,
+        email: session.user.email,
+        role: "admin",
+        updated_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn("Failed to promote admin email:", e?.message || e);
+    }
   }
 
   return { supabaseAdmin };
