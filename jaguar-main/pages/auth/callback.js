@@ -111,6 +111,8 @@ export const getServerSideProps = async (ctx) => {
   const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || "").toLowerCase();
   const FALLBACK_ADMIN_EMAIL = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.ADMIN_EMAIL || "").toLowerCase();
   const isAdminEmail = email && (email === SUPER_ADMIN_EMAIL || email === FALLBACK_ADMIN_EMAIL);
+  const isCheckoutNext = typeof validatedNext === "string" && validatedNext.startsWith("/checkout");
+  const skipProfileCompletion = Boolean(isAdminEmail || isCheckoutNext);
   const metadata = user.user_metadata || {};
   const metaName = metadata.full_name || metadata.name || null;
   const metaPhone = metadata.phone || null;
@@ -120,17 +122,17 @@ export const getServerSideProps = async (ctx) => {
   const hasMetaProfile = Boolean(metaName && metaPhone && metaAddress && metaCountry && metaAgeConfirmed);
 
   if (!profile) {
-    if (supabaseAdmin && hasMetaProfile) {
+    if (supabaseAdmin && (hasMetaProfile || isAdminEmail)) {
       const role = isAdminEmail ? "admin" : "user";
       const payload = {
         id: user.id,
         email: user.email,
         role,
-        name: metaName,
-        phone: metaPhone,
-        address: metaAddress,
-        country: metaCountry,
-        age_confirmed: true,
+        name: isAdminEmail ? metaName || null : metaName,
+        phone: isAdminEmail ? metaPhone || null : metaPhone,
+        address: isAdminEmail ? metaAddress || null : metaAddress,
+        country: isAdminEmail ? metaCountry || null : metaCountry,
+        age_confirmed: isAdminEmail ? Boolean(metaAgeConfirmed) : true,
         updated_at: new Date().toISOString(),
       };
 
@@ -152,11 +154,17 @@ export const getServerSideProps = async (ctx) => {
 
       if (insertErr) {
         console.error("Profile insert error:", insertErr);
+        if (skipProfileCompletion) {
+          return { redirect: { destination: validatedNext || "/admin", permanent: false } };
+        }
         return { redirect: { destination: "/complete-profile", permanent: false } };
       }
       profile = { id: user.id, email: user.email, role };
     } else {
       // If profile missing or metadata incomplete, send user to complete-profile
+      if (skipProfileCompletion) {
+        return { redirect: { destination: validatedNext || "/dashboard", permanent: false } };
+      }
       return { redirect: { destination: "/complete-profile", permanent: false } };
     }
   }
@@ -168,7 +176,7 @@ export const getServerSideProps = async (ctx) => {
     !profileColumnsMissing &&
     (!profile.name || !profile.phone || !profile.address || !profile.country || profile.age_confirmed !== true);
 
-  if (needsProfileCompletion) {
+  if (needsProfileCompletion && !skipProfileCompletion) {
     return { redirect: { destination: "/complete-profile", permanent: false } };
   }
 

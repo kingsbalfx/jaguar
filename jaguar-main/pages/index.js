@@ -312,8 +312,13 @@ export default function Home({ initialMessages = [], liveSession = null, canView
               return (
                 <button
                   key={key}
-                  onClick={() => setMode(key)}
-                  onDoubleClick={() => router.push(accessUrl)}
+                  onClick={() => {
+                    if (mode === key) {
+                      router.push(accessUrl);
+                    } else {
+                      setMode(key);
+                    }
+                  }}
                   className={`fire-toggle ${isActive ? "is-active" : ""}`}
                   style={{
                     "--fire-color": style.color,

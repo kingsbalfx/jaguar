@@ -7,6 +7,8 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
+const DEFAULT_BUCKET = process.env.NEXT_PUBLIC_STORAGE_BUCKET || "public";
+
 export default function UploadPanel() {
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState("");
@@ -18,7 +20,7 @@ export default function UploadPanel() {
     const filePath = `${Date.now()}_${file.name}`;
 
     const { data, error } = await supabase.storage
-      .from("uploads")             // make sure a storage bucket 'uploads' exists
+      .from(DEFAULT_BUCKET)             // make sure this bucket exists in Supabase Storage
       .upload(filePath, file, {
         cacheControl: "3600",
         upsert: false,

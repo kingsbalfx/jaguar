@@ -147,13 +147,14 @@ export default function Register() {
         router.push(`/auth/callback${nextParam}`);
       } else {
         try {
+          await new Promise((resolve) => setTimeout(resolve, 800));
           const { data: loginData, error: loginError } = await client.auth.signInWithPassword({
             email,
             password,
           });
           if (loginError || !loginData?.session) {
             setSuccessMsg(
-              "Signup successful. If email confirmation is disabled, you can log in now. Otherwise, check your email to confirm your account."
+              "Signup successful. Email confirmation is enabled on this project, so you must confirm your email before login. Disable email confirmation in Supabase Auth settings to allow instant login."
             );
             setLoading(false);
             return;
@@ -165,7 +166,7 @@ export default function Register() {
           router.push(`/auth/callback${nextParam}`);
         } catch (loginErr) {
           setSuccessMsg(
-            "Signup successful. If email confirmation is disabled, you can log in now. Otherwise, check your email to confirm your account."
+            "Signup successful. Email confirmation is enabled on this project, so you must confirm your email before login. Disable email confirmation in Supabase Auth settings to allow instant login."
           );
           setLoading(false);
         }
