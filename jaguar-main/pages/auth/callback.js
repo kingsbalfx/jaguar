@@ -113,6 +113,11 @@ export const getServerSideProps = async (ctx) => {
   const isAdminEmail = email && (email === SUPER_ADMIN_EMAIL || email === FALLBACK_ADMIN_EMAIL);
   const isCheckoutNext = typeof validatedNext === "string" && validatedNext.startsWith("/checkout");
   const skipProfileCompletion = Boolean(isAdminEmail || isCheckoutNext);
+  const skipDestination = isAdminEmail
+    ? "/admin"
+    : isCheckoutNext
+    ? validatedNext
+    : "/dashboard";
   const metadata = user.user_metadata || {};
   const metaName = metadata.full_name || metadata.name || null;
   const metaPhone = metadata.phone || null;
@@ -155,7 +160,7 @@ export const getServerSideProps = async (ctx) => {
       if (insertErr) {
         console.error("Profile insert error:", insertErr);
         if (skipProfileCompletion) {
-          return { redirect: { destination: validatedNext || "/admin", permanent: false } };
+          return { redirect: { destination: validatedNext || skipDestination, permanent: false } };
         }
         return { redirect: { destination: "/complete-profile", permanent: false } };
       }
@@ -163,7 +168,7 @@ export const getServerSideProps = async (ctx) => {
     } else {
       // If profile missing or metadata incomplete, send user to complete-profile
       if (skipProfileCompletion) {
-        return { redirect: { destination: validatedNext || "/dashboard", permanent: false } };
+        return { redirect: { destination: validatedNext || skipDestination, permanent: false } };
       }
       return { redirect: { destination: "/complete-profile", permanent: false } };
     }

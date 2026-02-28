@@ -121,64 +121,81 @@ export default function LoginPage() {
   return (
     <div className="app-bg text-white relative overflow-hidden">
       <div className="candle-backdrop" aria-hidden="true" />
-      <div className="app-content min-h-[calc(100vh-160px)] flex items-center justify-center bg-gradient-to-br from-gray-900 via-black to-indigo-900 text-white px-6 py-10">
-        <div className="max-w-md w-full bg-black/70 p-8 rounded-lg">
-          <div className="flex flex-col items-center mb-5">
-            <img src="/jaguar.png" alt="logo" width={80} height={80} />
-            <h1 className="text-2xl font-bold mt-3">KINGSBALFX</h1>
+      <div className="app-content min-h-[calc(100vh-160px)] flex items-center justify-center px-6 py-12">
+        <div className="login-shell">
+          <div className="login-side">
+            <div className="login-brand">
+              <img src="/jaguar.png" alt="logo" width={72} height={72} />
+              <div>
+                <div className="login-brand-title">KINGSBALFX</div>
+                <div className="login-brand-sub">Trade Lab Access</div>
+              </div>
+            </div>
+            <h1 className="login-hero-title">Sign in to your trading command center.</h1>
+            <p className="login-hero-text">
+              Private signals, live mentorship rooms, and tiered bot intelligence—built for precision.
+            </p>
+            <div className="login-bullets">
+              <div>• Real‑time market setups and entry alerts</div>
+              <div>• Secure access to Pro + Lifetime content</div>
+              <div>• 1:1 mentorship and replay libraries</div>
+            </div>
+            <div className="login-badge">Secure • Encrypted • 24/7 Access</div>
           </div>
 
-          {errMsg && <p className="text-red-400 mb-4">{errMsg}</p>}
+          <div className="login-panel">
+            <div className="login-panel-header">
+              <h2>Welcome back</h2>
+              <p>Enter your credentials to continue.</p>
+            </div>
 
-          <form onSubmit={handleEmailLogin} className="space-y-4">
-            <input
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 bg-white/10 rounded"
-              required
-            />
-            <input
-              type="password"
-              placeholder="Your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 bg-white/10 rounded"
-              required
-            />
+            {errMsg && <div className="login-error">{errMsg}</div>}
+
+            <form onSubmit={handleEmailLogin} className="login-form">
+              <label>
+                Email
+                <input
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  placeholder="Your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </label>
+              <button type="submit" disabled={loading} className="login-primary">
+                {loading ? "Signing in..." : "Sign in"}
+              </button>
+            </form>
+
+            <div className="login-divider">
+              <span>or</span>
+            </div>
+
             <button
-              type="submit"
+              onClick={handleGoogleLogin}
               disabled={loading}
-              className="w-full py-3 bg-indigo-600 rounded hover:bg-indigo-700 disabled:opacity-50"
+              className="login-oauth"
             >
-              {loading ? "Signing in..." : "Sign in"}
+              Continue with Google
             </button>
-          </form>
 
-          <div className="mt-4 flex items-center gap-2">
-            <hr className="flex-1 border-white/20" />
-            <span className="text-xs text-gray-400">or</span>
-            <hr className="flex-1 border-white/20" />
+            <p className="login-footer">
+              New here?{" "}
+              <a href={next ? `/register?next=${encodeURIComponent(next)}` : "/register"}>
+                Create account
+              </a>
+            </p>
           </div>
-
-          <button
-            onClick={handleGoogleLogin}
-            disabled={loading}
-            className="w-full mt-3 py-3 bg-white/10 border border-white/20 rounded flex justify-center items-center gap-2"
-          >
-            Continue with Google
-          </button>
-
-          <p className="mt-5 text-center text-sm text-gray-400">
-            New here?{" "}
-            <a
-              href={next ? `/register?next=${encodeURIComponent(next)}` : "/register"}
-              className="text-indigo-400 underline"
-            >
-              Create account
-            </a>
-          </p>
         </div>
       </div>
     </div>

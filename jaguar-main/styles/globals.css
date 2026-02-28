@@ -308,6 +308,246 @@ body {
   color: #94a3b8;
 }
 
+/* Pro auth layout */
+.login-shell {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  max-width: 1100px;
+  width: 100%;
+  background: rgba(6, 10, 20, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 28px;
+  padding: 24px;
+  box-shadow: 0 35px 90px rgba(2, 6, 23, 0.65);
+  backdrop-filter: blur(16px);
+}
+
+.login-side {
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.login-brand-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.login-brand-sub {
+  font-size: 12px;
+  color: rgba(148, 163, 184, 0.9);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+}
+
+.login-hero-title {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.login-hero-text {
+  color: #cbd5f5;
+  line-height: 1.6;
+}
+
+.login-bullets {
+  display: grid;
+  gap: 6px;
+  color: #e2e8f0;
+  font-size: 14px;
+}
+
+.login-badge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.15);
+  color: #c7d2fe;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.login-panel {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  padding: 28px;
+  display: grid;
+  gap: 18px;
+}
+
+.login-panel-header h2 {
+  font-size: 26px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.login-panel-header p {
+  color: #94a3b8;
+}
+
+.login-form {
+  display: grid;
+  gap: 14px;
+}
+
+.login-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #cbd5f5;
+}
+
+.login-form input,
+.login-form select {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(2, 6, 23, 0.65);
+  padding: 12px 14px;
+  color: #f8fafc;
+  font-size: 14px;
+}
+
+.login-form input:focus,
+.login-form select:focus {
+  outline: 2px solid rgba(99, 102, 241, 0.4);
+  border-color: rgba(99, 102, 241, 0.6);
+}
+
+.login-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: #e2e8f0;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.login-primary {
+  width: 100%;
+  border-radius: 12px;
+  padding: 12px;
+  background: linear-gradient(120deg, #6366f1, #8b5cf6);
+  color: #0f172a;
+  font-weight: 700;
+  box-shadow: 0 14px 34px rgba(99, 102, 241, 0.35);
+}
+
+.login-oauth {
+  width: 100%;
+  border-radius: 12px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.6);
+  color: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.login-divider {
+  position: relative;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 40%;
+  height: 1px;
+  background: rgba(148, 163, 184, 0.25);
+}
+
+.login-divider::before {
+  left: 0;
+}
+
+.login-divider::after {
+  right: 0;
+}
+
+.login-error {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  padding: 10px 12px;
+  border-radius: 12px;
+  color: #fecaca;
+  font-size: 13px;
+}
+
+.login-success {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  padding: 10px 12px;
+  border-radius: 12px;
+  color: #bbf7d0;
+  font-size: 13px;
+}
+
+.login-hint.error {
+  color: #fca5a5;
+  font-size: 12px;
+}
+
+.login-footer {
+  text-align: center;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.login-footer a {
+  color: #c7d2fe;
+  text-decoration: underline;
+}
+
+@media (max-width: 960px) {
+  .login-shell {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Moving italic admin landing messages */
+.moving-italic {
+  font-style: italic;
+  overflow: hidden;
+  position: relative;
+}
+
+.moving-italic span {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marqueeSlide 12s linear infinite;
+}
+
+@keyframes marqueeSlide {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
+}
+
 /* main app background container (apply this class to <main> or the overall wrapper) */
 .app-bg {
   position: relative; /* needed so ::before sits on top */

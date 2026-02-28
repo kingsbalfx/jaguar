@@ -221,124 +221,152 @@ export default function Register() {
   return (
     <div className="app-bg text-white relative overflow-hidden">
       <div className="candle-backdrop" aria-hidden="true" />
-      <div className="app-content min-h-[calc(100vh-160px)] flex items-center justify-center bg-gradient-to-br from-slate-900 via-indigo-900 to-black p-4 py-10">
-        <div className="w-full max-w-md bg-black/70 backdrop-blur-lg border border-white/10 rounded-2xl shadow-2xl p-8 text-white">
-          <h1 className="text-3xl font-bold text-center mb-2">Create an Account</h1>
-          <p className="text-sm text-gray-400 text-center mb-4">Sign up with email or use Google</p>
-
-          {errMsg && <div className="bg-red-600/40 text-red-200 p-3 rounded mb-4 text-center">{errMsg}</div>}
-          {successMsg && (
-            <div className="bg-emerald-600/30 text-emerald-100 p-3 rounded mb-4 text-center">
-              {successMsg}
+      <div className="app-content min-h-[calc(100vh-160px)] flex items-center justify-center px-6 py-12">
+        <div className="login-shell">
+          <div className="login-side">
+            <div className="login-brand">
+              <img src="/jaguar.png" alt="logo" width={72} height={72} />
+              <div>
+                <div className="login-brand-title">KINGSBALFX</div>
+                <div className="login-brand-sub">Create Your Access</div>
+              </div>
             </div>
-          )}
-
-          <form onSubmit={handleEmailSignUp} className="space-y-4">
-            <input
-              type="text"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              required
-              placeholder="Full name"
-              className="w-full px-4 py-3 rounded-lg bg-white/10"
-            />
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              required
-              placeholder="Phone number"
-              className="w-full px-4 py-3 rounded-lg bg-white/10"
-            />
-            <input
-              type="text"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              required
-              placeholder="Address"
-              className="w-full px-4 py-3 rounded-lg bg-white/10"
-            />
-            <select
-              value={country}
-              onChange={(e) => setCountry(e.target.value)}
-              required
-              className="w-full px-4 py-3 rounded-lg bg-white/10"
-            >
-              <option value="">Select country</option>
-              {COUNTRIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              placeholder="you@example.com"
-              className="w-full px-4 py-3 rounded-lg bg-white/10"
-            />
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              placeholder="********"
-              className="w-full px-4 py-3 rounded-lg bg-white/10"
-            />
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-              placeholder="Confirm password"
-              className="w-full px-4 py-3 rounded-lg bg-white/10"
-            />
-            {confirmPassword && !passwordsMatch && (
-              <div className="text-xs text-red-300">Passwords do not match.</div>
-            )}
-            <label className="flex items-start gap-2 text-sm text-gray-300">
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={ageConfirmed}
-                onChange={(e) => setAgeConfirmed(e.target.checked)}
-                required
-              />
-              I confirm that I am at least 16 years old.
-            </label>
-            <button
-              type="submit"
-              disabled={loading || (confirmPassword && !passwordsMatch)}
-              className="w-full py-3 bg-indigo-600 rounded-lg text-white disabled:opacity-60"
-            >
-              {loading ? "Creating account..." : "Sign Up"}
-            </button>
-          </form>
-
-          <div className="mt-4 flex items-center gap-3 text-gray-500">
-            <hr className="flex-1 border-gray-600" />
-            <span className="text-xs uppercase">or</span>
-            <hr className="flex-1 border-gray-600" />
+            <h1 className="login-hero-title">Join the trading desk in minutes.</h1>
+            <p className="login-hero-text">
+              Secure your seat, unlock mentorship rooms, and start tracking the signals that matter.
+            </p>
+            <div className="login-bullets">
+              <div>• Structured onboarding with profile completion</div>
+              <div>• Tiered dashboard access and live room entry</div>
+              <div>• Upgrade anytime with instant plan switches</div>
+            </div>
+            <div className="login-badge">Trusted • Private • Built for focus</div>
           </div>
 
-          <button
-            onClick={handleGoogleSignIn}
-            disabled={loading}
-            className="mt-4 w-full py-3 border border-gray-600 rounded-lg flex items-center justify-center gap-3"
-          >
-            <FcGoogle size={20} /> Continue with Google
-          </button>
+          <div className="login-panel">
+            <div className="login-panel-header">
+              <h2>Create your account</h2>
+              <p>Sign up with email or use Google.</p>
+            </div>
 
-          <div className="mt-4 text-center text-sm">
-            Already have an account?{" "}
-            <a
-              href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}
-              className="text-indigo-300 underline"
+            {errMsg && <div className="login-error">{errMsg}</div>}
+            {successMsg && <div className="login-success">{successMsg}</div>}
+
+            <form onSubmit={handleEmailSignUp} className="login-form">
+              <label>
+                Full name
+                <input
+                  type="text"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  required
+                  placeholder="Shafiu Abdullahi"
+                />
+              </label>
+              <label>
+                Phone number
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  required
+                  placeholder="07034322065"
+                />
+              </label>
+              <label>
+                Address
+                <input
+                  type="text"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  required
+                  placeholder="No 5 Nakasari, Eastern Bypass"
+                />
+              </label>
+              <label>
+                Country
+                <select
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  required
+                >
+                  <option value="">Select country</option>
+                  {COUNTRIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  placeholder="you@example.com"
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  placeholder="********"
+                />
+              </label>
+              <label>
+                Confirm password
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  placeholder="Confirm password"
+                />
+              </label>
+              {confirmPassword && !passwordsMatch && (
+                <div className="login-hint error">Passwords do not match.</div>
+              )}
+              <label className="login-checkbox">
+                <input
+                  type="checkbox"
+                  checked={ageConfirmed}
+                  onChange={(e) => setAgeConfirmed(e.target.checked)}
+                  required
+                />
+                I confirm that I am at least 16 years old.
+              </label>
+              <button
+                type="submit"
+                disabled={loading || (confirmPassword && !passwordsMatch)}
+                className="login-primary"
+              >
+                {loading ? "Creating account..." : "Sign Up"}
+              </button>
+            </form>
+
+            <div className="login-divider">
+              <span>or</span>
+            </div>
+
+            <button
+              onClick={handleGoogleSignIn}
+              disabled={loading}
+              className="login-oauth"
             >
-              Sign in
-            </a>
+              <FcGoogle size={20} /> Continue with Google
+            </button>
+
+            <p className="login-footer">
+              Already have an account?{" "}
+              <a href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}>
+                Sign in
+              </a>
+            </p>
           </div>
         </div>
       </div>

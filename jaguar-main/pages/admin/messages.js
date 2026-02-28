@@ -149,7 +149,9 @@ export default function Messages() {
         <ul>
           {items.map((it) => (
             <li key={it.id} className="mb-3 rounded border border-white/10 bg-black/30 p-3 text-gray-300">
-              <div className="text-sm">{it.content}</div>
+              <div className="text-sm moving-italic">
+                <span>{it.content}</span>
+              </div>
               <div className="mt-1 text-xs text-gray-500 flex flex-wrap gap-3">
                 <span>Segment: {it.segment || "all"}</span>
                 {it.created_at && <span>{new Date(it.created_at).toLocaleString()}</span>}
