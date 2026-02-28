@@ -154,6 +154,11 @@ export default function Messages() {
               </div>
               <div className="mt-1 text-xs text-gray-500 flex flex-wrap gap-3">
                 <span>Segment: {it.segment || "all"}</span>
+                {it.author && (
+                  <span>
+                    By {it.author.name || it.author.username || it.author.email || "Admin"}
+                  </span>
+                )}
                 {it.created_at && <span>{new Date(it.created_at).toLocaleString()}</span>}
               </div>
               <div className="mt-2 flex gap-2">

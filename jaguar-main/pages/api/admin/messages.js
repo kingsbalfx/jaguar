@@ -48,26 +48,34 @@ async function requireAdmin(req, res) {
     }
   }
 
-  return { supabaseAdmin };
+  return { supabaseAdmin, session };
 }
 
 export default async function handler(req, res) {
   const ctx = await requireAdmin(req, res);
   if (!ctx) return;
-  const { supabaseAdmin } = ctx;
+  const { supabaseAdmin, session } = ctx;
 
   if (req.method === "GET") {
     try {
       let { data, error } = await supabaseAdmin
         .from("messages")
-        .select("*")
+        .select("id, content, segment, created_at, created_by")
         .order("created_at", { ascending: false })
         .limit(50);
 
       if (error && error.code === "42703") {
         ({ data, error } = await supabaseAdmin
           .from("messages")
-          .select("*")
+          .select("id, content, created_at")
+          .order("created_at", { ascending: false })
+          .limit(50));
+      }
+
+      if (error && error.code === "42703") {
+        ({ data, error } = await supabaseAdmin
+          .from("messages")
+          .select("id, content")
           .order("id", { ascending: false })
           .limit(50));
       }
@@ -76,7 +84,29 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: "failed to load messages" });
       }
 
-      return res.status(200).json({ items: data || [] });
+      const items = data || [];
+      const authorIds = Array.from(new Set(items.map((item) => item.created_by).filter(Boolean)));
+      let authorsById = {};
+
+      if (authorIds.length > 0) {
+        const { data: authors, error: authorErr } = await supabaseAdmin
+          .from("profiles")
+          .select("id, name, username, email")
+          .in("id", authorIds);
+        if (!authorErr && Array.isArray(authors)) {
+          authorsById = authors.reduce((acc, author) => {
+            acc[author.id] = author;
+            return acc;
+          }, {});
+        }
+      }
+
+      const enriched = items.map((item) => ({
+        ...item,
+        author: item.created_by ? authorsById[item.created_by] || null : null,
+      }));
+
+      return res.status(200).json({ items: enriched });
     } catch (err) {
       return res.status(500).json({ error: err.message || "server error" });
     }
@@ -88,15 +118,30 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "content is required" });
     }
 
-    const { data, error } = await supabaseAdmin
+    const payload = {
+      content,
+      segment: segment || "all",
+      created_at: new Date().toISOString(),
+      created_by: session?.user?.id || null,
+    };
+
+    let { data, error } = await supabaseAdmin
       .from("messages")
-      .insert({
-        content,
-        segment: segment || "all",
-        created_at: new Date().toISOString(),
-      })
+      .insert(payload)
       .select("*")
       .maybeSingle();
+
+    if (error && error.code === "42703") {
+      const fallbackPayload = {
+        content,
+        created_at: new Date().toISOString(),
+      };
+      ({ data, error } = await supabaseAdmin
+        .from("messages")
+        .insert(fallbackPayload)
+        .select("*")
+        .maybeSingle());
+    }
 
     if (error) {
       return res.status(500).json({ error: error.message || "failed to save message" });

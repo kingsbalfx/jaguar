@@ -417,11 +417,13 @@ create index if not exists idx_lesson_files_section_id on public.lesson_files(se
 -- ============================================
 -- MESSAGES / CHAT
 -- ============================================
-create table if not exists public.messages (
-  id uuid primary key default gen_random_uuid(),
-  content text not null,
-  created_at timestamp default current_timestamp
-);
+  create table if not exists public.messages (
+    id uuid primary key default gen_random_uuid(),
+    content text not null,
+    segment text default 'all',
+    created_by uuid references public.profiles(id) on delete set null,
+    created_at timestamp default current_timestamp
+  );
 
 create table if not exists public.chat_messages (
   id uuid primary key default gen_random_uuid(),
