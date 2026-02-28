@@ -68,6 +68,7 @@ export default function Register() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [country, setCountry] = useState("");
@@ -77,6 +78,8 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const isConfigured = Boolean(isSupabaseConfigured);
   const passwordsMatch = password && confirmPassword && password === confirmPassword;
+  const normalizedUsername = username.trim().toLowerCase();
+  const usernameValid = /^[a-z0-9_.-]{3,20}$/.test(normalizedUsername);
 
   if (!isConfigured) {
     return (
@@ -108,6 +111,11 @@ export default function Register() {
         setLoading(false);
         return;
       }
+      if (!normalizedUsername || !usernameValid) {
+        setErrMsg("Username must be 3-20 characters (letters, numbers, _ . -).");
+        setLoading(false);
+        return;
+      }
       if (password !== confirmPassword) {
         setErrMsg("Passwords do not match.");
         setLoading(false);
@@ -131,6 +139,7 @@ export default function Register() {
           email,
           password,
           fullName,
+          username: normalizedUsername,
           phone,
           address,
           country,
@@ -190,6 +199,11 @@ export default function Register() {
         setLoading(false);
         return;
       }
+      if (!normalizedUsername || !usernameValid) {
+        setErrMsg("Username must be 3-20 characters (letters, numbers, _ . -).");
+        setLoading(false);
+        return;
+      }
       const base = getURL().replace(/\/$/, "");
       const redirectTo = next
         ? `${base}/auth/callback?next=${encodeURIComponent(next)}`
@@ -198,7 +212,7 @@ export default function Register() {
       if (!client) throw new Error("Supabase client not available.");
 
       if (typeof window !== "undefined") {
-        const payload = { fullName, phone, address, country, ageConfirmed: true };
+        const payload = { fullName, username: normalizedUsername, phone, address, country, ageConfirmed: true };
         window.localStorage.setItem("pending_profile", JSON.stringify(payload));
         window.localStorage.setItem("enforce_single_session", "1");
       }
@@ -260,6 +274,21 @@ export default function Register() {
                   placeholder="Shafiu Abdullahi"
                 />
               </label>
+              <label>
+                Username
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                  placeholder="kingsbalfx"
+                />
+              </label>
+              {!usernameValid && username.length > 0 && (
+                <div className="login-hint error">
+                  Username must be 3-20 characters (letters, numbers, _ . -).
+                </div>
+              )}
               <label>
                 Phone number
                 <input

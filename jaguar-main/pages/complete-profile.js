@@ -70,6 +70,7 @@ const COUNTRIES = [
 export default function CompleteProfile() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [username, setUsername] = useState("");
   const [address, setAddress] = useState("");
   const [country, setCountry] = useState("");
   const [ageConfirmed, setAgeConfirmed] = useState(false);
@@ -78,6 +79,8 @@ export default function CompleteProfile() {
   const [user, setUser] = useState(null);
   const router = useRouter();
   const isConfigured = Boolean(isSupabaseConfigured);
+  const normalizedUsername = username.trim().toLowerCase();
+  const usernameValid = /^[a-z0-9_.-]{3,20}$/.test(normalizedUsername);
 
   if (!isConfigured) {
     return (
@@ -110,6 +113,7 @@ export default function CompleteProfile() {
         const metadata = user.user_metadata || {};
         setName((prev) => prev || metadata.full_name || metadata.name || "");
         setPhone((prev) => prev || metadata.phone || "");
+        setUsername((prev) => prev || metadata.username || "");
         setAddress((prev) => prev || metadata.address || "");
         setCountry((prev) => prev || metadata.country || "");
         if (metadata.age_confirmed === true || metadata.age_confirmed === "true") {
@@ -129,6 +133,7 @@ export default function CompleteProfile() {
       const pending = JSON.parse(raw);
       setName((prev) => prev || pending.fullName || "");
       setPhone((prev) => prev || pending.phone || "");
+      setUsername((prev) => prev || pending.username || "");
       setAddress((prev) => prev || pending.address || "");
       setCountry((prev) => prev || pending.country || "");
       if (pending.ageConfirmed) setAgeConfirmed(true);
@@ -154,10 +159,15 @@ export default function CompleteProfile() {
         setLoading(false);
         return;
       }
+      if (!normalizedUsername || !usernameValid) {
+        setErr("Username must be 3-20 characters (letters, numbers, _ . -).");
+        setLoading(false);
+        return;
+      }
       const res = await fetch("/api/profile/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, phone, address, country, ageConfirmed }),
+        body: JSON.stringify({ name, phone, username: normalizedUsername, address, country, ageConfirmed }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -213,6 +223,23 @@ export default function CompleteProfile() {
               placeholder="+2348012345678"
               className="w-full px-4 py-3 rounded-lg bg-white/10 placeholder-gray-400 focus:bg-white/20 focus:ring-2 focus:ring-indigo-500 outline-none transition"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-300 mb-1">Username</label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              placeholder="kingsbalfx"
+              className="w-full px-4 py-3 rounded-lg bg-white/10 placeholder-gray-400 focus:bg-white/20 focus:ring-2 focus:ring-indigo-500 outline-none transition"
+            />
+            {!usernameValid && username.length > 0 && (
+              <div className="text-xs text-red-300 mt-1">
+                Username must be 3-20 characters (letters, numbers, _ . -).
+              </div>
+            )}
           </div>
 
           <div>

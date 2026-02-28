@@ -60,6 +60,31 @@ export const getServerSideProps = async (ctx) => {
       ? payments.reduce((sum, p) => sum + (Number(p?.amount || 0) / 100 || 0), 0)
       : 0;
 
+    let recentUsers = [];
+    try {
+      let { data, error } = await supabaseAdmin
+        .from("profiles")
+        .select("id, name, username, email, role, created_at, updated_at")
+        .order("created_at", { ascending: false })
+        .limit(8);
+
+      if (error && error.code === "42703") {
+        ({ data, error } = await supabaseAdmin
+          .from("profiles")
+          .select("id, name, email, role, updated_at")
+          .order("updated_at", { ascending: false })
+          .limit(8));
+      }
+
+      if (error) {
+        console.error("Recent users error:", error);
+      } else {
+        recentUsers = data || [];
+      }
+    } catch (err) {
+      console.error("Recent users fetch failed:", err);
+    }
+
     return {
       props: {
         profile: {
@@ -69,6 +94,7 @@ export const getServerSideProps = async (ctx) => {
           role,
         },
         metrics: { usersCount, paymentsCount, revenue },
+        recentUsers,
       },
     };
   } catch (err) {
@@ -77,11 +103,12 @@ export const getServerSideProps = async (ctx) => {
   }
 };
 
-export default function AdminPage({ profile, metrics }) {
+export default function AdminPage({ profile, metrics, recentUsers }) {
   const [menuOpen, setMenuOpen] = useState(true);
   const [selected, setSelected] = useState("overview");
   const fmtCurrency = (n) =>
     new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(n);
+  const resolveUserName = (user) => user?.name || user?.username || user?.email || "Unnamed user";
 
   return (
     <main className="container mx-auto px-6 py-8">
@@ -162,10 +189,28 @@ export default function AdminPage({ profile, metrics }) {
           {selected === "overview" && (
             <div>
               <h2 className="text-2xl font-bold mb-4">Overview</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                <div className="p-4 bg-white/5 rounded">
-                  <div className="text-xs text-gray-400">Total users</div>
-                  <div className="text-2xl font-bold">{metrics?.usersCount ?? 0}</div>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+                <div className="p-4 bg-white/5 rounded lg:col-span-2">
+                  <div className="text-xs text-gray-400">Latest users</div>
+                  <ul className="mt-3 space-y-2">
+                    {(recentUsers || []).length === 0 && (
+                      <li className="text-sm text-gray-500">No users yet.</li>
+                    )}
+                    {(recentUsers || []).map((user) => (
+                      <li key={user.id} className="flex items-center justify-between gap-3">
+                        <div className="flex flex-col">
+                          <span className="text-sm text-white">{resolveUserName(user)}</span>
+                          {user?.username && user?.name && (
+                            <span className="text-xs text-gray-400">@{user.username}</span>
+                          )}
+                        </div>
+                        <span className="text-xs text-gray-500 capitalize">{user?.role || "user"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-3 text-xs text-gray-500">
+                    Total users: {metrics?.usersCount ?? 0}
+                  </div>
                 </div>
                 <div className="p-4 bg-white/5 rounded">
                   <div className="text-xs text-gray-400">Payments</div>

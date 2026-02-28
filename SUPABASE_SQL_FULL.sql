@@ -38,12 +38,13 @@ $$ language plpgsql;
 -- ============================================
 -- PROFILES
 -- ============================================
-create table if not exists public.profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
-  email varchar(254) unique not null,
-  name varchar(255),
-  phone text,
-  role varchar(50) default 'user',
+  create table if not exists public.profiles (
+    id uuid primary key references auth.users(id) on delete cascade,
+    email varchar(254) unique not null,
+    name varchar(255),
+    username varchar(50),
+    phone text,
+    role varchar(50) default 'user',
   lifetime boolean default false,
   bot_tier text default 'free',
   bot_max_signals_per_day integer default 0,
@@ -64,9 +65,10 @@ alter table public.profiles
   add constraint profiles_role_check
   check (role in ('admin','user','vip','premium','pro','lifetime'));
 
-create index if not exists idx_profiles_email on public.profiles(email);
-create index if not exists idx_profiles_lifetime on public.profiles(lifetime);
-create index if not exists idx_profiles_bot_tier on public.profiles(bot_tier);
+  create index if not exists idx_profiles_email on public.profiles(email);
+  create unique index if not exists idx_profiles_username on public.profiles(username) where username is not null;
+  create index if not exists idx_profiles_lifetime on public.profiles(lifetime);
+  create index if not exists idx_profiles_bot_tier on public.profiles(bot_tier);
 
 -- Auto-create profile on signup
 create or replace function public.handle_new_user()

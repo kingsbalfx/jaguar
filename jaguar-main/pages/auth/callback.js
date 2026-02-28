@@ -73,7 +73,7 @@ export const getServerSideProps = async (ctx) => {
     let missingColumns = false;
     const { data: fullData, error: fullErr } = await client
       .from("profiles")
-      .select("id, role, email, name, phone, address, country, age_confirmed")
+      .select("id, role, email, name, username, phone, address, country, age_confirmed")
       .eq("id", user.id)
       .maybeSingle();
     if (fullErr && fullErr.code === "42703") {
@@ -120,11 +120,14 @@ export const getServerSideProps = async (ctx) => {
     : "/dashboard";
   const metadata = user.user_metadata || {};
   const metaName = metadata.full_name || metadata.name || null;
+  const metaUsername = metadata.username ? String(metadata.username).trim().toLowerCase() : null;
   const metaPhone = metadata.phone || null;
   const metaAddress = metadata.address || null;
   const metaCountry = metadata.country || null;
   const metaAgeConfirmed = normalizeBool(metadata.age_confirmed);
-  const hasMetaProfile = Boolean(metaName && metaPhone && metaAddress && metaCountry && metaAgeConfirmed);
+  const hasMetaProfile = Boolean(
+    metaName && metaUsername && metaPhone && metaAddress && metaCountry && metaAgeConfirmed
+  );
 
   if (!profile) {
     if (supabaseAdmin && (hasMetaProfile || isAdminEmail)) {
@@ -134,6 +137,7 @@ export const getServerSideProps = async (ctx) => {
         email: user.email,
         role,
         name: isAdminEmail ? metaName || null : metaName,
+        username: metaUsername || null,
         phone: isAdminEmail ? metaPhone || null : metaPhone,
         address: isAdminEmail ? metaAddress || null : metaAddress,
         country: isAdminEmail ? metaCountry || null : metaCountry,
@@ -179,7 +183,12 @@ export const getServerSideProps = async (ctx) => {
 
   const needsProfileCompletion =
     !profileColumnsMissing &&
-    (!profile.name || !profile.phone || !profile.address || !profile.country || profile.age_confirmed !== true);
+    (!profile.name ||
+      !profile.username ||
+      !profile.phone ||
+      !profile.address ||
+      !profile.country ||
+      profile.age_confirmed !== true);
 
   if (needsProfileCompletion && !skipProfileCompletion) {
     return { redirect: { destination: "/complete-profile", permanent: false } };

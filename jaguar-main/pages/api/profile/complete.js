@@ -16,12 +16,16 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: "not authenticated" });
     }
 
-    const { name, phone, address, country, ageConfirmed } = req.body || {};
-    if (!name || !phone || !address || !country) {
-      return res.status(400).json({ error: "name, phone, address, and country are required" });
+    const { name, phone, username, address, country, ageConfirmed } = req.body || {};
+    if (!name || !phone || !address || !country || !username) {
+      return res.status(400).json({ error: "name, phone, username, address, and country are required" });
     }
     if (!ageConfirmed) {
       return res.status(400).json({ error: "You must confirm you are at least 16 years old" });
+    }
+    const normalizedUsername = String(username || "").trim().toLowerCase();
+    if (!/^[a-z0-9_.-]{3,20}$/.test(normalizedUsername)) {
+      return res.status(400).json({ error: "Invalid username format" });
     }
 
     const supabaseAdmin = getSupabaseClient({ server: true });
@@ -30,11 +34,24 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Supabase client not available" });
     }
 
+    if (supabaseAdmin) {
+      const { data: existing } = await supabaseAdmin
+        .from("profiles")
+        .select("id")
+        .eq("username", normalizedUsername)
+        .maybeSingle();
+
+      if (existing?.id && existing.id !== session.user.id) {
+        return res.status(409).json({ error: "Username already taken" });
+      }
+    }
+
     const payload = {
       id: session.user.id,
       email: session.user.email,
       name,
       phone,
+      username: normalizedUsername,
       address,
       country,
       age_confirmed: true,

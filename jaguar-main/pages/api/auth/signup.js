@@ -9,17 +9,22 @@ export default async function handler(req, res) {
     email,
     password,
     fullName,
+    username,
     phone,
     address,
     country,
     ageConfirmed,
   } = req.body || {};
 
-  if (!email || !password || !fullName || !phone || !address || !country) {
+  if (!email || !password || !fullName || !phone || !address || !country || !username) {
     return res.status(400).json({ error: "Missing required fields" });
   }
   if (!ageConfirmed) {
     return res.status(400).json({ error: "Age confirmation required" });
+  }
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  if (!/^[a-z0-9_.-]{3,20}$/.test(normalizedUsername)) {
+    return res.status(400).json({ error: "Invalid username format" });
   }
 
   const supabaseAdmin = getSupabaseClient({ server: true });
@@ -30,12 +35,23 @@ export default async function handler(req, res) {
   }
 
   try {
+    const { data: existingUser } = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .eq("username", normalizedUsername)
+      .maybeSingle();
+
+    if (existingUser?.id) {
+      return res.status(409).json({ error: "Username already taken" });
+    }
+
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
       user_metadata: {
         full_name: fullName,
+        username: normalizedUsername,
         phone,
         address,
         country,
@@ -57,6 +73,7 @@ export default async function handler(req, res) {
         id: userId,
         email,
         name: fullName,
+        username: normalizedUsername,
         phone,
         address,
         country,
