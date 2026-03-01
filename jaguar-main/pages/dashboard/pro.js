@@ -114,11 +114,13 @@ export default function ProDashboard({ planStatus }) {
           </div>
         </div>
 
-        <div className="mt-6">
+        <div id="bot-access" className="mt-6">
           <BotAccessPanel tier={tier} isActive={isActive} />
         </div>
 
-        <ContentLibrary />
+        <div id="mentorship-content">
+          <ContentLibrary />
+        </div>
       </div>
     </section>
   );

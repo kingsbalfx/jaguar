@@ -30,8 +30,18 @@ export default function Header() {
       setSignedIn(Boolean(data?.session));
     };
     loadSession();
+    let subscription = null;
+    if (isSupabaseConfigured) {
+      const client = getBrowserSupabaseClient();
+      if (client) {
+        subscription = client.auth.onAuthStateChange((_event, session) => {
+          setSignedIn(Boolean(session));
+        });
+      }
+    }
     return () => {
       active = false;
+      subscription?.data?.subscription?.unsubscribe?.();
     };
   }, []);
 

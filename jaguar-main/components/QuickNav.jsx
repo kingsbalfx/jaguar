@@ -14,8 +14,11 @@ const ROLE_DASHBOARD = {
 function buildLinks(role) {
   const links = [{ label: "Home", href: "/" }];
 
-  if (ROLE_DASHBOARD[role]) {
-    links.push(ROLE_DASHBOARD[role]);
+  const dashboard = ROLE_DASHBOARD[role];
+  if (dashboard) {
+    links.push(dashboard);
+    links.push({ label: "Bot Access", href: `${dashboard.href}#bot-access` });
+    links.push({ label: "Mentorship Content", href: `${dashboard.href}#mentorship-content` });
   }
 
   if (role && role !== "admin" && role !== "lifetime") {
@@ -24,6 +27,7 @@ function buildLinks(role) {
 
   if (role && role !== "admin") {
     links.push({ label: "Live Room", href: "/live-pen" });
+    links.push({ label: "Profile", href: "/complete-profile" });
   }
 
   if (role === "admin") {
@@ -45,6 +49,7 @@ export default function QuickNav() {
   const [role, setRole] = useState(null);
   const [allowed, setAllowed] = useState(false);
   const [userEmail, setUserEmail] = useState("");
+  const [open, setOpen] = useState(false);
   const router = useRouter();
   const pathname = router.pathname || "/";
 
@@ -91,7 +96,6 @@ export default function QuickNav() {
 
   if (!allowed) return null;
   const showSidebar = pathname.startsWith("/dashboard") || pathname.startsWith("/admin");
-  if (!showSidebar) return null;
 
   const handleSignOut = async () => {
     const client = getBrowserSupabaseClient();
@@ -101,19 +105,55 @@ export default function QuickNav() {
     router.push("/login");
   };
 
-  return (
-    <aside className="fixed left-4 top-28 z-40 hidden lg:block">
-      <div className="w-64 rounded-2xl border border-white/10 bg-slate-950/90 shadow-2xl shadow-black/40 backdrop-blur">
-        <div className="px-4 py-3 border-b border-white/10">
-          <div className="text-xs uppercase tracking-widest text-gray-400">Quick Navigator</div>
-          <div className="text-sm font-semibold text-white mt-1 capitalize">{role || "member"} access</div>
+  if (showSidebar) {
+    return (
+      <aside className="fixed left-4 top-28 z-40 hidden lg:block">
+        <div className="w-64 rounded-2xl border border-white/10 bg-slate-950/90 shadow-2xl shadow-black/40 backdrop-blur">
+          <div className="px-4 py-3 border-b border-white/10">
+            <div className="text-xs uppercase tracking-widest text-gray-400">Quick Navigator</div>
+            <div className="text-sm font-semibold text-white mt-1 capitalize">{role || "member"} access</div>
+          </div>
+          <nav className="px-2 py-3 space-y-1 text-sm">
+            {links.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="block px-3 py-2 rounded-lg text-gray-200 hover:bg-white/10"
+              >
+                {item.label}
+              </Link>
+            ))}
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="w-full text-left px-3 py-2 rounded-lg text-red-200 hover:bg-white/10"
+            >
+              Sign Out
+            </button>
+          </nav>
         </div>
-        <nav className="px-2 py-3 space-y-1 text-sm">
+      </aside>
+    );
+  }
+
+  return (
+    <div className="fixed right-5 bottom-6 z-40">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="h-12 w-12 rounded-full bg-indigo-600 text-white shadow-lg shadow-black/40 border border-white/10 flex items-center justify-center"
+        aria-expanded={open}
+        aria-label="Quick navigation"
+      >
+        {open ? "×" : "≡"}
+      </button>
+      {open && (
+        <div className="absolute bottom-14 right-0 w-64 rounded-xl bg-slate-950/95 border border-white/10 shadow-xl backdrop-blur p-2 text-sm">
           {links.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="block px-3 py-2 rounded-lg text-gray-200 hover:bg-white/10"
+              className="block px-3 py-2 rounded-md text-gray-200 hover:bg-white/10"
             >
               {item.label}
             </Link>
@@ -121,12 +161,12 @@ export default function QuickNav() {
           <button
             type="button"
             onClick={handleSignOut}
-            className="w-full text-left px-3 py-2 rounded-lg text-red-200 hover:bg-white/10"
+            className="w-full text-left px-3 py-2 rounded-md text-red-200 hover:bg-white/10"
           >
             Sign Out
           </button>
-        </nav>
-      </div>
-    </aside>
+        </div>
+      )}
+    </div>
   );
 }

@@ -207,6 +207,63 @@ export const getServerSideProps = async (ctx) => {
     return { redirect: { destination: validatedNext || "/admin", permanent: false } };
   }
 
+  async function resolveSubscriptionPlan() {
+    if (!supabaseAdmin || !user?.email) return null;
+    const now = new Date();
+    try {
+      const { data } = await supabaseAdmin
+        .from("subscriptions")
+        .select("plan, status, ended_at")
+        .eq("email", user.email)
+        .order("started_at", { ascending: false });
+
+      const activePlans = (data || []).filter((row) => {
+        if (row.status !== "active") return false;
+        if (!row.ended_at) return true;
+        const ended = new Date(row.ended_at);
+        return ended > now;
+      });
+
+      if (activePlans.length > 0) {
+        const priority = ["lifetime", "pro", "vip", "premium"];
+        for (const plan of priority) {
+          if (activePlans.some((row) => row.plan === plan)) return plan;
+        }
+        return activePlans[0]?.plan || null;
+      }
+    } catch (e) {
+      console.warn("Subscription lookup failed:", e?.message || e);
+    }
+
+    try {
+      const { data } = await supabaseAdmin
+        .from("payments")
+        .select("plan, status, received_at")
+        .eq("customer_email", user.email)
+        .in("status", ["success", "successful", "completed", "paid", "approved"])
+        .order("received_at", { ascending: false })
+        .limit(5);
+      if (Array.isArray(data) && data.length > 0) {
+        const priority = ["lifetime", "pro", "vip", "premium"];
+        for (const plan of priority) {
+          if (data.some((row) => row.plan === plan)) return plan;
+        }
+        return data[0]?.plan || null;
+      }
+    } catch (e) {
+      console.warn("Payments lookup failed:", e?.message || e);
+    }
+    return null;
+  }
+
+  if (effectiveRole === "user") {
+    const subscribedPlan = await resolveSubscriptionPlan();
+    if (subscribedPlan) {
+      const dest = `/dashboard/${subscribedPlan}`;
+      return { redirect: { destination: validatedNext || dest, permanent: false } };
+    }
+  }
+
   // Use server admin client for secure payments table checks
 
   async function hasPaid(plan) {
