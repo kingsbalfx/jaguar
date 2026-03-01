@@ -40,7 +40,7 @@ export default async function handler(req, res) {
 
     const redirectUrl = `${baseUrl}/checkout/success?plan=${encodeURIComponent(
       tier.id
-    )}&reference=${encodeURIComponent(reference)}`;
+    )}`;
 
     const init = await initKorapayCharge({
       amount: tier.price,

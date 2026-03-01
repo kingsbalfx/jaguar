@@ -1,8 +1,31 @@
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 import { verifyKorapayCharge } from "../../../lib/korapay";
 
+function normalizeReference(value) {
+  if (!value) return null;
+  const ref = Array.isArray(value) ? value[0] : String(value);
+  if (!ref) return null;
+  const trimmed = ref.trim();
+  if (!trimmed) return null;
+  if (trimmed.includes(",")) {
+    return trimmed.split(",")[0];
+  }
+  const firstKbs = trimmed.indexOf("KBS_");
+  const secondKbs = trimmed.indexOf("KBS_", firstKbs + 1);
+  if (firstKbs === 0 && secondKbs > 0) {
+    return trimmed.slice(0, secondKbs);
+  }
+  const match = trimmed.match(/KBS_[A-Za-z0-9_]+/);
+  return match ? match[0] : trimmed;
+}
+
 function getReference(req) {
-  return req.query?.reference || req.body?.reference || req.query?.ref || null;
+  return (
+    normalizeReference(req.query?.reference) ||
+    normalizeReference(req.body?.reference) ||
+    normalizeReference(req.query?.ref) ||
+    null
+  );
 }
 
 function extractPlan(metadata) {

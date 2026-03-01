@@ -48,8 +48,30 @@ export default function CheckoutSuccess({ success, message, reference, plan }) {
   );
 }
 
+function normalizeReference(value) {
+  if (!value) return null;
+  const ref = Array.isArray(value) ? value[0] : String(value);
+  if (!ref) return null;
+  const trimmed = ref.trim();
+  if (!trimmed) return null;
+  if (trimmed.includes(",")) {
+    return trimmed.split(",")[0];
+  }
+  const firstKbs = trimmed.indexOf("KBS_");
+  const secondKbs = trimmed.indexOf("KBS_", firstKbs + 1);
+  if (firstKbs === 0 && secondKbs > 0) {
+    return trimmed.slice(0, secondKbs);
+  }
+  const match = trimmed.match(/KBS_[A-Za-z0-9_]+/);
+  return match ? match[0] : trimmed;
+}
+
 export async function getServerSideProps(context) {
-  const reference = context.query.reference || context.query.ref || null;
+  const reference =
+    normalizeReference(context.query.reference) ||
+    normalizeReference(context.query.ref) ||
+    normalizeReference(context.query.transaction_reference) ||
+    null;
 
   if (!reference) {
     return {
