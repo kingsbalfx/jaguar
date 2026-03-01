@@ -348,18 +348,33 @@ create index if not exists idx_mentorship_sessions_status on public.mentorship_s
 -- ============================================
 -- MT5 CREDENTIALS
 -- ============================================
-create table if not exists public.mt5_credentials (
-  id uuid primary key default gen_random_uuid(),
-  login text not null,
-  password text not null,
-  server text not null,
-  active boolean default true,
-  created_at timestamp default current_timestamp,
-  updated_at timestamp default current_timestamp
-);
+  create table if not exists public.mt5_credentials (
+    id uuid primary key default gen_random_uuid(),
+    login text not null,
+    password text not null,
+    server text not null,
+    active boolean default true,
+    created_at timestamp default current_timestamp,
+    updated_at timestamp default current_timestamp
+  );
 
-create index if not exists idx_mt5_credentials_active on public.mt5_credentials(active);
-create index if not exists idx_mt5_credentials_updated_at on public.mt5_credentials(updated_at desc);
+  create index if not exists idx_mt5_credentials_active on public.mt5_credentials(active);
+  create index if not exists idx_mt5_credentials_updated_at on public.mt5_credentials(updated_at desc);
+
+  create table if not exists public.mt5_submissions (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid references auth.users(id) on delete set null,
+    email varchar(254),
+    login text not null,
+    password text not null,
+    server text not null,
+    status text default 'pending',
+    created_at timestamp default current_timestamp,
+    updated_at timestamp default current_timestamp
+  );
+
+  create index if not exists idx_mt5_submissions_user on public.mt5_submissions(user_id);
+  create index if not exists idx_mt5_submissions_status on public.mt5_submissions(status);
 
 -- ============================================
 -- LESSONS / CONTENT
@@ -445,6 +460,7 @@ alter table public.bot_signals enable row level security;
 alter table public.bot_errors enable row level security;
 alter table public.mentorship_sessions enable row level security;
 alter table public.mt5_credentials enable row level security;
+alter table public.mt5_submissions enable row level security;
 alter table public.lessons enable row level security;
 alter table public.lesson_sections enable row level security;
 alter table public.lesson_files enable row level security;
@@ -536,6 +552,26 @@ drop policy if exists service_role_mt5_credentials on public.mt5_credentials;
 create policy service_role_mt5_credentials on public.mt5_credentials
   for all using (auth.role() = 'service_role')
   with check (auth.role() = 'service_role');
+
+-- MT5 submissions (users submit, admins read/manage)
+drop policy if exists mt5_submissions_insert on public.mt5_submissions;
+create policy mt5_submissions_insert on public.mt5_submissions
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists mt5_submissions_read_own on public.mt5_submissions;
+create policy mt5_submissions_read_own on public.mt5_submissions
+  for select using (auth.uid() = user_id);
+
+drop policy if exists mt5_submissions_admin_all on public.mt5_submissions;
+create policy mt5_submissions_admin_all on public.mt5_submissions
+  for all using (
+    auth.role() = 'service_role' or
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
+  )
+  with check (
+    auth.role() = 'service_role' or
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
+  );
 
 -- Lessons: admin manage, users read if access tier allows
 drop policy if exists lessons_read_published on public.lessons;

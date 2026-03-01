@@ -9,6 +9,8 @@ export default function LoginPage() {
     typeof router.query?.next === "string" ? router.query.next : "";
   const oauthError =
     typeof router.query?.error === "string" ? router.query.error : "";
+  const idleReason =
+    typeof router.query?.reason === "string" ? router.query.reason : "";
   const isConfigured = Boolean(isSupabaseConfigured);
 
   const [email, setEmail] = useState("");
@@ -86,6 +88,12 @@ export default function LoginPage() {
       setErrMsg(`Google login failed: ${oauthError}`);
     }
   }, [oauthError]);
+
+  useEffect(() => {
+    if (idleReason === "idle") {
+      setErrMsg("Session expired due to inactivity. Please sign in again.");
+    }
+  }, [idleReason]);
 
   useEffect(() => {
     if (!router.isReady) return;

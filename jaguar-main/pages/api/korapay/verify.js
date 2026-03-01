@@ -1,5 +1,6 @@
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 import { verifyKorapayCharge } from "../../../lib/korapay";
+import { PRICING_TIERS } from "../../../lib/pricing-config";
 
 function normalizeReference(value) {
   if (!value) return null;
@@ -31,6 +32,15 @@ function getReference(req) {
 function extractPlan(metadata) {
   if (!metadata) return "user";
   return metadata.plan || metadata.product || metadata.tier || "user";
+}
+
+function getPlanEndDate(planId) {
+  const tier = PRICING_TIERS[String(planId || "").toUpperCase()];
+  if (!tier) return null;
+  if (tier.billingCycle === "monthly") {
+    return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  }
+  return null;
 }
 
 export default async function handler(req, res) {
@@ -92,6 +102,25 @@ export default async function handler(req, res) {
         }
       } catch (e) {
         console.warn("Role update failed:", e?.message || e);
+      }
+
+      try {
+        if (buyerEmail) {
+          const endedAt = getPlanEndDate(plan);
+          await supabaseAdmin.from("subscriptions").upsert(
+            {
+              email: buyerEmail,
+              plan,
+              status: "active",
+              amount: result.amount || 0,
+              started_at: new Date().toISOString(),
+              ended_at: endedAt,
+            },
+            { onConflict: "email,plan" }
+          );
+        }
+      } catch (e) {
+        console.warn("Subscription upsert failed:", e?.message || e);
       }
     }
 

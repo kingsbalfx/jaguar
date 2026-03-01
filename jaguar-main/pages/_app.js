@@ -29,6 +29,39 @@ export default function MyApp({ Component, pageProps }) {
     })();
   }, []);
 
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    if (typeof window === "undefined") return;
+    const client = getBrowserSupabaseClient();
+    if (!client) return;
+    const idleLimitMs = 10 * 60 * 1000;
+    let timeoutId = null;
+
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(async () => {
+        try {
+          const { data } = await client.auth.getSession();
+          if (data?.session) {
+            await client.auth.signOut();
+            if (window.location.pathname !== "/login") {
+              window.location.href = "/login?reason=idle";
+            }
+          }
+        } catch {}
+      }, idleLimitMs);
+    };
+
+    const events = ["mousemove", "keydown", "click", "scroll", "touchstart"];
+    events.forEach((evt) => window.addEventListener(evt, resetTimer));
+    resetTimer();
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      events.forEach((evt) => window.removeEventListener(evt, resetTimer));
+    };
+  }, []);
+
   return (
     <div className="min-h-screen flex flex-col bg-black text-white">
       <Head>

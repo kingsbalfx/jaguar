@@ -43,6 +43,9 @@ export default function Settings() {
   const [status, setStatus] = useState({ type: "", message: "" });
   const [restarting, setRestarting] = useState(false);
   const [restartStatus, setRestartStatus] = useState({ type: "", message: "" });
+  const [submissions, setSubmissions] = useState([]);
+  const [submissionsStatus, setSubmissionsStatus] = useState({ type: "", message: "" });
+  const [activatingId, setActivatingId] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -63,6 +66,46 @@ export default function Settings() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/admin/mt5-submissions")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!active) return;
+        if (data?.submissions) {
+          setSubmissions(data.submissions);
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setSubmissionsStatus({ type: "error", message: "Failed to load MT5 submissions." });
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const activateSubmission = async (id) => {
+    setSubmissionsStatus({ type: "", message: "" });
+    setActivatingId(id);
+    try {
+      const res = await fetch("/api/admin/mt5-submissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to activate submission.");
+      setSubmissionsStatus({ type: "success", message: "Submission activated and set as current bot credentials." });
+      const refreshed = await fetch("/api/admin/mt5-submissions").then((r) => r.json());
+      setSubmissions(refreshed?.submissions || []);
+    } catch (err) {
+      setSubmissionsStatus({ type: "error", message: err.message || "Activation failed." });
+    } finally {
+      setActivatingId(null);
+    }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -207,6 +250,52 @@ export default function Settings() {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="mt-8 bg-black/30 rounded-lg p-5 border border-white/5">
+        <h3 className="text-lg font-semibold mb-4">User MT5 Submissions</h3>
+        {submissionsStatus?.message && (
+          <div
+            className={`text-sm mb-3 ${
+              submissionsStatus.type === "success" ? "text-green-400" : "text-red-400"
+            }`}
+          >
+            {submissionsStatus.message}
+          </div>
+        )}
+        {submissions.length === 0 ? (
+          <div className="text-sm text-gray-400">No submissions yet.</div>
+        ) : (
+          <div className="space-y-3">
+            {submissions.map((item) => (
+              <div key={item.id} className="rounded border border-white/10 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm text-white">{item.login}</div>
+                    <div className="text-xs text-gray-400">
+                      {item.server} • {item.email || "no email"}
+                    </div>
+                  </div>
+                  <div className="text-xs text-gray-400 capitalize">{item.status || "pending"}</div>
+                </div>
+                <div className="mt-2 flex items-center gap-3">
+                  <button
+                    onClick={() => activateSubmission(item.id)}
+                    disabled={activatingId === item.id}
+                    className="px-3 py-1 rounded bg-emerald-600 text-white text-xs disabled:opacity-60"
+                  >
+                    {activatingId === item.id ? "Activating..." : "Use for Bot"}
+                  </button>
+                  {item.created_at && (
+                    <span className="text-xs text-gray-500">
+                      {new Date(item.created_at).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

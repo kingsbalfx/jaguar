@@ -1,12 +1,67 @@
 import React from "react";
-import PriceButton from "../../components/PriceButton";
 import LiveSessionPanel from "../../components/LiveSessionPanel";
 import ContentLibrary from "../../components/ContentLibrary";
+import BotAccessPanel from "../../components/BotAccessPanel";
 import { PRICING_TIERS, formatPrice } from "../../lib/pricing-config";
+import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
+import { getSupabaseClient } from "../../lib/supabaseClient";
+import { getPlanStatus } from "../../lib/subscription-status";
 
-export default function LifetimeDashboard() {
+export async function getServerSideProps(ctx) {
+  const planId = "lifetime";
+  const supabase = createPagesServerClient(ctx);
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.user) {
+    return {
+      redirect: {
+        destination: `/login?next=${encodeURIComponent(`/dashboard/${planId}`)}`,
+        permanent: false,
+      },
+    };
+  }
+
+  const supabaseAdmin = getSupabaseClient({ server: true });
+  let profile = null;
+  if (supabaseAdmin) {
+    const { data } = await supabaseAdmin
+      .from("profiles")
+      .select("role, email")
+      .eq("id", session.user.id)
+      .maybeSingle();
+    profile = data || null;
+  }
+
+  const role = (profile?.role || "user").toLowerCase();
+  const redirectMap = {
+    admin: "/admin",
+    premium: "/dashboard/premium",
+    vip: "/dashboard/vip",
+    pro: "/dashboard/pro",
+  };
+  if (role !== planId) {
+    const dest = redirectMap[role] || "/dashboard";
+    return { redirect: { destination: dest, permanent: false } };
+  }
+
+  const planStatus = await getPlanStatus({
+    supabaseAdmin,
+    userId: session.user.id,
+    email: session.user.email,
+    plan: planId,
+    role,
+  });
+
+  return { props: { planStatus } };
+}
+
+export default function LifetimeDashboard({ planStatus }) {
   const tier = PRICING_TIERS.LIFETIME;
   const priceLabel = formatPrice(tier.price, tier.currency || "NGN");
+  const isActive = Boolean(planStatus?.active);
+  const statusLabel = planStatus?.active ? "Active" : planStatus?.status === "expired" ? "Expired" : "Inactive";
 
   return (
     <section className="relative overflow-hidden">
@@ -19,14 +74,19 @@ export default function LifetimeDashboard() {
             <p className="text-sm text-gray-300 mt-1">{tier.description}</p>
           </div>
           <div className="text-right">
-            <div className="text-sm text-gray-400">Access price</div>
-            <div className="text-xl font-semibold text-yellow-300">{priceLabel}</div>
-            <div className="mt-2 flex items-center gap-3 justify-end">
-              <a href={`/checkout?plan=lifetime`} className="px-3 py-2 bg-indigo-600 rounded">
-                Checkout
-              </a>
-              <PriceButton initialPrice={tier.price} plan="lifetime" />
+            <div className="text-xs uppercase tracking-widest text-gray-400">Plan status</div>
+            <div className={`text-lg font-semibold ${isActive ? "text-emerald-300" : "text-yellow-300"}`}>
+              {statusLabel}
             </div>
+            {!isActive && (
+              <div className="mt-2">
+                <div className="text-sm text-gray-400">Access price</div>
+                <div className="text-xl font-semibold text-yellow-300">{priceLabel}</div>
+                <a href={`/checkout?plan=lifetime`} className="mt-2 inline-flex px-3 py-2 bg-indigo-600 rounded">
+                  Pay to Activate
+                </a>
+              </div>
+            )}
           </div>
         </div>
 
@@ -53,6 +113,10 @@ export default function LifetimeDashboard() {
           <a href="/pricing" className="px-3 py-2 bg-emerald-600 rounded">
             View Plan Details
           </a>
+        </div>
+
+        <div className="mt-6">
+          <BotAccessPanel tier={tier} isActive={isActive} />
         </div>
 
         <ContentLibrary />

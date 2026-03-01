@@ -2,6 +2,7 @@
 import React from "react";
 import Link from "next/link";
 import { verifyKorapayCharge } from "../../lib/korapay";
+import { PRICING_TIERS } from "../../lib/pricing-config";
 
 export default function CheckoutSuccess({ success, message, reference, plan }) {
   const dashboardUrl =
@@ -103,6 +104,11 @@ export async function getServerSideProps(context) {
       (typeof context.query.plan === "string" ? context.query.plan : null);
     const userId = metadata.userId || metadata.user_id || null;
     const buyerEmail = result.email || metadata.email || null;
+    const tier = PRICING_TIERS[String(plan || "").toUpperCase()];
+    const endedAt =
+      tier?.billingCycle === "monthly"
+        ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+        : null;
 
     const { createClient } = await import("@supabase/supabase-js");
     const supabaseAdmin = createClient(
@@ -132,6 +138,19 @@ export async function getServerSideProps(context) {
         } else {
           await supabaseAdmin.from("profiles").insert([{ email: buyerEmail, role: plan }]);
         }
+      }
+      if (buyerEmail) {
+        await supabaseAdmin.from("subscriptions").upsert(
+          {
+            email: buyerEmail,
+            plan,
+            status: "active",
+            amount: result.amount || 0,
+            started_at: new Date().toISOString(),
+            ended_at: endedAt,
+          },
+          { onConflict: "email,plan" }
+        );
       }
     } catch (upErr) {
       console.error("Failed updating role after payment:", upErr);

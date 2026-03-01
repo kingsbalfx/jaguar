@@ -200,11 +200,13 @@ export default function AdminPage({ profile, metrics, recentUsers }) {
                       <li key={user.id} className="flex items-center justify-between gap-3">
                         <div className="flex flex-col">
                           <span className="text-sm text-white">{resolveUserName(user)}</span>
-                          {user?.username && user?.name && (
+                          {user?.username && (
                             <span className="text-xs text-gray-400">@{user.username}</span>
                           )}
                         </div>
-                        <span className="text-xs text-gray-500 capitalize">{user?.role || "user"}</span>
+                        <span className="text-xs text-gray-500 capitalize">
+                          Plan: {user?.role || "user"}
+                        </span>
                       </li>
                     ))}
                   </ul>
