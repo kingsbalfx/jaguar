@@ -4,6 +4,15 @@ import { useRouter } from "next/router";
 import QuickNav from "./QuickNav";
 import { getBrowserSupabaseClient, isSupabaseConfigured } from "../lib/supabaseClient";
 
+const ROLE_DASHBOARD = {
+  user: "/dashboard",
+  premium: "/dashboard/premium",
+  vip: "/dashboard/vip",
+  pro: "/dashboard/pro",
+  lifetime: "/dashboard/lifetime",
+  admin: "/admin",
+};
+
 const NAV_ITEMS = [
   { label: "Home", href: "/" },
   { label: "Pricing", href: "/pricing" },
@@ -14,6 +23,8 @@ export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [liveMode, setLiveMode] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
+  const [role, setRole] = useState(null);
+  const [userEmail, setUserEmail] = useState("");
   const router = useRouter();
   const pathname = router.pathname || "/";
 
@@ -21,6 +32,28 @@ export default function Header() {
 
   useEffect(() => {
     let active = true;
+    const resolveRole = async (session) => {
+      const user = session?.user;
+      if (!user) {
+        setRole(null);
+        setUserEmail("");
+        return;
+      }
+      setUserEmail(user.email || "");
+      try {
+        const res = await fetch("/api/get-role", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: user.id, userEmail: user.email }),
+        });
+        const json = await res.json();
+        const resolvedRole = (json?.role || "user").toLowerCase();
+        setRole(resolvedRole);
+      } catch {
+        setRole("user");
+      }
+    };
+
     const loadSession = async () => {
       if (!isSupabaseConfigured) return;
       const client = getBrowserSupabaseClient();
@@ -28,6 +61,7 @@ export default function Header() {
       const { data } = await client.auth.getSession();
       if (!active) return;
       setSignedIn(Boolean(data?.session));
+      await resolveRole(data?.session);
     };
     loadSession();
     let subscription = null;
@@ -36,6 +70,7 @@ export default function Header() {
       if (client) {
         subscription = client.auth.onAuthStateChange((_event, session) => {
           setSignedIn(Boolean(session));
+          resolveRole(session);
         });
       }
     }
@@ -51,7 +86,21 @@ export default function Header() {
   const isDashboard = pathname.startsWith("/dashboard");
   const isAdmin = pathname.startsWith("/admin");
   const hidePricing = isDashboard || isAdmin;
-  const filteredNav = NAV_ITEMS.filter((item) => {
+  const dashboardHref = (() => {
+    const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || "").toLowerCase();
+    const isAdminEmail = adminEmail && userEmail.toLowerCase() === adminEmail;
+    const effectiveRole = role === "admin" || isAdminEmail ? "admin" : role;
+    return ROLE_DASHBOARD[effectiveRole] || "/dashboard";
+  })();
+
+  const navItems = NAV_ITEMS.map((item) => {
+    if (item.label === "Home" && signedIn) {
+      return { label: "Dashboard", href: dashboardHref };
+    }
+    return item;
+  });
+
+  const filteredNav = navItems.filter((item) => {
     if (item.label === "Login" && signedIn) return false;
     if (item.label === "Pricing" && hidePricing) return false;
     return true;
@@ -100,39 +149,48 @@ export default function Header() {
                   className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${styles}`}
                 >
                   {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
+              </Link>
+            );
+          })}
+        </nav>
 
-        <div className="flex items-center justify-end gap-3">
-          <QuickNav />
-          {signedIn ? (
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="hidden md:inline-flex items-center px-4 py-2 rounded-full border border-red-400/30 bg-red-500/10 text-red-100 text-xs uppercase tracking-widest hover:bg-red-500/20 transition-colors"
-            >
-              Sign Out
-            </button>
-          ) : (
-            <Link
-              href="/login"
-              className="hidden md:inline-flex items-center px-4 py-2 rounded-full border border-indigo-400/30 bg-indigo-500/10 text-indigo-100 text-xs uppercase tracking-widest hover:bg-indigo-500/20 transition-colors"
-            >
-              Sign In
-            </Link>
-          )}
+        <button
+          type="button"
+          aria-pressed={liveMode}
+          onClick={() => setLiveMode((v) => !v)}
+          className="hidden md:flex items-center gap-3 px-3 py-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 text-emerald-200 text-xs uppercase tracking-widest neon-toggle"
+        >
+          <span className={`neon-dot ${liveMode ? "neon-dot-live" : "neon-dot-off"}`} />
+          <span>{liveMode ? "Live Mode" : "Preview"}</span>
+        </button>
+      </div>
+
+      <div className="flex items-center justify-end gap-3">
+        <QuickNav />
+        {signedIn && (
+          <Link
+            href={dashboardHref}
+            className="hidden md:inline-flex items-center px-4 py-2 rounded-full border border-white/10 bg-white/5 text-gray-100 text-xs uppercase tracking-widest hover:bg-white/10 transition-colors"
+          >
+            Dashboard
+          </Link>
+        )}
+        {signedIn ? (
           <button
             type="button"
-            aria-pressed={liveMode}
-            onClick={() => setLiveMode((v) => !v)}
-            className="hidden md:flex items-center gap-3 px-3 py-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 text-emerald-200 text-xs uppercase tracking-widest neon-toggle"
+            onClick={handleSignOut}
+            className="hidden md:inline-flex items-center px-4 py-2 rounded-full border border-red-400/30 bg-red-500/10 text-red-100 text-xs uppercase tracking-widest hover:bg-red-500/20 transition-colors"
           >
-            <span className={`neon-dot ${liveMode ? "neon-dot-live" : "neon-dot-off"}`} />
-            <span>{liveMode ? "Live Mode" : "Preview"}</span>
+            Sign Out
           </button>
+        ) : (
+          <Link
+            href="/login"
+            className="hidden md:inline-flex items-center px-4 py-2 rounded-full border border-indigo-400/30 bg-indigo-500/10 text-indigo-100 text-xs uppercase tracking-widest hover:bg-indigo-500/20 transition-colors"
+          >
+            Sign In
+          </Link>
+        )}
 
           {/* Mobile button */}
           <button

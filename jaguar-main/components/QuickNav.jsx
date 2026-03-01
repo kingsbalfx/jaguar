@@ -113,32 +113,66 @@ export default function QuickNav() {
 
   if (showSidebar) {
     return (
-      <aside className="fixed left-4 top-24 z-40 hidden lg:block">
-        <div className="w-64 rounded-2xl border border-white/10 bg-slate-950/90 shadow-2xl shadow-black/40 backdrop-blur">
-          <div className="px-4 py-3 border-b border-white/10">
-            <div className="text-xs uppercase tracking-widest text-gray-400">Quick Navigator</div>
-            <div className="text-sm font-semibold text-white mt-1 capitalize">{role || "member"} access</div>
-          </div>
-          <nav className="px-2 py-3 space-y-1 text-sm">
-            {links.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="block px-3 py-2 rounded-lg text-gray-200 hover:bg-white/10"
+      <>
+        <aside className="fixed left-4 top-24 z-40 hidden lg:block">
+          <div className="w-64 rounded-2xl border border-white/10 bg-slate-950/90 shadow-2xl shadow-black/40 backdrop-blur">
+            <div className="px-4 py-3 border-b border-white/10">
+              <div className="text-xs uppercase tracking-widest text-gray-400">Quick Navigator</div>
+              <div className="text-sm font-semibold text-white mt-1 capitalize">{role || "member"} access</div>
+            </div>
+            <nav className="px-2 py-3 space-y-1 text-sm">
+              {links.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="block px-3 py-2 rounded-lg text-gray-200 hover:bg-white/10"
+                >
+                  {item.label}
+                </Link>
+              ))}
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="w-full text-left px-3 py-2 rounded-lg text-red-200 hover:bg-white/10"
               >
-                {item.label}
-              </Link>
-            ))}
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="w-full text-left px-3 py-2 rounded-lg text-red-200 hover:bg-white/10"
-            >
-              Sign Out
-            </button>
-          </nav>
+                Sign Out
+              </button>
+            </nav>
+          </div>
+        </aside>
+        <div className="relative z-40 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="flex items-center gap-2 px-4 py-2 rounded-full border border-white/10 bg-white/5 text-xs uppercase tracking-widest text-gray-200 hover:bg-white/10 transition-colors"
+            aria-expanded={open}
+            aria-label="Quick navigation"
+          >
+            <span className={`neon-dot ${open ? "neon-dot-live" : "neon-dot-off"}`} />
+            <span>{open ? "Close Nav" : "Quick Nav"}</span>
+          </button>
+          {open && (
+            <div className="absolute right-0 mt-3 w-64 rounded-2xl bg-slate-950/95 border border-white/10 shadow-xl backdrop-blur p-2 text-sm">
+              {links.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="block px-3 py-2 rounded-md text-gray-200 hover:bg-white/10"
+                >
+                  {item.label}
+                </Link>
+              ))}
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="w-full text-left px-3 py-2 rounded-md text-red-200 hover:bg-white/10"
+              >
+                Sign Out
+              </button>
+            </div>
+          )}
         </div>
-      </aside>
+      </>
     );
   }
 
