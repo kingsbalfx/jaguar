@@ -2,7 +2,7 @@ import { useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 export default function AdminVideoPlayer({
-  bucket = "public",
+  bucket = process.env.NEXT_PUBLIC_STORAGE_BUCKET || "public",
   initialPath = "",
 }) {
   const [videoPath, setVideoPath] = useState(initialPath);

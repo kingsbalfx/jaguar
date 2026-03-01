@@ -13,6 +13,18 @@ const MEDIA_TYPES = [
   { value: "text", label: "Text" },
   { value: "link", label: "External Link" },
 ];
+const DEFAULT_BUCKET = process.env.NEXT_PUBLIC_STORAGE_BUCKET || "public";
+const SEGMENT_BUCKETS = {
+  premium: process.env.NEXT_PUBLIC_STORAGE_BUCKET_PREMIUM || "premium",
+  vip: process.env.NEXT_PUBLIC_STORAGE_BUCKET_VIP || "vip",
+  pro: process.env.NEXT_PUBLIC_STORAGE_BUCKET_PRO || "pro",
+  lifetime: process.env.NEXT_PUBLIC_STORAGE_BUCKET_LIFETIME || "lifetime",
+};
+
+function resolveBucket(seg) {
+  if (seg && SEGMENT_BUCKETS[seg]) return SEGMENT_BUCKETS[seg];
+  return DEFAULT_BUCKET;
+}
 
 export default function Content() {
   const [items, setItems] = useState([]);
@@ -41,14 +53,15 @@ export default function Content() {
     const client = getBrowserSupabaseClient();
     if (!client) throw new Error("Supabase client not available");
 
+    const bucket = resolveBucket(segment);
     const filename = `${Date.now()}_${fileToUpload.name}`;
     const path = `content/${segment}/${filename}`;
-    const { data, error } = await client.storage.from("public").upload(path, fileToUpload, {
+    const { data, error } = await client.storage.from(bucket).upload(path, fileToUpload, {
       cacheControl: "3600",
       upsert: false,
     });
     if (error) throw error;
-    const publicUrl = client.storage.from("public").getPublicUrl(data.path).data.publicUrl;
+    const publicUrl = client.storage.from(bucket).getPublicUrl(data.path).data.publicUrl;
     return { storagePath: data.path, publicUrl };
   }
 
@@ -281,14 +294,14 @@ export default function Content() {
           Use this for manual uploads or previews. The content manager above is preferred.
         </p>
         <div className="mt-4 grid md:grid-cols-2 gap-4">
-          <Uploader bucket="public" folder="videos" />
+          <Uploader bucket={DEFAULT_BUCKET} folder="videos" />
           <div>
-            <Uploader bucket="public" folder="images" />
-            <Uploader bucket="public" folder="docs" />
+            <Uploader bucket={DEFAULT_BUCKET} folder="images" />
+            <Uploader bucket={DEFAULT_BUCKET} folder="docs" />
           </div>
         </div>
         <div className="mt-6">
-          <AdminVideoPlayer bucket="public" initialPath="videos/" />
+          <AdminVideoPlayer bucket={DEFAULT_BUCKET} initialPath="videos/" />
         </div>
       </div>
     </div>

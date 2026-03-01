@@ -1,13 +1,8 @@
 // pages/checkout/index.js
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import { createClient } from "@supabase/supabase-js";
 import { PRICING_TIERS, formatPrice } from "../../lib/pricing-config";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+import { getBrowserSupabaseClient, isSupabaseConfigured } from "../../lib/supabaseClient";
 
 const TIERS = Object.values(PRICING_TIERS);
 
@@ -26,12 +21,16 @@ export default function Checkout() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const isConfigured = Boolean(isSupabaseConfigured);
 
   // Prefill email if logged in
   useEffect(() => {
     (async () => {
       try {
-        const { data, error } = await supabase.auth.getSession();
+        if (!isConfigured) return;
+        const client = getBrowserSupabaseClient();
+        if (!client) return;
+        const { data, error } = await client.auth.getSession();
         if (!error && data?.session?.user?.email) {
           setEmail(data.session.user.email);
         }
@@ -39,7 +38,7 @@ export default function Checkout() {
         console.debug("prefill session error", err);
       }
     })();
-  }, []);
+  }, [isConfigured]);
 
   // If no plan query, default to vip
   useEffect(() => {
@@ -67,16 +66,26 @@ export default function Checkout() {
       setMessage("Enter buyer email before continuing.");
       return;
     }
+    if (!isConfigured) {
+      setMessage("Supabase is not configured. Please contact support.");
+      return;
+    }
     setLoading(true);
 
     try {
-      const sessionData = await supabase.auth.getSession();
+      const client = getBrowserSupabaseClient();
+      if (!client) {
+        setMessage("Supabase client not available.");
+        setLoading(false);
+        return;
+      }
+      const sessionData = await client.auth.getSession();
       const userId = sessionData?.data?.session?.user?.id;
 
       if (!sessionData?.data?.session) {
         // Not logged in -> redirect to register
         const next = `/checkout?plan=${encodeURIComponent(plan)}`;
-        router.push(`/register?next=${encodeURIComponent(next)}`);
+        router.push(`/login?next=${encodeURIComponent(next)}`);
         return;
       }
 
