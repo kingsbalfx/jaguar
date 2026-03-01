@@ -89,6 +89,10 @@ export default function QuickNav() {
     };
   }, []);
 
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
   const links = useMemo(() => {
     const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || "").toLowerCase();
     const isAdminEmail = adminEmail && userEmail.toLowerCase() === adminEmail;
@@ -109,7 +113,7 @@ export default function QuickNav() {
 
   if (showSidebar) {
     return (
-      <aside className="fixed left-4 top-28 z-40 hidden lg:block">
+      <aside className="fixed left-4 top-24 z-40 hidden lg:block">
         <div className="w-64 rounded-2xl border border-white/10 bg-slate-950/90 shadow-2xl shadow-black/40 backdrop-blur">
           <div className="px-4 py-3 border-b border-white/10">
             <div className="text-xs uppercase tracking-widest text-gray-400">Quick Navigator</div>
@@ -139,18 +143,19 @@ export default function QuickNav() {
   }
 
   return (
-    <div className="fixed right-5 bottom-6 z-40">
+    <div className="relative z-40">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="h-12 w-12 rounded-full bg-indigo-600 text-white shadow-lg shadow-black/40 border border-white/10 flex items-center justify-center"
+        className="flex items-center gap-2 px-4 py-2 rounded-full border border-white/10 bg-white/5 text-xs uppercase tracking-widest text-gray-200 hover:bg-white/10 transition-colors"
         aria-expanded={open}
         aria-label="Quick navigation"
       >
-        {open ? "×" : "≡"}
+        <span className={`neon-dot ${open ? "neon-dot-live" : "neon-dot-off"}`} />
+        <span>{open ? "Close Nav" : "Quick Nav"}</span>
       </button>
       {open && (
-        <div className="absolute bottom-14 right-0 w-64 rounded-xl bg-slate-950/95 border border-white/10 shadow-xl backdrop-blur p-2 text-sm">
+        <div className="absolute right-0 mt-3 w-64 rounded-2xl bg-slate-950/95 border border-white/10 shadow-xl backdrop-blur p-2 text-sm">
           {links.map((item) => (
             <Link
               key={item.href}
