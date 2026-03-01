@@ -10,6 +10,7 @@ export default function MyApp({ Component, pageProps }) {
   const router = useRouter();
   const showCandle =
     router.pathname.startsWith("/admin") || router.pathname.startsWith("/dashboard");
+  const showQuickNav = showCandle;
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -101,7 +102,7 @@ export default function MyApp({ Component, pageProps }) {
 
       <main className="flex-grow app-bg relative overflow-hidden">
         {showCandle && <div className="candle-backdrop" aria-hidden="true" />}
-        <div className="app-content">
+        <div className={`app-content${showQuickNav ? " with-quicknav" : ""}`}>
           <Component {...pageProps} />
         </div>
       </main>

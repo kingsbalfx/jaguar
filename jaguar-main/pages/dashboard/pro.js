@@ -2,7 +2,7 @@ import React from "react";
 import LiveSessionPanel from "../../components/LiveSessionPanel";
 import ContentLibrary from "../../components/ContentLibrary";
 import BotAccessPanel from "../../components/BotAccessPanel";
-import { PRICING_TIERS, formatPrice } from "../../lib/pricing-config";
+import { PRICING_TIERS } from "../../lib/pricing-config";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 import { getPlanStatus } from "../../lib/subscription-status";
@@ -59,7 +59,6 @@ export async function getServerSideProps(ctx) {
 
 export default function ProDashboard({ planStatus }) {
   const tier = PRICING_TIERS.PRO;
-  const priceLabel = formatPrice(tier.price, tier.currency || "NGN");
   const isActive = Boolean(planStatus?.active);
   const statusLabel = planStatus?.active ? "Active" : planStatus?.status === "expired" ? "Expired" : "Inactive";
 
@@ -80,10 +79,8 @@ export default function ProDashboard({ planStatus }) {
             </div>
             {!isActive && (
               <div className="mt-2">
-                <div className="text-sm text-gray-400">Access price</div>
-                <div className="text-xl font-semibold text-yellow-300">{priceLabel}</div>
-                <a href={`/checkout?plan=pro`} className="mt-2 inline-flex px-3 py-2 bg-indigo-600 rounded">
-                  Pay to Activate
+                <a href={`/checkout?plan=pro`} className="inline-flex px-3 py-2 bg-indigo-600 rounded">
+                  Reactivate Plan
                 </a>
               </div>
             )}

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import QuickNav from "./QuickNav";
+import { getBrowserSupabaseClient, isSupabaseConfigured } from "../lib/supabaseClient";
 
 const NAV_ITEMS = [
   { label: "Home", href: "/" },
@@ -12,13 +13,39 @@ const NAV_ITEMS = [
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [liveMode, setLiveMode] = useState(true);
+  const [signedIn, setSignedIn] = useState(false);
   const router = useRouter();
   const pathname = router.pathname || "/";
 
   useEffect(() => setMenuOpen(false), [pathname]);
 
+  useEffect(() => {
+    let active = true;
+    const loadSession = async () => {
+      if (!isSupabaseConfigured) return;
+      const client = getBrowserSupabaseClient();
+      if (!client) return;
+      const { data } = await client.auth.getSession();
+      if (!active) return;
+      setSignedIn(Boolean(data?.session));
+    };
+    loadSession();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const isActive = (href) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
+
+  const isDashboard = pathname.startsWith("/dashboard");
+  const isAdmin = pathname.startsWith("/admin");
+  const hidePricing = isDashboard || isAdmin;
+  const filteredNav = NAV_ITEMS.filter((item) => {
+    if (item.label === "Login" && signedIn) return false;
+    if (item.label === "Pricing" && hidePricing) return false;
+    return true;
+  });
 
   return (
     <header className="sticky top-0 z-50 w-full bg-slate-950/80 text-gray-100 shadow-lg shadow-black/30 backdrop-blur border-b border-white/10">
@@ -36,7 +63,7 @@ export default function Header() {
 
         {/* Desktop Nav */}
         <nav className="hidden md:flex items-center gap-2">
-          {NAV_ITEMS.map((item) => (
+          {filteredNav.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -87,10 +114,10 @@ export default function Header() {
       {menuOpen && (
         <nav className="md:hidden bg-black/70 backdrop-blur-md">
           <div className="px-4 py-3 flex flex-col gap-1">
-            {NAV_ITEMS.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
+          {filteredNav.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
                 aria-current={isActive(item.href) ? "page" : undefined}
                 className={`block px-3 py-2 rounded-md text-sm transition-colors ${
                   isActive(item.href)

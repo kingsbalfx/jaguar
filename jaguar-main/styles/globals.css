@@ -585,6 +585,16 @@ body {
   z-index: 1;
 }
 
+.app-content.with-quicknav {
+  padding-left: 18rem;
+}
+
+@media (max-width: 1024px) {
+  .app-content.with-quicknav {
+    padding-left: 0;
+  }
+}
+
 /* animated candlestick backdrop for landing page */
 .candle-backdrop {
   position: absolute;

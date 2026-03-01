@@ -12,13 +12,18 @@ const ROLE_DASHBOARD = {
 };
 
 function buildLinks(role) {
-  const links = [
-    { label: "Home", href: "/" },
-    { label: "Pricing", href: "/pricing" },
-  ];
+  const links = [{ label: "Home", href: "/" }];
 
   if (ROLE_DASHBOARD[role]) {
     links.push(ROLE_DASHBOARD[role]);
+  }
+
+  if (role && role !== "admin" && role !== "lifetime") {
+    links.push({ label: "Upgrade Plan", href: "/pricing" });
+  }
+
+  if (role && role !== "admin") {
+    links.push({ label: "Live Room", href: "/live-pen" });
   }
 
   if (role === "admin") {
@@ -32,19 +37,16 @@ function buildLinks(role) {
     );
   }
 
+  links.push({ label: "Support", href: "/contact" });
   return links;
 }
 
 export default function QuickNav() {
-  const [open, setOpen] = useState(false);
   const [role, setRole] = useState(null);
   const [allowed, setAllowed] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const router = useRouter();
-
-  useEffect(() => {
-    setOpen(false);
-  }, [router.pathname]);
+  const pathname = router.pathname || "/";
 
   useEffect(() => {
     let active = true;
@@ -88,6 +90,8 @@ export default function QuickNav() {
   }, [role, userEmail]);
 
   if (!allowed) return null;
+  const showSidebar = pathname.startsWith("/dashboard") || pathname.startsWith("/admin");
+  if (!showSidebar) return null;
 
   const handleSignOut = async () => {
     const client = getBrowserSupabaseClient();
@@ -98,24 +102,18 @@ export default function QuickNav() {
   };
 
   return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="h-10 w-10 rounded-full bg-indigo-600 text-white shadow-lg shadow-black/30 border border-white/10 flex items-center justify-center"
-        aria-expanded={open}
-        aria-label="Quick navigation"
-      >
-        {open ? "×" : "≡"}
-      </button>
-
-      {open && (
-        <div className="absolute left-0 mt-3 w-60 rounded-xl bg-slate-950/95 border border-white/10 shadow-xl backdrop-blur p-2 text-sm">
+    <aside className="fixed left-4 top-28 z-40 hidden lg:block">
+      <div className="w-64 rounded-2xl border border-white/10 bg-slate-950/90 shadow-2xl shadow-black/40 backdrop-blur">
+        <div className="px-4 py-3 border-b border-white/10">
+          <div className="text-xs uppercase tracking-widest text-gray-400">Quick Navigator</div>
+          <div className="text-sm font-semibold text-white mt-1 capitalize">{role || "member"} access</div>
+        </div>
+        <nav className="px-2 py-3 space-y-1 text-sm">
           {links.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="block px-3 py-2 rounded-md text-gray-200 hover:bg-white/10"
+              className="block px-3 py-2 rounded-lg text-gray-200 hover:bg-white/10"
             >
               {item.label}
             </Link>
@@ -123,12 +121,12 @@ export default function QuickNav() {
           <button
             type="button"
             onClick={handleSignOut}
-            className="w-full text-left px-3 py-2 rounded-md text-red-200 hover:bg-white/10"
+            className="w-full text-left px-3 py-2 rounded-lg text-red-200 hover:bg-white/10"
           >
             Sign Out
           </button>
-        </div>
-      )}
-    </div>
+        </nav>
+      </div>
+    </aside>
   );
 }
