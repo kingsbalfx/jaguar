@@ -33,7 +33,9 @@ function buildLinks(role) {
   if (role === "admin") {
     links.push(
       { label: "Admin Home", href: "/admin" },
-      { label: "Admin Settings", href: "/admin/settings" },
+      { label: "Payments History", href: "/admin/payments" },
+      { label: "Bot Logs", href: "/admin/bot-logs" },
+      { label: "MT5 Status", href: "/admin/settings" },
       { label: "Admin Messages", href: "/admin/messages" },
       { label: "Mentorship", href: "/admin/mentorship" },
       { label: "Users", href: "/admin/users" },
