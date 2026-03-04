@@ -152,23 +152,29 @@ export default function QuickNav() {
             <span>{open ? "Close Nav" : "Quick Nav"}</span>
           </button>
           {open && (
-            <div className="absolute right-0 mt-3 w-64 rounded-2xl bg-slate-950/95 border border-white/10 shadow-xl backdrop-blur p-2 text-sm">
-              {links.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="block px-3 py-2 rounded-md text-gray-200 hover:bg-white/10"
+            <div className="absolute right-0 mt-3 w-64 rounded-2xl bg-slate-950/95 border border-white/10 shadow-xl backdrop-blur text-sm">
+              <div className="px-4 py-3 border-b border-white/10">
+                <div className="text-xs uppercase tracking-widest text-gray-400">Quick Navigator</div>
+                <div className="text-sm font-semibold text-white mt-1 capitalize">{role || "member"} access</div>
+              </div>
+              <nav className="p-2 space-y-1">
+                {links.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="block px-3 py-2 rounded-md text-gray-200 hover:bg-white/10"
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="w-full text-left px-3 py-2 rounded-md text-red-200 hover:bg-white/10"
                 >
-                  {item.label}
-                </Link>
-              ))}
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="w-full text-left px-3 py-2 rounded-md text-red-200 hover:bg-white/10"
-              >
-                Sign Out
-              </button>
+                  Sign Out
+                </button>
+              </nav>
             </div>
           )}
         </div>
@@ -189,23 +195,29 @@ export default function QuickNav() {
         <span>{open ? "Close Nav" : "Quick Nav"}</span>
       </button>
       {open && (
-        <div className="absolute right-0 mt-3 w-64 rounded-2xl bg-slate-950/95 border border-white/10 shadow-xl backdrop-blur p-2 text-sm">
-          {links.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="block px-3 py-2 rounded-md text-gray-200 hover:bg-white/10"
+        <div className="absolute right-0 mt-3 w-64 rounded-2xl bg-slate-950/95 border border-white/10 shadow-xl backdrop-blur text-sm">
+          <div className="px-4 py-3 border-b border-white/10">
+            <div className="text-xs uppercase tracking-widest text-gray-400">Quick Navigator</div>
+            <div className="text-sm font-semibold text-white mt-1 capitalize">{role || "member"} access</div>
+          </div>
+          <nav className="p-2 space-y-1">
+            {links.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="block px-3 py-2 rounded-md text-gray-200 hover:bg-white/10"
+              >
+                {item.label}
+              </Link>
+            ))}
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="w-full text-left px-3 py-2 rounded-md text-red-200 hover:bg-white/10"
             >
-              {item.label}
-            </Link>
-          ))}
-          <button
-            type="button"
-            onClick={handleSignOut}
-            className="w-full text-left px-3 py-2 rounded-md text-red-200 hover:bg-white/10"
-          >
-            Sign Out
-          </button>
+              Sign Out
+            </button>
+          </nav>
         </div>
       )}
     </div>
