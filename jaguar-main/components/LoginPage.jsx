@@ -127,9 +127,9 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="app-bg text-white relative overflow-hidden">
+    <div className="auth-screen text-white relative overflow-hidden h-full">
       <div className="candle-backdrop" aria-hidden="true" />
-      <div className="app-content min-h-[calc(100vh-160px)] flex items-center justify-center px-6 py-12">
+      <div className="app-content auth-content flex items-center justify-center px-6 py-4">
         <div className="login-shell">
           <div className="login-side">
             <div className="login-brand">
