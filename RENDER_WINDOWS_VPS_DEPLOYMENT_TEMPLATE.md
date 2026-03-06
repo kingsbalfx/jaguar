@@ -77,6 +77,10 @@ API_HOST=0.0.0.0
 API_PORT=8000
 LOG_LEVEL=INFO
 LOG_FILE=bot.log
+
+# Optional: keep bot process alive if MT5 is unavailable.
+# Useful on Linux/Render; does NOT execute live MT5 trades.
+MT5_FALLBACK_API_ONLY=true
 ```
 
 Then run:
@@ -147,6 +151,16 @@ MT5_DISABLED=1
 This allows process up but **does not run live MT5 trading**.
 
 ## 10) Troubleshooting quick map
+
+If bot is hosted on Linux (Render), set one of these:
+
+```env
+MT5_DISABLED=1
+# or
+MT5_FALLBACK_API_ONLY=true
+```
+
+This prevents startup crashes when MT5 runtime is not present.
 
 - `MetaTrader5 package not available on this platform`
   - You are running on Linux; move trading runtime to Windows VPS or set `MT5_DISABLED=1`.

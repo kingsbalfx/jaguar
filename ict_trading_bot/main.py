@@ -65,7 +65,15 @@ if os.getenv("MT5_DISABLED", "").lower() in ("1", "true", "yes"):
     while True:
         time.sleep(60)
 
-connect()
+try:
+    connect()
+except Exception as e:
+    fallback_allowed = os.getenv("MT5_FALLBACK_API_ONLY", "true").lower() in ("1", "true", "yes")
+    if fallback_allowed:
+        print(f"MT5 connect failed ({e}). Running in API-only mode (no live trading).")
+        while True:
+            time.sleep(60)
+    raise
 
 SYMBOLS = [
     "EURUSD", "GBPUSD", "USDJPY",
