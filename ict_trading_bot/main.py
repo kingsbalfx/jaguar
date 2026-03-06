@@ -9,7 +9,7 @@ from execution.mt5_connector import (
     get_open_positions
 )
 from config.symbol_mappings import candidates_for
-from execution.trade_executor import calculate_lot_size, execute_trade
+from execution.trade_executor import calculate_lot_size, execute_trade, apply_trade_action
 from execution.order_router import choose_order_type
 
 # =====================================================
@@ -301,12 +301,14 @@ while True:
             # -----------------------------
             # LIVE TRADE MANAGEMENT
             # -----------------------------
-            while trade and trade["open"]:
+            while trade and trade.get("open"):
                 live_price = get_price(symbol)
                 action = manage_trade(trade, live_price)
 
                 if action:
-                    trade = execute_trade(**action)
+                    trade = apply_trade_action(trade, action)
+                else:
+                    break
     except Exception as e:
         print("Error in main loop:", e)
         traceback.print_exc()

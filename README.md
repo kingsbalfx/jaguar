@@ -4,6 +4,7 @@ This workspace combines two projects:
 
 - `jaguar-main` — Next/Node web frontend + admin dashboard
 - `ict_trading_bot` — Python trading bot and associated tooling
+- `RENDER_WINDOWS_VPS_DEPLOYMENT_TEMPLATE.md` — copy-paste production template for Render (web) + Windows VPS (MT5 bot).
 
 Quickstart (requires Docker):
 
