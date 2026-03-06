@@ -17,6 +17,9 @@ export default async function handler(req, res) {
     }
 
     const supabaseAdmin = getSupabaseClient({ server: true });
+    if (!supabaseAdmin) {
+      return res.status(500).json({ error: "Supabase admin client not configured" });
+    }
     const userId = session.user.id;
     const { data: profile } = await supabaseAdmin
       .from("profiles")
@@ -60,24 +63,52 @@ export default async function handler(req, res) {
     }
 
     const { login, password, server } = req.body || {};
-    if (!login || !password || !server) {
-      return res.status(400).json({ error: "login, password, and server are required" });
+    const cleanLogin = String(login || "").trim();
+    const cleanServer = String(server || "").trim();
+    const cleanPassword = String(password || "");
+
+    if (!cleanLogin || !cleanServer) {
+      return res.status(400).json({ error: "login and server are required" });
     }
 
-    await supabaseAdmin.from("mt5_credentials").update({ active: false }).eq("active", true);
+    const { data: currentActive, error: currentError } = await supabaseAdmin
+      .from("mt5_credentials")
+      .select("password")
+      .eq("active", true)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (currentError) {
+      return res.status(500).json({ error: currentError.message || "failed to load current credentials" });
+    }
+
+    const passwordToSave = cleanPassword || currentActive?.password || "";
+    if (!passwordToSave) {
+      return res.status(400).json({ error: "password is required for first-time setup" });
+    }
+
+    const { error: deactivateError } = await supabaseAdmin
+      .from("mt5_credentials")
+      .update({ active: false })
+      .eq("active", true);
+
+    if (deactivateError) {
+      return res.status(500).json({ error: deactivateError.message || "failed to rotate credentials" });
+    }
 
     const { error: insertError } = await supabaseAdmin
       .from("mt5_credentials")
       .insert({
-        login: String(login).trim(),
-        password: String(password),
-        server: String(server).trim(),
+        login: cleanLogin,
+        password: passwordToSave,
+        server: cleanServer,
         active: true,
         updated_at: new Date().toISOString(),
       });
 
     if (insertError) {
-      return res.status(500).json({ error: "failed to save credentials" });
+      return res.status(500).json({ error: insertError.message || "failed to save credentials" });
     }
 
     return res.status(200).json({ ok: true });

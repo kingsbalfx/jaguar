@@ -11,14 +11,37 @@ const ROLE_DASHBOARD = {
   lifetime: { label: "Dashboard (Lifetime)", href: "/dashboard/lifetime" },
 };
 
-function buildLinks(role) {
+function getDashboardPathFromRoute(pathname = "") {
+  if (pathname.startsWith("/dashboard/lifetime")) return "/dashboard/lifetime";
+  if (pathname.startsWith("/dashboard/premium")) return "/dashboard/premium";
+  if (pathname.startsWith("/dashboard/vip")) return "/dashboard/vip";
+  if (pathname.startsWith("/dashboard/pro")) return "/dashboard/pro";
+  if (pathname.startsWith("/dashboard")) return "/dashboard";
+  return null;
+}
+
+function resolveRoleFromPath(pathname = "") {
+  if (pathname.startsWith("/dashboard/premium")) return "premium";
+  if (pathname.startsWith("/dashboard/vip")) return "vip";
+  if (pathname.startsWith("/dashboard/pro")) return "pro";
+  if (pathname.startsWith("/dashboard/lifetime")) return "lifetime";
+  if (pathname.startsWith("/dashboard")) return "user";
+  if (pathname.startsWith("/admin")) return "admin";
+  return null;
+}
+
+function buildLinks(role, pathname) {
   const links = [{ label: "Home", href: "/" }];
+  const currentDashboardPath = getDashboardPathFromRoute(pathname);
 
   const dashboard = ROLE_DASHBOARD[role];
   if (dashboard) {
     links.push(dashboard);
-    links.push({ label: "Bot Access", href: `${dashboard.href}#bot-access` });
-    links.push({ label: "Mentorship Content", href: `${dashboard.href}#mentorship-content` });
+  }
+
+  if (currentDashboardPath && currentDashboardPath !== "/dashboard") {
+    links.push({ label: "Bot Access", href: `${currentDashboardPath}#bot-access` });
+    links.push({ label: "Mentorship Content", href: `${currentDashboardPath}#mentorship-content` });
   }
 
   if (role && role !== "admin" && role !== "lifetime") {
@@ -44,7 +67,8 @@ function buildLinks(role) {
   }
 
   links.push({ label: "Support", href: "/contact" });
-  return links;
+
+  return links.filter((item, idx) => links.findIndex((x) => x.href === item.href) === idx);
 }
 
 export default function QuickNav() {
@@ -79,7 +103,7 @@ export default function QuickNav() {
         setRole(resolvedRole);
       } catch {
         if (!active) return;
-        setRole("user");
+        setRole(resolveRoleFromPath(pathname) || "user");
       }
     };
 
@@ -87,7 +111,7 @@ export default function QuickNav() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     setOpen(false);
@@ -96,9 +120,10 @@ export default function QuickNav() {
   const links = useMemo(() => {
     const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || "").toLowerCase();
     const isAdminEmail = adminEmail && userEmail.toLowerCase() === adminEmail;
-    const effectiveRole = role === "admin" || isAdminEmail ? "admin" : role;
-    return buildLinks(effectiveRole);
-  }, [role, userEmail]);
+    const fallbackRole = resolveRoleFromPath(pathname);
+    const effectiveRole = role === "admin" || isAdminEmail ? "admin" : role || fallbackRole;
+    return buildLinks(effectiveRole, pathname);
+  }, [role, userEmail, pathname]);
 
   if (!allowed) return null;
   const showSidebar = pathname.startsWith("/dashboard") || pathname.startsWith("/admin");

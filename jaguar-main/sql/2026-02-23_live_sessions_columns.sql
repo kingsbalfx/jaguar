@@ -1,4 +1,4 @@
--- Add missing columns for live session media settings
+456-- Add missing columns for live session media settings
 -- Run in Supabase SQL editor
 
 ALTER TABLE IF EXISTS live_sessions
