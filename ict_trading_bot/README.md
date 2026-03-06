@@ -45,6 +45,19 @@ pip install -r requirements.txt
 # This downloads all the robot's "parts" (libraries)
 ```
 
+
+### If install fails with `No matching distribution found`
+```bash
+# 1) Ensure virtualenv is active
+source .venv/Scripts/activate
+
+# 2) Use python -m pip explicitly
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+If you are on Windows and still get package issues, use Python 3.11/3.12.
+
 ### Step 2: Create Your Settings File
 ```bash
 # Copy the example:
