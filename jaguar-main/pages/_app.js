@@ -8,6 +8,8 @@ import { getBrowserSupabaseClient, isSupabaseConfigured } from "../lib/supabaseC
 
 export default function MyApp({ Component, pageProps }) {
   const router = useRouter();
+  const isAuthRoute =
+    router.pathname === "/login" || router.pathname === "/register" || router.pathname.startsWith("/auth");
   const showCandle =
     router.pathname.startsWith("/admin") || router.pathname.startsWith("/dashboard");
   const showQuickNav = showCandle;
@@ -100,14 +102,14 @@ export default function MyApp({ Component, pageProps }) {
 
       <Header />
 
-      <main className="flex-grow app-bg relative overflow-hidden">
+      <main className={`flex-grow app-bg relative overflow-hidden${isAuthRoute ? " auth-main" : ""}`}>
         {showCandle && <div className="candle-backdrop" aria-hidden="true" />}
         <div className={`app-content${showQuickNav ? " with-quicknav" : ""}`}>
           <Component {...pageProps} />
         </div>
       </main>
 
-      <Footer />
+      {!isAuthRoute && <Footer />}
     </div>
   );
 }
