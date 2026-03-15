@@ -12,6 +12,27 @@ This template is copy-paste ready for your production setup where:
 - **Windows VPS:** `ict_trading_bot/main.py` + MT5 terminal
 - **Supabase:** shared data (`mt5_credentials`, `bot_signals`, `bot_logs`)
 
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+=======
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+### Important success condition
+
+- A Render deployment can be **green/successful** while still not doing live MT5 trading.
+- For **live trading enabled**, `python main.py` must run on Windows VPS with MT5 terminal logged in.
+- Render should host web/admin and call the Windows bot API via `BOT_API_URL`.
+
+<<<<<<< ours
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 ## 2) Required downloads (official links)
 
 ### Windows VPS essentials
@@ -168,3 +189,29 @@ This prevents startup crashes when MT5 runtime is not present.
   - Save credentials via `/admin/settings` and restart bot.
 - `/api/admin/restart-bot` returns error
   - Verify `BOT_API_URL` and bot host reachability.
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+=======
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+- `column mt5_credentials.active does not exist`
+  - Use latest code (it supports both schemas).
+  - Optional SQL fix to add column:
+    ```sql
+    alter table public.mt5_credentials
+      add column if not exists active boolean not null default true;
+
+    update public.mt5_credentials
+      set active = true
+      where active is null;
+    ```
+<<<<<<< ours
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs

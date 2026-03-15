@@ -1,6 +1,23 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 
+function isMissingActiveColumn(error) {
+  const msg = String(error?.message || "").toLowerCase();
+  return error?.code === "42703" || msg.includes("mt5_credentials.active") || (msg.includes("column") && msg.includes("active"));
+}
+
+async function supportsActiveColumn(supabaseAdmin) {
+  const probe = await supabaseAdmin
+    .from("mt5_credentials")
+    .select("id")
+    .eq("active", true)
+    .limit(1);
+
+  if (!probe.error) return true;
+  if (isMissingActiveColumn(probe.error)) return false;
+  throw new Error(probe.error.message || "failed to validate mt5_credentials schema");
+}
+
 async function requireAdmin(req, res) {
   const supabase = createPagesServerClient({ req, res });
   const {
@@ -68,20 +85,39 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: "submission not found" });
     }
 
-    await supabaseAdmin.from("mt5_credentials").update({ active: false }).eq("active", true);
+    let hasActiveColumn = true;
+    try {
+      hasActiveColumn = await supportsActiveColumn(supabaseAdmin);
+    } catch (e) {
+      return res.status(500).json({ error: e.message || "failed to validate credentials schema" });
+    }
+
+    if (hasActiveColumn) {
+      const { error: deactivateError } = await supabaseAdmin
+        .from("mt5_credentials")
+        .update({ active: false })
+        .eq("active", true);
+      if (deactivateError) {
+        return res.status(500).json({ error: deactivateError.message || "failed to rotate credentials" });
+      }
+    }
+
+    const payload = {
+      login: submission.login,
+      password: submission.password,
+      server: submission.server,
+      updated_at: new Date().toISOString(),
+    };
+    if (hasActiveColumn) {
+      payload.active = true;
+    }
 
     const { error: insertError } = await supabaseAdmin
       .from("mt5_credentials")
-      .insert({
-        login: submission.login,
-        password: submission.password,
-        server: submission.server,
-        active: true,
-        updated_at: new Date().toISOString(),
-      });
+      .insert(payload);
 
     if (insertError) {
-      return res.status(500).json({ error: "failed to activate credentials" });
+      return res.status(500).json({ error: insertError.message || "failed to activate credentials" });
     }
 
     await supabaseAdmin

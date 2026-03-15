@@ -36,6 +36,7 @@ export const getServerSideProps = async (ctx) => {
 export default function Settings() {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [server, setServer] = useState("");
   const [updatedAt, setUpdatedAt] = useState(null);
   const [hasPassword, setHasPassword] = useState(false);
@@ -111,8 +112,8 @@ export default function Settings() {
     e.preventDefault();
     setStatus({ type: "", message: "" });
 
-    if (!login || !password || !server) {
-      setStatus({ type: "error", message: "Login, password, and server are required." });
+    if (!login || !server) {
+      setStatus({ type: "error", message: "Login and server are required." });
       return;
     }
 
@@ -179,13 +180,22 @@ export default function Settings() {
 
           <div>
             <label className="block text-sm text-gray-300 mb-1">MT5 Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={hasPassword ? "******** (enter new to update)" : "Enter MT5 password"}
-              className="w-full rounded bg-black/40 border border-white/10 px-3 py-2 text-white"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={hasPassword ? "******** (leave empty to keep current)" : "Enter MT5 password"}
+                className="w-full rounded bg-black/40 border border-white/10 px-3 py-2 text-white"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="px-3 py-2 rounded border border-white/20 text-xs text-gray-200 hover:bg-white/10"
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
           </div>
 
           <div>
@@ -300,4 +310,3 @@ export default function Settings() {
     </div>
   );
 }
-
