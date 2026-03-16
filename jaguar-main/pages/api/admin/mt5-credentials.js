@@ -117,6 +117,8 @@ export default async function handler(req, res) {
 <<<<<<< ours
 <<<<<<< ours
 <<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
     }
 
 <<<<<<< ours
@@ -217,6 +219,10 @@ export default async function handler(req, res) {
 >>>>>>> theirs
 =======
 >>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
     }
 
     const {
@@ -244,6 +250,8 @@ export default async function handler(req, res) {
 <<<<<<< ours
 <<<<<<< ours
 <<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
 >>>>>>> theirs
 =======
 >>>>>>> theirs
@@ -281,6 +289,10 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: deactivateError.message || "failed to rotate credentials" });
     }
 
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
 >>>>>>> theirs
 =======
 >>>>>>> theirs
@@ -310,6 +322,12 @@ export default async function handler(req, res) {
 <<<<<<< ours
 <<<<<<< ours
 <<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
 >>>>>>> theirs
 =======
 >>>>>>> theirs
@@ -346,6 +364,8 @@ export default async function handler(req, res) {
 <<<<<<< ours
 <<<<<<< ours
 <<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
       .insert({
         login: cleanLogin,
         password: passwordToSave,
@@ -353,6 +373,12 @@ export default async function handler(req, res) {
         active: true,
         updated_at: new Date().toISOString(),
       });
+=======
+      .insert(payload);
+>>>>>>> theirs
+=======
+      .insert(payload);
+>>>>>>> theirs
 =======
       .insert(payload);
 >>>>>>> theirs
