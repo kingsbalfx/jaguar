@@ -1,337 +1,136 @@
 # Render + Windows VPS Deployment Template (ICT Bot + Jaguar Web)
 
-This template is copy-paste ready for your production setup where:
-- Web/Admin app is hosted on Render/Vercel
-- Live MT5 execution bot runs on Windows VPS (MT5 required)
-
-> Why: `MetaTrader5` runtime is Windows/MT5-terminal dependent in this codebase.
+This guide explains how the Linux web/admin stack runs on Render while live MT5 trading executes on a Windows VPS. Everything here assumes the `ict_trading_bot` folder speaks to Supabase for configuration and the Windows MT5 terminal handles the live positions.
 
 ## 1) What runs where
+- **Render (Linux)** – Jaguar web app, admin APIs, Supabase-connected functions, pricing sync endpoints, and bot control endpoints (`/api/admin/*`).
+- **Windows VPS** – `ict_trading_bot/main.py`, MT5 terminal, scheduled task for auto-start, and `bot_api` server that Render calls through `BOT_API_URL`.
+- **Supabase** – shared data tables such as `mt5_credentials` (admin only), `bot_signals`, `bot_logs`, pricing tables, and user/subscription metadata.
 
-- **Render (Linux):** web app, admin APIs, Supabase-connected backend
-- **Windows VPS:** `ict_trading_bot/main.py` + MT5 terminal
-- **Supabase:** shared data (`mt5_credentials`, `bot_signals`, `bot_logs`)
+## 2) Success conditions to verify
+- Render service reports healthy (`/health` returns `{"status":"ok"}`).
+- Windows host is running `main.py` with MT5 logged in, and `curl http://localhost:8000/health` returns a running bot status.
+- Render can reach the Windows bot via the env var `BOT_API_URL`; test `/restart` or `/status` from Render after each Windows restart.
+- Supabase `mt5_credentials` contains at least one row marked `active=true` (or latest row if you are using older schema).
 
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-=======
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-### Important success condition
-
-- A Render deployment can be **green/successful** while still not doing live MT5 trading.
-- For **live trading enabled**, `python main.py` must run on Windows VPS with MT5 terminal logged in.
-- Render should host web/admin and call the Windows bot API via `BOT_API_URL`.
-
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-## 2) Required downloads (official links)
-
-### Windows VPS essentials
-- Python 3.11: https://www.python.org/downloads/release/python-3110/
-- MetaTrader 5 Terminal: https://www.metatrader5.com/en/download
+## 3) Required downloads for Windows
+- Python 3.11 installer: https://www.python.org/downloads/release/python-3110/
+- MetaTrader 5 terminal: https://www.metatrader5.com/en/download
 - Git for Windows: https://git-scm.com/download/win
 - NSSM (optional service wrapper): https://nssm.cc/download
+- Optional monitoring tools: Postman, curl (https://curl.se/windows/)
 
-### Local tools (optional)
-- Postman: https://www.postman.com/downloads/
-- cURL for Windows docs: https://curl.se/windows/
-
-## 3) Render service settings (Web/Admin)
-
-Set env vars in your web service:
-
+## 4) Render service settings (env configuration)
+Set these values in Render’s environment variables for the web/admin service. Replace placeholders with your own:
 ```env
-NEXT_PUBLIC_SITE_URL=https://kingsbalfx.name.ng
-NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
+NEXT_PUBLIC_SITE_URL=https://your-production-domain
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=anon-key
+SUPABASE_SERVICE_ROLE_KEY=service-role-key
 
-# Required so /api/admin/restart-bot can control Windows bot
-BOT_API_URL=https://BOT_PUBLIC_DOMAIN_OR_IP:8000
+BOT_API_URL=https://windows-bot-host:8000
+BOT_API_INTERNAL=https://windows-bot-host:8000
 
-# Optional internal endpoint override for bot-control API
-BOT_API_INTERNAL=https://BOT_PUBLIC_DOMAIN_OR_IP:8000
+ADMIN_API_KEY=32+ char random secret
+PAYSTACK_PUBLIC_KEY=pk_live_...
+PAYSTACK_SECRET_KEY=sk_live_...
 
-ADMIN_API_KEY=GENERATE_A_STRONG_RANDOM_SECRET
-```
-
-## 4) Windows VPS bot setup (copy/paste)
-
-```powershell
-# 1) Clone repo
-git clone https://github.com/<your-org>/<your-repo>.git
-cd <your-repo>\ict_trading_bot
-
-# 2) Create venv
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-
-# 3) Install deps
-pip install --upgrade pip
-pip install -r requirements.txt
-
-# 4) Create env
-copy .env.example .env
-notepad .env
-```
-
-Paste this in `.env`:
-
-```env
-BOT_ENABLED=true
-RISK_PER_TRADE=1.0
-MAX_OPEN_TRADES=5
-
-SUPABASE_URL=https://YOUR_PROJECT.supabase.co
-SUPABASE_KEY=YOUR_SUPABASE_SERVICE_ROLE_KEY
-
-API_HOST=0.0.0.0
-API_PORT=8000
-LOG_LEVEL=INFO
-LOG_FILE=bot.log
-
-# Optional: keep bot process alive if MT5 is unavailable.
-# Useful on Linux/Render; does NOT execute live MT5 trades.
+# Optional: keep bot API up even when MT5 is down
 MT5_FALLBACK_API_ONLY=true
 ```
+Render needs `BOT_API_URL` so the admin UI can restart the Windows bot or query its health.
 
-Then run:
+## 5) Windows VPS bot setup
+1. Clone the repo and switch to the bot folder:
+   ```powershell
+   git clone https://github.com/<your-org>/<your-repo>.git
+   cd <your-repo>\ict_trading_bot
+   ```
+2. Run the reusable setup script:
+   ```powershell
+   .\setup_windows.ps1
+   ```
+   - Creates `.venv`, upgrades pip, installs requirements, and copies `.env.example`.
+3. Update `.env`:
+   ```env
+   BOT_ENABLED=true
+   RISK_PER_TRADE=1.0
+   MAX_OPEN_TRADES=5
 
-```powershell
-python main.py
-```
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_KEY=service-role-key
 
-## 5) MT5 connection steps
+   API_HOST=0.0.0.0
+   API_PORT=8000
+   LOG_LEVEL=INFO
+   LOG_FILE=bot.log
+   ```
+   Do not point `SUPABASE_URL` to a `postgresql://` string; it must be the HTTP project URL or the Supabase REST endpoint.
+4. Optional but recommended: create the scheduled task to run the bot at logon:
+   ```powershell
+   .\setup_autostart.ps1
+   ```
+5. Start the bot manually once to confirm:
+   ```powershell
+   .\.venv\Scripts\python.exe main.py
+   ```
 
-1. Open MT5 terminal on VPS and login broker account.
-2. In Jaguar Admin: `/admin/settings`, save MT5 login/password/server.
-3. Click **Restart Bot** in admin or call bot `/restart`.
+## 6) MT5 credential workflow (Supabase table)
+- The bot reads admin-managed MT5 credentials from `public.mt5_credentials`.
+- Table schema (created by `migrations/003_add_mt5_credentials.sql`):
+  ```sql
+  CREATE TABLE IF NOT EXISTS mt5_credentials (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    login text NOT NULL,
+    password text NOT NULL,
+    server text NOT NULL,
+    active boolean NOT NULL DEFAULT true,
+    created_at timestamp DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp DEFAULT CURRENT_TIMESTAMP
+  );
+  ```
+- If your project is missing the `active` column, run:
+  ```sql
+  ALTER TABLE public.mt5_credentials
+    ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true;
 
-## 6) Firewall + networking
+  UPDATE public.mt5_credentials
+    SET active = true
+    WHERE active IS NULL;
+  ```
+- Admins insert or rotate credentials through Supabase SQL or the Admin panel. Always keep just one row flagged `active=true`. The code first queries `active=true` and falls back to the latest row if the column was missing.
+- RLS policy:
+  ```sql
+  CREATE POLICY "service_role_mt5_credentials" ON mt5_credentials
+    FOR ALL USING (auth.role() = 'service_role')
+    WITH CHECK (auth.role() = 'service_role');
+  ```
 
-### Windows Firewall
-Open inbound TCP 8000 (if direct exposure):
+## 7) Activation, monitoring, and automation
+- **Activation**: Open MT5, log into your broker, then hit the Admin panel (`/admin/settings`) to store the credentials (writes into `mt5_credentials`). Restart the bot via `/api/admin/restart-bot` or the Render admin UI once credentials are saved.
+- **Health**: `curl http://localhost:8000/health` on Windows and `https://your-production-domain/health` from Render should both return `{"status":"ok"}` or similar.
+- **Auto commit & push**: Add a lightweight PowerShell script such as `scripts/auto_commit_push.ps1`:
+  ```powershell
+  param($message = 'autosave')
 
-```powershell
-New-NetFirewallRule -DisplayName "ICT Bot API 8000" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow
-```
+  cd C:\path\to\repo
+  git add -A
+  git commit -m $message
+  git push origin main
+  ```
+  Schedule this script in Task Scheduler (trigger: hourly or on specific working hours) to keep documentation, SQL migrations, and config changes version-controlled. Make sure you review diffs before pushing and never commit secrets.
+- **Log streaming**: Render can fetch bot logs via the `/api/admin/bot-logs` endpoint, and Windows writes `bot_logs` rows that the web UI surfaces for auditing.
 
-### Cloud firewall / provider SG
-- Allow inbound TCP 8000 from trusted IPs (prefer web server egress IP only)
-- Do not expose broadly if avoidable
+## 8) Firewall + networking
+- Allow inbound TCP 8000 on Windows Firewall if Render must reach it directly:
+  ```powershell
+  New-NetFirewallRule -DisplayName "ICT Bot API 8000" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow
+  ```
+- Limit reach to Render’s egress IP or your admin station. Avoid exposing the bot API publicly without a reverse proxy.
+- Use a reverse proxy (Caddy, Nginx) or tunneling (e.g., Cloudflare Tunnel) if you want TLS termination in front of the Windows bot API.
 
-## 7) Reverse proxy (recommended)
-
-Use Caddy/Nginx in front of Flask for TLS and domain routing.
-
-### Caddy example (`Caddyfile`)
-
-```txt
-bot.yourdomain.com {
-  reverse_proxy 127.0.0.1:8000
-}
-```
-
-Then set:
-
-```env
-BOT_API_URL=https://bot.yourdomain.com
-BOT_API_INTERNAL=https://bot.yourdomain.com
-```
-
-## 8) Health checks
-
-```bash
-curl https://bot.yourdomain.com/health
-curl https://bot.yourdomain.com/status
-```
-
-Expected health response shape:
-
-```json
-{"status":"ok","running":true}
-```
-
-## 9) If deploying bot to Render anyway (non-trading mode)
-
-If you still run bot container on Render Linux, prevent MT5 crash:
-
-```env
-MT5_DISABLED=1
-```
-
-This allows process up but **does not run live MT5 trading**.
-
-## 10) Troubleshooting quick map
-
-If bot is hosted on Linux (Render), set one of these:
-
-```env
-MT5_DISABLED=1
-# or
-MT5_FALLBACK_API_ONLY=true
-```
-
-This prevents startup crashes when MT5 runtime is not present.
-
-- `MetaTrader5 package not available on this platform`
-  - You are running on Linux; move trading runtime to Windows VPS or set `MT5_DISABLED=1`.
-- `No MT5 credentials found in Supabase`
-  - Save credentials via `/admin/settings` and restart bot.
-- `/api/admin/restart-bot` returns error
-  - Verify `BOT_API_URL` and bot host reachability.
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-=======
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-- `column mt5_credentials.active does not exist`
-  - Use latest code (it supports both schemas).
-  - Optional SQL fix to add column:
-    ```sql
-    alter table public.mt5_credentials
-      add column if not exists active boolean not null default true;
-
-    update public.mt5_credentials
-      set active = true
-      where active is null;
-    ```
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
+## 9) Troubleshooting checklist
+- `MT5_DISABLED=1` lets you run the Flask API on Render or Linux without trying to connect to MT5. Keep `MT5_FALLBACK_API_ONLY=true` when you only need API responsiveness.
+- If Supabase returns `column mt5_credentials.active does not exist`, apply the SQL from section 6 and rerun the deployment script.
+- Verify `SUPABASE_URL`/`SUPABASE_KEY` in `.env`. They must point to the Supabase REST endpoint and service-role key (not the internal Postgres connection string).
+- Combine Render health checks with Windows Task Scheduler logs to confirm the bot restarts automatically.

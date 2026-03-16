@@ -148,6 +148,7 @@
 | See all files created | FILE_MANIFEST.md |
 | Show what was merged | INTEGRATION_REPORT.md |
 | Make improvements | IMPLEMENTATION_SUMMARY.md |
+| Find the quickest routes to docs, Supabase, Render + MT5 | QUICK_NAVIGATION.md |
 
 ---
 
