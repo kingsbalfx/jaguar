@@ -15,8 +15,8 @@ def fetch_mt5_credentials():
 
     client = create_client(url, key)
 
-    try:
-        res = (
+    def _query_active():
+        return (
             client.table("mt5_credentials")
             .select("login,password,server,updated_at")
             .eq("active", True)
@@ -24,8 +24,27 @@ def fetch_mt5_credentials():
             .limit(1)
             .execute()
         )
+
+    def _query_latest():
+        return (
+            client.table("mt5_credentials")
+            .select("login,password,server,updated_at")
+            .order("updated_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+    try:
+        res = _query_active()
     except Exception as exc:
-        raise RuntimeError(f"Failed to fetch MT5 credentials from Supabase: {exc}") from exc
+        message = str(exc).lower()
+        if "mt5_credentials.active" not in message and "column" not in message:
+            raise RuntimeError(f"Failed to fetch MT5 credentials from Supabase: {exc}") from exc
+        logger.warning("mt5_credentials.active column missing; falling back to latest row")
+        try:
+            res = _query_latest()
+        except Exception as fallback_exc:
+            raise RuntimeError(f"Failed to fetch MT5 credentials from Supabase: {fallback_exc}") from fallback_exc
 
     data = getattr(res, "data", None) or []
     if not data:

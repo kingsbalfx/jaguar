@@ -54,15 +54,27 @@ export default function Content() {
     if (!client) throw new Error("Supabase client not available");
 
     const bucket = resolveBucket(segment);
-    const filename = `${Date.now()}_${fileToUpload.name}`;
-    const path = `content/${segment}/${filename}`;
-    const { data, error } = await client.storage.from(bucket).upload(path, fileToUpload, {
+    const signedRes = await fetch("/api/admin/storage/signed-upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bucket, segment, fileName: fileToUpload.name }),
+    });
+    const signedJson = await signedRes.json();
+    if (!signedRes.ok) {
+      throw new Error(signedJson?.error || "Unable to prepare secure upload");
+    }
+
+    const { path, token, publicUrl } = signedJson;
+    const { error: uploadError } = await client.storage.from(bucket).uploadToSignedUrl(path, token, fileToUpload, {
       cacheControl: "3600",
       upsert: false,
     });
-    if (error) throw error;
-    const publicUrl = client.storage.from(bucket).getPublicUrl(data.path).data.publicUrl;
-    return { storagePath: data.path, publicUrl };
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    return { storagePath: path, publicUrl };
   }
 
   async function saveItem(e) {
