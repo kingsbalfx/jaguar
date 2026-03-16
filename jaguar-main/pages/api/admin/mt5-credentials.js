@@ -109,6 +109,14 @@ export default async function handler(req, res) {
     if (!cleanLogin || !cleanServer) {
       return res.status(400).json({ error: "login and server are required" });
 <<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
     }
 
 <<<<<<< ours
@@ -123,12 +131,33 @@ export default async function handler(req, res) {
 =======
 =======
 >>>>>>> theirs
+=======
+    }
+
+>>>>>>> theirs
+=======
+    }
+
+>>>>>>> theirs
+=======
+    }
+
+>>>>>>> theirs
     const {
       row: currentActive,
       error: currentError,
       hasActiveColumn,
     } = await getLatestCredentialRow(supabaseAdmin, "password, updated_at");
 <<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
 >>>>>>> theirs
 =======
 >>>>>>> theirs
@@ -140,6 +169,9 @@ export default async function handler(req, res) {
     const passwordToSave = cleanPassword || currentActive?.password || "";
     if (!passwordToSave) {
       return res.status(400).json({ error: "password is required for first-time setup" });
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
 <<<<<<< ours
 <<<<<<< ours
     }
@@ -152,6 +184,10 @@ export default async function handler(req, res) {
     if (deactivateError) {
       return res.status(500).json({ error: deactivateError.message || "failed to rotate credentials" });
 =======
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
     }
 
     const deactivateError = await deactivateCurrentCredentials(supabaseAdmin, hasActiveColumn);
@@ -160,6 +196,57 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: deactivateError.message || "failed to rotate credentials" });
     }
 
+<<<<<<< ours
+<<<<<<< ours
+=======
+    }
+
+    const deactivateError = await deactivateCurrentCredentials(supabaseAdmin, hasActiveColumn);
+
+    if (deactivateError) {
+      return res.status(500).json({ error: deactivateError.message || "failed to rotate credentials" });
+    }
+
+>>>>>>> theirs
+=======
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+    }
+
+    const {
+      row: currentActive,
+      error: currentError,
+      hasActiveColumn,
+    } = await getLatestCredentialRow(supabaseAdmin, "password, updated_at");
+
+    if (currentError) {
+      return res.status(500).json({ error: currentError.message || "failed to load current credentials" });
+    }
+
+    const passwordToSave = cleanPassword || currentActive?.password || "";
+    if (!passwordToSave) {
+      return res.status(400).json({ error: "password is required for first-time setup" });
+    }
+
+    const deactivateError = await deactivateCurrentCredentials(supabaseAdmin, hasActiveColumn);
+
+    if (deactivateError) {
+      return res.status(500).json({ error: deactivateError.message || "failed to rotate credentials" });
+    }
+
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 =======
     }
 
@@ -195,6 +282,16 @@ export default async function handler(req, res) {
     }
 
 >>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
     const payload = {
       login: cleanLogin,
       password: passwordToSave,
@@ -205,6 +302,30 @@ export default async function handler(req, res) {
       payload.active = true;
 <<<<<<< ours
 <<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
 >>>>>>> theirs
 =======
 >>>>>>> theirs
@@ -217,6 +338,14 @@ export default async function handler(req, res) {
 <<<<<<< ours
 <<<<<<< ours
 <<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
       .insert({
         login: cleanLogin,
         password: passwordToSave,
@@ -224,6 +353,30 @@ export default async function handler(req, res) {
         active: true,
         updated_at: new Date().toISOString(),
       });
+=======
+      .insert(payload);
+>>>>>>> theirs
+=======
+      .insert(payload);
+>>>>>>> theirs
+=======
+      .insert(payload);
+>>>>>>> theirs
+=======
+      .insert(payload);
+>>>>>>> theirs
+=======
+      .insert(payload);
+>>>>>>> theirs
+=======
+      .insert(payload);
+>>>>>>> theirs
+=======
+      .insert(payload);
+>>>>>>> theirs
+=======
+      .insert(payload);
+>>>>>>> theirs
 =======
       .insert(payload);
 >>>>>>> theirs
