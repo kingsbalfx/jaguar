@@ -6,6 +6,18 @@ from supabase import create_client
 logger = logging.getLogger(__name__)
 
 
+def _is_missing_column_error(exc, column_name):
+    message = str(exc).lower()
+    return (
+        f"mt5_credentials.{column_name}" in message
+        or ("column" in message and column_name in message)
+    )
+
+
+def _select_fields(has_updated_at):
+    return "login,password,server,updated_at" if has_updated_at else "login,password,server"
+
+
 def fetch_mt5_credentials():
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_KEY")
@@ -15,36 +27,38 @@ def fetch_mt5_credentials():
 
     client = create_client(url, key)
 
-    def _query_active():
-        return (
-            client.table("mt5_credentials")
-            .select("login,password,server,updated_at")
-            .eq("active", True)
-            .order("updated_at", desc=True)
-            .limit(1)
-            .execute()
-        )
+    def _query(has_active, has_updated_at):
+        query = client.table("mt5_credentials").select(_select_fields(has_updated_at))
 
-    def _query_latest():
-        return (
-            client.table("mt5_credentials")
-            .select("login,password,server,updated_at")
-            .order("updated_at", desc=True)
-            .limit(1)
-            .execute()
-        )
+        if has_active:
+            query = query.eq("active", True)
 
-    try:
-        res = _query_active()
-    except Exception as exc:
-        message = str(exc).lower()
-        if "mt5_credentials.active" not in message and "column" not in message:
-            raise RuntimeError(f"Failed to fetch MT5 credentials from Supabase: {exc}") from exc
-        logger.warning("mt5_credentials.active column missing; falling back to latest row")
+        if has_updated_at:
+            query = query.order("updated_at", desc=True)
+
+        return query.limit(1).execute()
+
+    has_active = True
+    has_updated_at = True
+
+    res = None
+    for _ in range(4):
         try:
-            res = _query_latest()
-        except Exception as fallback_exc:
-            raise RuntimeError(f"Failed to fetch MT5 credentials from Supabase: {fallback_exc}") from fallback_exc
+            res = _query(has_active, has_updated_at)
+            break
+        except Exception as exc:
+            if has_active and _is_missing_column_error(exc, "active"):
+                has_active = False
+                logger.warning("mt5_credentials.active column missing; falling back without active filter")
+                continue
+            if has_updated_at and _is_missing_column_error(exc, "updated_at"):
+                has_updated_at = False
+                logger.warning("mt5_credentials.updated_at column missing; falling back without updated_at ordering")
+                continue
+            raise RuntimeError(f"Failed to fetch MT5 credentials from Supabase: {exc}") from exc
+
+    if res is None:
+        raise RuntimeError("Failed to resolve mt5_credentials schema")
 
     data = getattr(res, "data", None) or []
     if not data:
