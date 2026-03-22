@@ -24,6 +24,8 @@ init_ok = mt5.initialize(
     **_build_initialize_kwargs(login_value, creds.get("password"), creds.get("server"))
 )
 print('initialize() ->', init_ok)
+if not init_ok:
+    print('last_error() ->', mt5.last_error())
 
 try:
     term_info = mt5.terminal_info()
@@ -50,8 +52,12 @@ for s in SYMBOLS_TO_CHECK:
 # Show first 20 symbols
 print('\nListing first 20 symbols from MT5:')
 symbols = mt5.symbols_get()
-for i, si in enumerate(symbols[:20]):
-    print(f' {i+1}.', si.name)
+if not symbols:
+    print(' No symbols returned from MT5.')
+    print(' last_error() ->', mt5.last_error())
+else:
+    for i, si in enumerate(symbols[:20]):
+        print(f' {i+1}.', si.name)
 
 mt5.shutdown()
 print('\nMT5 shutdown')
