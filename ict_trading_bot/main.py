@@ -1,6 +1,7 @@
 # =====================================================
 # CORE CONNECTION
 # =====================================================
+from dotenv import load_dotenv
 from execution.mt5_connector import (
     connect,
     reconnect,
@@ -47,6 +48,8 @@ import time
 import traceback
 import os
 from bot_state import is_running, consume_restart_request
+
+load_dotenv()
 
 
 # Start internal bot API (health / control) in a background thread
