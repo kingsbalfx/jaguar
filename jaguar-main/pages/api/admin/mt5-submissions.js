@@ -6,16 +6,48 @@ function isMissingActiveColumn(error) {
   return error?.code === "42703" || msg.includes("mt5_credentials.active") || (msg.includes("column") && msg.includes("active"));
 }
 
-async function supportsActiveColumn(supabaseAdmin) {
-  const probe = await supabaseAdmin
-    .from("mt5_credentials")
-    .select("id")
-    .eq("active", true)
-    .limit(1);
+function isMissingUpdatedAtColumn(error) {
+  const msg = String(error?.message || "").toLowerCase();
+  return error?.code === "42703" || msg.includes("mt5_credentials.updated_at") || (msg.includes("column") && msg.includes("updated_at"));
+}
 
-  if (!probe.error) return true;
-  if (isMissingActiveColumn(probe.error)) return false;
-  throw new Error(probe.error.message || "failed to validate mt5_credentials schema");
+async function detectMt5CredentialsSchema(supabaseAdmin) {
+  let hasActiveColumn = true;
+  let hasUpdatedAtColumn = true;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    let probe = supabaseAdmin
+      .from("mt5_credentials")
+      .select("id");
+
+    if (hasActiveColumn) {
+      probe = probe.eq("active", true);
+    }
+
+    if (hasUpdatedAtColumn) {
+      probe = probe.order("updated_at", { ascending: false });
+    }
+
+    const result = await probe.limit(1);
+
+    if (!result.error) {
+      return { hasActiveColumn, hasUpdatedAtColumn };
+    }
+
+    if (hasActiveColumn && isMissingActiveColumn(result.error)) {
+      hasActiveColumn = false;
+      continue;
+    }
+
+    if (hasUpdatedAtColumn && isMissingUpdatedAtColumn(result.error)) {
+      hasUpdatedAtColumn = false;
+      continue;
+    }
+
+    throw new Error(result.error.message || "failed to validate mt5_credentials schema");
+  }
+
+  return { hasActiveColumn, hasUpdatedAtColumn };
 }
 
 async function requireAdmin(req, res) {
@@ -86,8 +118,11 @@ export default async function handler(req, res) {
     }
 
     let hasActiveColumn = true;
+    let hasUpdatedAtColumn = true;
     try {
-      hasActiveColumn = await supportsActiveColumn(supabaseAdmin);
+      const schema = await detectMt5CredentialsSchema(supabaseAdmin);
+      hasActiveColumn = schema.hasActiveColumn;
+      hasUpdatedAtColumn = schema.hasUpdatedAtColumn;
     } catch (e) {
       return res.status(500).json({ error: e.message || "failed to validate credentials schema" });
     }
@@ -106,10 +141,12 @@ export default async function handler(req, res) {
       login: submission.login,
       password: submission.password,
       server: submission.server,
-      updated_at: new Date().toISOString(),
     };
     if (hasActiveColumn) {
       payload.active = true;
+    }
+    if (hasUpdatedAtColumn) {
+      payload.updated_at = new Date().toISOString();
     }
 
     const { error: insertError } = await supabaseAdmin

@@ -10,45 +10,95 @@ function isMissingActiveColumn(error) {
   );
 }
 
+function isMissingUpdatedAtColumn(error) {
+  const msg = String(error?.message || "").toLowerCase();
+  return (
+    error?.code === "42703" ||
+    msg.includes("mt5_credentials.updated_at") ||
+    (msg.includes("column") && msg.includes("updated_at"))
+  );
+}
+
+function normalizeCredentialColumns(columns, hasUpdatedAtColumn) {
+  if (hasUpdatedAtColumn) {
+    return columns;
+  }
+
+  return columns
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part && part !== "updated_at")
+    .join(", ");
+}
+
+async function queryLatestCredentialRow(
+  supabaseAdmin,
+  columns,
+  hasActiveColumn,
+  hasUpdatedAtColumn
+) {
+  let query = supabaseAdmin
+    .from("mt5_credentials")
+    .select(normalizeCredentialColumns(columns, hasUpdatedAtColumn));
+
+  if (hasActiveColumn) {
+    query = query.eq("active", true);
+  }
+
+  if (hasUpdatedAtColumn) {
+    query = query.order("updated_at", { ascending: false });
+  }
+
+  return query.limit(1).maybeSingle();
+}
+
 async function getLatestCredentialRow(
   supabaseAdmin,
   columns = "login, server, updated_at"
 ) {
-  const activeQuery = await supabaseAdmin
-    .from("mt5_credentials")
-    .select(columns)
-    .eq("active", true)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  let hasActiveColumn = true;
+  let hasUpdatedAtColumn = true;
 
-  if (!activeQuery.error) {
-    return {
-      row: activeQuery.data || null,
-      hasActiveColumn: true,
-      error: null,
-    };
-  }
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const result = await queryLatestCredentialRow(
+      supabaseAdmin,
+      columns,
+      hasActiveColumn,
+      hasUpdatedAtColumn
+    );
 
-  if (!isMissingActiveColumn(activeQuery.error)) {
+    if (!result.error) {
+      return {
+        row: result.data || null,
+        hasActiveColumn,
+        hasUpdatedAtColumn,
+        error: null,
+      };
+    }
+
+    if (hasActiveColumn && isMissingActiveColumn(result.error)) {
+      hasActiveColumn = false;
+      continue;
+    }
+
+    if (hasUpdatedAtColumn && isMissingUpdatedAtColumn(result.error)) {
+      hasUpdatedAtColumn = false;
+      continue;
+    }
+
     return {
       row: null,
-      hasActiveColumn: true,
-      error: activeQuery.error,
+      hasActiveColumn,
+      hasUpdatedAtColumn,
+      error: result.error,
     };
   }
 
-  const fallbackQuery = await supabaseAdmin
-    .from("mt5_credentials")
-    .select(columns)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
   return {
-    row: fallbackQuery.data || null,
-    hasActiveColumn: false,
-    error: fallbackQuery.error || null,
+    row: null,
+    hasActiveColumn,
+    hasUpdatedAtColumn,
+    error: new Error("failed to resolve mt5_credentials schema"),
   };
 }
 
@@ -142,6 +192,7 @@ export default async function handler(req, res) {
       row: currentActive,
       error: currentError,
       hasActiveColumn,
+      hasUpdatedAtColumn,
     } = await getLatestCredentialRow(supabaseAdmin, "password, updated_at");
 
     if (currentError) {
@@ -172,11 +223,14 @@ export default async function handler(req, res) {
       login: cleanLogin,
       password: passwordToSave,
       server: cleanServer,
-      updated_at: new Date().toISOString(),
     };
 
     if (hasActiveColumn) {
       payload.active = true;
+    }
+
+    if (hasUpdatedAtColumn) {
+      payload.updated_at = new Date().toISOString();
     }
 
     const { error: insertError } = await supabaseAdmin
