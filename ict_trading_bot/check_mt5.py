@@ -3,7 +3,11 @@ try:
 except Exception:
     mt5 = None
 
+from dotenv import load_dotenv
+from execution.mt5_connector import _build_initialize_kwargs
 from utils.mt5_credentials import fetch_mt5_credentials
+
+load_dotenv()
 
 SYMBOLS_TO_CHECK = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "BTCUSD", "XAUUSD", "ETHBTC"]
 
@@ -16,7 +20,9 @@ try:
     login_value = int(creds.get("login"))
 except Exception:
     login_value = creds.get("login")
-init_ok = mt5.initialize(login=login_value, password=creds.get("password"), server=creds.get("server"))
+init_ok = mt5.initialize(
+    **_build_initialize_kwargs(login_value, creds.get("password"), creds.get("server"))
+)
 print('initialize() ->', init_ok)
 
 try:

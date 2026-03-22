@@ -44,6 +44,7 @@ from utils.sessions import in_london_session, in_newyork_session
 # =====================================================
 from portfolio.allocator import allocate_risk
 from dashboard.bridge import push_trade, persist_signal_to_supabase
+from utils.mt5_credentials import fetch_mt5_credentials_signature
 import time
 import traceback
 import os
@@ -67,16 +68,6 @@ if os.getenv("MT5_DISABLED", "").lower() in ("1", "true", "yes"):
     print("MT5_DISABLED=1 set. Skipping MT5 connection and trading loop.")
     while True:
         time.sleep(60)
-
-try:
-    connect()
-except Exception as e:
-    fallback_allowed = os.getenv("MT5_FALLBACK_API_ONLY", "true").lower() in ("1", "true", "yes")
-    if fallback_allowed:
-        print(f"MT5 connect failed ({e}). Running in API-only mode (no live trading).")
-        while True:
-            time.sleep(60)
-    raise
 
 SYMBOLS = [
     "EURUSD", "GBPUSD", "USDJPY",
@@ -112,23 +103,75 @@ def resolve_symbols():
     return valid, resolved_map
 
 
-VALID_SYMBOLS, RESOLVED_MAP = resolve_symbols()
+AUTO_SYNC_INTERVAL = int(os.getenv("MT5_AUTO_SYNC_INTERVAL", "15"))
+fallback_allowed = os.getenv("MT5_FALLBACK_API_ONLY", "true").lower() in ("1", "true", "yes")
+VALID_SYMBOLS = []
+RESOLVED_MAP = {}
+CONNECTED = False
+LAST_CREDENTIAL_SIGNATURE = None
+
+
+def ensure_connected(force_reconnect=False):
+    global VALID_SYMBOLS, RESOLVED_MAP, CONNECTED, LAST_CREDENTIAL_SIGNATURE
+
+    connector = reconnect if force_reconnect else connect
+    connector()
+    VALID_SYMBOLS, RESOLVED_MAP = resolve_symbols()
+    LAST_CREDENTIAL_SIGNATURE = fetch_mt5_credentials_signature()
+    CONNECTED = True
+
+
+try:
+    ensure_connected()
+except Exception as e:
+    if fallback_allowed:
+        print(f"MT5 connect failed ({e}). Running in API-only mode (no live trading).")
+    else:
+        raise
 
 
 # =====================================================
 # 2️⃣ MAIN EXECUTION LOOP (resilient)
 # =====================================================
+last_sync_check = 0.0
 while True:
     try:
-        if consume_restart_request():
+        now = time.time()
+        restart_requested = consume_restart_request()
+
+        if restart_requested:
             try:
-                reconnect()
-                VALID_SYMBOLS, RESOLVED_MAP = resolve_symbols()
+                ensure_connected(force_reconnect=True)
                 print("MT5 reconnect completed.")
             except Exception as e:
+                CONNECTED = False
                 print("MT5 reconnect failed:", e)
                 time.sleep(5)
                 continue
+
+        if now - last_sync_check >= AUTO_SYNC_INTERVAL:
+            last_sync_check = now
+            try:
+                latest_signature = fetch_mt5_credentials_signature()
+                credentials_changed = (
+                    LAST_CREDENTIAL_SIGNATURE is not None
+                    and latest_signature != LAST_CREDENTIAL_SIGNATURE
+                )
+
+                if not CONNECTED or credentials_changed:
+                    ensure_connected(force_reconnect=CONNECTED or credentials_changed)
+                    if credentials_changed:
+                        print("MT5 credentials changed in Supabase. Reconnected automatically.")
+            except Exception as e:
+                CONNECTED = False
+                if fallback_allowed:
+                    print(f"MT5 sync/reconnect failed: {e}")
+                else:
+                    raise
+
+        if not CONNECTED:
+            time.sleep(1)
+            continue
 
         if not is_running():
             time.sleep(1)

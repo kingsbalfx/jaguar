@@ -4,8 +4,34 @@ except Exception as e:
     mt5 = None
     _MT5_IMPORT_ERROR = e
 import time
+import os
 
 from utils.mt5_credentials import fetch_mt5_credentials
+
+
+def _build_initialize_kwargs(login_value, password, server):
+    kwargs = {
+        "login": login_value,
+        "password": password,
+        "server": server,
+    }
+
+    mt5_path = os.getenv("MT5_PATH", "").strip()
+    if mt5_path:
+        kwargs["path"] = mt5_path
+
+    timeout_raw = os.getenv("MT5_TIMEOUT", "").strip()
+    if timeout_raw:
+        try:
+            kwargs["timeout"] = int(timeout_raw)
+        except ValueError:
+            pass
+
+    if os.getenv("MT5_PORTABLE", "").lower() in ("1", "true", "yes"):
+        kwargs["portable"] = True
+
+    return kwargs
+
 
 def connect(credentials=None):
     if mt5 is None:
@@ -29,7 +55,7 @@ def connect(credentials=None):
     except Exception:
         login_value = login
 
-    if not mt5.initialize(login=login_value, password=password, server=server):
+    if not mt5.initialize(**_build_initialize_kwargs(login_value, password, server)):
         last_error = mt5.last_error()
         raise RuntimeError(f"MT5 initialization failed: {last_error}")
 

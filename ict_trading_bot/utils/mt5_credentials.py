@@ -18,7 +18,7 @@ def _select_fields(has_updated_at):
     return "login,password,server,updated_at" if has_updated_at else "login,password,server"
 
 
-def fetch_mt5_credentials():
+def _fetch_mt5_credentials_row():
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_KEY")
 
@@ -64,9 +64,24 @@ def fetch_mt5_credentials():
     if not data:
         raise RuntimeError("No MT5 credentials found in Supabase (mt5_credentials)")
 
-    row = data[0]
+    return data[0]
+
+
+def fetch_mt5_credentials():
+    row = _fetch_mt5_credentials_row()
     return {
         "login": row.get("login"),
         "password": row.get("password"),
         "server": row.get("server"),
     }
+
+
+def fetch_mt5_credentials_signature():
+    row = _fetch_mt5_credentials_row()
+    return "|".join(
+        [
+            str(row.get("login") or ""),
+            str(row.get("password") or ""),
+            str(row.get("server") or ""),
+        ]
+    )
