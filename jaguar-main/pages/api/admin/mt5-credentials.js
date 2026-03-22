@@ -3,10 +3,17 @@ import { getSupabaseClient } from "../../../lib/supabaseClient";
 
 function isMissingActiveColumn(error) {
   const msg = String(error?.message || "").toLowerCase();
-  return error?.code === "42703" || msg.includes("mt5_credentials.active") || msg.includes("column") && msg.includes("active");
+  return (
+    error?.code === "42703" ||
+    msg.includes("mt5_credentials.active") ||
+    (msg.includes("column") && msg.includes("active"))
+  );
 }
 
-async function getLatestCredentialRow(supabaseAdmin, columns = "login, server, updated_at") {
+async function getLatestCredentialRow(
+  supabaseAdmin,
+  columns = "login, server, updated_at"
+) {
   const activeQuery = await supabaseAdmin
     .from("mt5_credentials")
     .select(columns)
@@ -16,11 +23,19 @@ async function getLatestCredentialRow(supabaseAdmin, columns = "login, server, u
     .maybeSingle();
 
   if (!activeQuery.error) {
-    return { row: activeQuery.data || null, hasActiveColumn: true, error: null };
+    return {
+      row: activeQuery.data || null,
+      hasActiveColumn: true,
+      error: null,
+    };
   }
 
   if (!isMissingActiveColumn(activeQuery.error)) {
-    return { row: null, hasActiveColumn: true, error: activeQuery.error };
+    return {
+      row: null,
+      hasActiveColumn: true,
+      error: activeQuery.error,
+    };
   }
 
   const fallbackQuery = await supabaseAdmin
@@ -30,16 +45,25 @@ async function getLatestCredentialRow(supabaseAdmin, columns = "login, server, u
     .limit(1)
     .maybeSingle();
 
-  return { row: fallbackQuery.data || null, hasActiveColumn: false, error: fallbackQuery.error || null };
+  return {
+    row: fallbackQuery.data || null,
+    hasActiveColumn: false,
+    error: fallbackQuery.error || null,
+  };
 }
 
 async function deactivateCurrentCredentials(supabaseAdmin, hasActiveColumn) {
   if (!hasActiveColumn) return null;
+
   const { error } = await supabaseAdmin
     .from("mt5_credentials")
     .update({ active: false })
     .eq("active", true);
-  if (error && isMissingActiveColumn(error)) return null;
+
+  if (error && isMissingActiveColumn(error)) {
+    return null;
+  }
+
   return error || null;
 }
 
@@ -54,19 +78,21 @@ export default async function handler(req, res) {
       data: { session },
     } = await supabase.auth.getSession();
 
-    if (!session || !session.user) {
+    if (!session?.user) {
       return res.status(401).json({ error: "not authenticated" });
     }
 
     const supabaseAdmin = getSupabaseClient({ server: true });
     if (!supabaseAdmin) {
-      return res.status(500).json({ error: "Supabase admin client not configured" });
+      return res
+        .status(500)
+        .json({ error: "Supabase admin client not configured" });
     }
-    const userId = session.user.id;
+
     const { data: profile } = await supabaseAdmin
       .from("profiles")
       .select("role")
-      .eq("id", userId)
+      .eq("id", session.user.id)
       .maybeSingle();
 
     const role = (profile?.role || "user").toLowerCase();
@@ -107,125 +133,9 @@ export default async function handler(req, res) {
     const cleanPassword = String(password || "");
 
     if (!cleanLogin || !cleanServer) {
-      return res.status(400).json({ error: "login and server are required" });
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-    }
-
-<<<<<<< ours
-<<<<<<< ours
-    const { data: currentActive, error: currentError } = await supabaseAdmin
-      .from("mt5_credentials")
-      .select("password")
-      .eq("active", true)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-=======
-=======
->>>>>>> theirs
-=======
-    }
-
->>>>>>> theirs
-=======
-    }
-
->>>>>>> theirs
-=======
-    }
-
->>>>>>> theirs
-    const {
-      row: currentActive,
-      error: currentError,
-      hasActiveColumn,
-    } = await getLatestCredentialRow(supabaseAdmin, "password, updated_at");
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-
-    if (currentError) {
-      return res.status(500).json({ error: currentError.message || "failed to load current credentials" });
-    }
-
-    const passwordToSave = cleanPassword || currentActive?.password || "";
-    if (!passwordToSave) {
-      return res.status(400).json({ error: "password is required for first-time setup" });
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-    }
-
-    const { error: deactivateError } = await supabaseAdmin
-      .from("mt5_credentials")
-      .update({ active: false })
-      .eq("active", true);
-
-    if (deactivateError) {
-      return res.status(500).json({ error: deactivateError.message || "failed to rotate credentials" });
-=======
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-    }
-
-    const deactivateError = await deactivateCurrentCredentials(supabaseAdmin, hasActiveColumn);
-
-    if (deactivateError) {
-      return res.status(500).json({ error: deactivateError.message || "failed to rotate credentials" });
-    }
-
-<<<<<<< ours
-<<<<<<< ours
-=======
-    }
-
-    const deactivateError = await deactivateCurrentCredentials(supabaseAdmin, hasActiveColumn);
-
-    if (deactivateError) {
-      return res.status(500).json({ error: deactivateError.message || "failed to rotate credentials" });
-    }
-
->>>>>>> theirs
-=======
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
+      return res
+        .status(400)
+        .json({ error: "login and server are required" });
     }
 
     const {
@@ -235,199 +145,48 @@ export default async function handler(req, res) {
     } = await getLatestCredentialRow(supabaseAdmin, "password, updated_at");
 
     if (currentError) {
-      return res.status(500).json({ error: currentError.message || "failed to load current credentials" });
+      return res.status(500).json({
+        error: currentError.message || "failed to load current credentials",
+      });
     }
 
     const passwordToSave = cleanPassword || currentActive?.password || "";
     if (!passwordToSave) {
-      return res.status(400).json({ error: "password is required for first-time setup" });
+      return res.status(400).json({
+        error: "password is required for first-time setup",
+      });
     }
 
-    const deactivateError = await deactivateCurrentCredentials(supabaseAdmin, hasActiveColumn);
+    const deactivateError = await deactivateCurrentCredentials(
+      supabaseAdmin,
+      hasActiveColumn
+    );
 
     if (deactivateError) {
-      return res.status(500).json({ error: deactivateError.message || "failed to rotate credentials" });
+      return res.status(500).json({
+        error: deactivateError.message || "failed to rotate credentials",
+      });
     }
 
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
-    }
-
-    const deactivateError = await deactivateCurrentCredentials(supabaseAdmin, hasActiveColumn);
-
-    if (deactivateError) {
-      return res.status(500).json({ error: deactivateError.message || "failed to rotate credentials" });
-    }
-
->>>>>>> theirs
-=======
-    }
-
-    const {
-      row: currentActive,
-      error: currentError,
-      hasActiveColumn,
-    } = await getLatestCredentialRow(supabaseAdmin, "password, updated_at");
-
-    if (currentError) {
-      return res.status(500).json({ error: currentError.message || "failed to load current credentials" });
-    }
-
-    const passwordToSave = cleanPassword || currentActive?.password || "";
-    if (!passwordToSave) {
-      return res.status(400).json({ error: "password is required for first-time setup" });
-    }
-
-    const deactivateError = await deactivateCurrentCredentials(supabaseAdmin, hasActiveColumn);
-
-    if (deactivateError) {
-      return res.status(500).json({ error: deactivateError.message || "failed to rotate credentials" });
-    }
-
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
     const payload = {
       login: cleanLogin,
       password: passwordToSave,
       server: cleanServer,
       updated_at: new Date().toISOString(),
     };
+
     if (hasActiveColumn) {
       payload.active = true;
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
     }
 
     const { error: insertError } = await supabaseAdmin
       .from("mt5_credentials")
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-      .insert({
-        login: cleanLogin,
-        password: passwordToSave,
-        server: cleanServer,
-        active: true,
-        updated_at: new Date().toISOString(),
-      });
-=======
       .insert(payload);
->>>>>>> theirs
-=======
-      .insert(payload);
->>>>>>> theirs
-=======
-      .insert(payload);
->>>>>>> theirs
-=======
-      .insert(payload);
->>>>>>> theirs
-=======
-      .insert(payload);
->>>>>>> theirs
-=======
-      .insert(payload);
->>>>>>> theirs
-=======
-      .insert(payload);
->>>>>>> theirs
-=======
-      .insert(payload);
->>>>>>> theirs
-=======
-      .insert(payload);
->>>>>>> theirs
-=======
-      .insert(payload);
->>>>>>> theirs
-=======
-      .insert(payload);
->>>>>>> theirs
-=======
-      .insert(payload);
->>>>>>> theirs
-=======
-      .insert(payload);
->>>>>>> theirs
-=======
-      .insert(payload);
->>>>>>> theirs
 
     if (insertError) {
-      return res.status(500).json({ error: insertError.message || "failed to save credentials" });
+      return res.status(500).json({
+        error: insertError.message || "failed to save credentials",
+      });
     }
 
     return res.status(200).json({ ok: true });

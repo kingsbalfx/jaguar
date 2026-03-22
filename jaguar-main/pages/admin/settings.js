@@ -48,20 +48,40 @@ export default function Settings() {
   const [submissionsStatus, setSubmissionsStatus] = useState({ type: "", message: "" });
   const [activatingId, setActivatingId] = useState(null);
 
+  const loadCredentials = async () => {
+    const res = await fetch("/api/admin/mt5-credentials");
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data?.error || "Failed to load MT5 credentials.");
+    }
+    if (!data?.credentials) return;
+    setLogin(data.credentials.login || "");
+    setServer(data.credentials.server || "");
+    setUpdatedAt(data.credentials.updated_at || null);
+    setHasPassword(Boolean(data.credentials.hasPassword));
+  };
+
+  const loadSubmissions = async () => {
+    const res = await fetch("/api/admin/mt5-submissions");
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data?.error || "Failed to load MT5 submissions.");
+    }
+    setSubmissions(data?.submissions || []);
+  };
+
   useEffect(() => {
     let active = true;
-    fetch("/api/admin/mt5-credentials")
-      .then((res) => res.json())
-      .then((data) => {
-        if (!active || !data?.credentials) return;
-        setLogin(data.credentials.login || "");
-        setServer(data.credentials.server || "");
-        setUpdatedAt(data.credentials.updated_at || null);
-        setHasPassword(Boolean(data.credentials.hasPassword));
-      })
-      .catch(() => {
+    loadCredentials()
+      .then(() => {
         if (!active) return;
-        setStatus({ type: "error", message: "Failed to load MT5 credentials." });
+      })
+      .catch((err) => {
+        if (!active) return;
+        setStatus({
+          type: "error",
+          message: err.message || "Failed to load MT5 credentials.",
+        });
       });
     return () => {
       active = false;
@@ -70,17 +90,16 @@ export default function Settings() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/admin/mt5-submissions")
-      .then((res) => res.json())
-      .then((data) => {
+    loadSubmissions()
+      .then(() => {
         if (!active) return;
-        if (data?.submissions) {
-          setSubmissions(data.submissions);
-        }
       })
-      .catch(() => {
+      .catch((err) => {
         if (!active) return;
-        setSubmissionsStatus({ type: "error", message: "Failed to load MT5 submissions." });
+        setSubmissionsStatus({
+          type: "error",
+          message: err.message || "Failed to load MT5 submissions.",
+        });
       });
     return () => {
       active = false;
@@ -98,9 +117,12 @@ export default function Settings() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Failed to activate submission.");
-      setSubmissionsStatus({ type: "success", message: "Submission activated and set as current bot credentials." });
-      const refreshed = await fetch("/api/admin/mt5-submissions").then((r) => r.json());
-      setSubmissions(refreshed?.submissions || []);
+      await Promise.all([loadCredentials(), loadSubmissions()]);
+      setPassword("");
+      setSubmissionsStatus({
+        type: "success",
+        message: "Submission activated and set as current bot credentials.",
+      });
     } catch (err) {
       setSubmissionsStatus({ type: "error", message: err.message || "Activation failed." });
     } finally {
@@ -128,9 +150,9 @@ export default function Settings() {
       if (!res.ok) {
         throw new Error(data?.error || "Failed to save credentials.");
       }
+      await loadCredentials();
       setPassword("");
       setHasPassword(true);
-      setUpdatedAt(new Date().toISOString());
       setStatus({ type: "success", message: "MT5 credentials saved. Restart the bot to reconnect." });
     } catch (err) {
       setStatus({ type: "error", message: err.message || "Failed to save credentials." });
