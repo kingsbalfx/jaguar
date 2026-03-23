@@ -47,6 +47,8 @@ export default function Settings() {
   const [submissions, setSubmissions] = useState([]);
   const [submissionsStatus, setSubmissionsStatus] = useState({ type: "", message: "" });
   const [activatingId, setActivatingId] = useState(null);
+  const [botStatus, setBotStatus] = useState(null);
+  const [botStatusError, setBotStatusError] = useState("");
 
   const loadCredentials = async () => {
     const res = await fetch("/api/admin/mt5-credentials");
@@ -70,6 +72,16 @@ export default function Settings() {
     setSubmissions(data?.submissions || []);
   };
 
+  const loadBotStatus = async () => {
+    const res = await fetch("/api/admin/bot-status");
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data?.error || "Failed to load bot status.");
+    }
+    setBotStatus(data);
+    setBotStatusError("");
+  };
+
   useEffect(() => {
     let active = true;
     loadCredentials()
@@ -85,6 +97,33 @@ export default function Settings() {
       });
     return () => {
       active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const run = async () => {
+      try {
+        const res = await fetch("/api/admin/bot-status");
+        const data = await res.json();
+        if (!active) return;
+        if (!res.ok) {
+          throw new Error(data?.error || "Failed to load bot status.");
+        }
+        setBotStatus(data);
+        setBotStatusError("");
+      } catch (err) {
+        if (!active) return;
+        setBotStatusError(err.message || "Failed to load bot status.");
+      }
+    };
+
+    run();
+    const timer = setInterval(run, 10000);
+    return () => {
+      active = false;
+      clearInterval(timer);
     };
   }, []);
 
@@ -117,7 +156,7 @@ export default function Settings() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Failed to activate submission.");
-      await Promise.all([loadCredentials(), loadSubmissions()]);
+      await Promise.all([loadCredentials(), loadSubmissions(), loadBotStatus()]);
       setPassword("");
       setSubmissionsStatus({
         type: "success",
@@ -150,7 +189,7 @@ export default function Settings() {
       if (!res.ok) {
         throw new Error(data?.error || "Failed to save credentials.");
       }
-      await loadCredentials();
+      await Promise.all([loadCredentials(), loadBotStatus()]);
       setPassword("");
       setHasPassword(true);
       setStatus({ type: "success", message: "MT5 credentials saved. Restart the bot to reconnect." });
@@ -170,6 +209,7 @@ export default function Settings() {
       if (!res.ok) {
         throw new Error(data?.error || "Failed to restart bot.");
       }
+      await loadBotStatus();
       setRestartStatus({ type: "success", message: "Restart requested. Bot will reconnect shortly." });
     } catch (err) {
       setRestartStatus({ type: "error", message: err.message || "Failed to restart bot." });
@@ -279,6 +319,107 @@ export default function Settings() {
               }`}
             >
               {restartStatus.message}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-8 bg-black/30 rounded-lg p-5 border border-white/5">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-lg font-semibold">Bot Monitor</h3>
+            <div className="text-xs text-gray-400">
+              Live Windows bot connection, floating profit, open trades, and recent bot activity.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => loadBotStatus().catch((err) => setBotStatusError(err.message || "Failed to load bot status."))}
+            className="px-3 py-2 rounded border border-white/20 text-xs text-gray-200 hover:bg-white/10"
+          >
+            Refresh
+          </button>
+        </div>
+
+        {botStatusError && (
+          <div className="mb-3 text-sm text-red-400">{botStatusError}</div>
+        )}
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="rounded border border-white/10 p-3">
+            <div className="text-xs uppercase tracking-wide text-gray-400">Bot Health</div>
+            <div className="mt-1 text-sm text-white">
+              Running: {botStatus?.bot?.running ? "Yes" : "No"}
+            </div>
+            <div className="text-sm text-white">
+              MT5 Connected: {botStatus?.bot?.connected ? "Yes" : "No"}
+            </div>
+            <div className="text-sm text-white">
+              Last heartbeat: {botStatus?.bot?.last_heartbeat ? new Date(botStatus.bot.last_heartbeat).toLocaleString() : "—"}
+            </div>
+            <div className="text-sm text-white">
+              Last error: {botStatus?.bot?.last_error || "None"}
+            </div>
+          </div>
+
+          <div className="rounded border border-white/10 p-3">
+            <div className="text-xs uppercase tracking-wide text-gray-400">Account</div>
+            <div className="mt-1 text-sm text-white">
+              Login: {botStatus?.bot?.account?.login || "—"}
+            </div>
+            <div className="text-sm text-white">
+              Server: {botStatus?.bot?.account?.server || "—"}
+            </div>
+            <div className="text-sm text-white">
+              Balance: {botStatus?.bot?.account?.balance ?? "—"}
+            </div>
+            <div className="text-sm text-white">
+              Equity: {botStatus?.bot?.account?.equity ?? "—"}
+            </div>
+          </div>
+
+          <div className="rounded border border-white/10 p-3">
+            <div className="text-xs uppercase tracking-wide text-gray-400">Floating Money</div>
+            <div className="mt-1 text-sm text-white">
+              Floating P/L: {botStatus?.bot?.metrics?.floating_profit ?? "—"}
+            </div>
+            <div className="text-sm text-white">
+              Open positions: {botStatus?.bot?.metrics?.open_positions ?? "—"}
+            </div>
+            <div className="text-sm text-white">
+              Free margin: {botStatus?.bot?.metrics?.margin_free ?? "—"}
+            </div>
+          </div>
+
+          <div className="rounded border border-white/10 p-3">
+            <div className="text-xs uppercase tracking-wide text-gray-400">Symbols</div>
+            <div className="mt-1 text-sm text-white break-words">
+              {(botStatus?.bot?.metrics?.symbols || []).join(", ") || "—"}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <div className="text-xs uppercase tracking-wide text-gray-400 mb-2">Recent Bot Events</div>
+          {!(botStatus?.bot?.recent_logs?.length || botStatus?.recentLogs?.length) ? (
+            <div className="text-sm text-gray-400">No bot events yet.</div>
+          ) : (
+            <div className="space-y-2">
+              {(botStatus?.bot?.recent_logs || botStatus?.recentLogs || []).slice(0, 8).map((item, index) => (
+                <div key={`${item.created_at || index}-${item.event || index}`} className="rounded border border-white/10 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm text-white">{item.message || item.event}</div>
+                    <div className="text-xs text-gray-400">
+                      {item.created_at ? new Date(item.created_at).toLocaleString() : "—"}
+                    </div>
+                  </div>
+                  {item.payload && (
+                    <div className="mt-2 text-xs text-gray-400 break-words">
+                      {JSON.stringify(item.payload)}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>

@@ -7,7 +7,8 @@ from execution.mt5_connector import (
     reconnect,
     ensure_symbol,
     get_price,
-    get_open_positions
+    get_open_positions,
+    get_account_snapshot,
 )
 from config.symbol_mappings import candidates_for
 from execution.trade_executor import calculate_lot_size, execute_trade, apply_trade_action
@@ -43,14 +44,48 @@ from utils.sessions import in_london_session, in_newyork_session
 # PORTFOLIO + DASHBOARD
 # =====================================================
 from portfolio.allocator import allocate_risk
-from dashboard.bridge import push_trade, persist_signal_to_supabase
+from dashboard.bridge import push_trade, persist_signal_to_supabase, persist_log_to_supabase
 from utils.mt5_credentials import fetch_mt5_credentials_signature
 import time
 import traceback
 import os
-from bot_state import is_running, consume_restart_request
+from bot_state import (
+    is_running,
+    consume_restart_request,
+    set_connection,
+    update_metrics,
+    append_log,
+)
 
 load_dotenv()
+
+
+def bot_log(event, message, payload=None, persist=True):
+    entry = payload or {}
+    print(f"[BOT] {message}")
+    append_log(event, message, entry)
+    if persist:
+        try:
+            persist_log_to_supabase(event, {"message": message, **entry})
+        except Exception:
+            pass
+
+
+def publish_runtime_metrics(symbols=None):
+    try:
+        positions = get_open_positions()
+        account = get_account_snapshot() or {}
+        update_metrics(
+            open_positions=len(positions),
+            floating_profit=round(sum(float(p.get("profit") or 0) for p in positions), 2),
+            balance=account.get("balance"),
+            equity=account.get("equity"),
+            margin_free=account.get("margin_free"),
+            symbols=symbols or [],
+        )
+        set_connection(True, None, account)
+    except Exception as metric_error:
+        set_connection(False, str(metric_error), None)
 
 
 # Start internal bot API (health / control) in a background thread
@@ -66,6 +101,7 @@ except Exception as e:
 # =====================================================
 if os.getenv("MT5_DISABLED", "").lower() in ("1", "true", "yes"):
     print("MT5_DISABLED=1 set. Skipping MT5 connection and trading loop.")
+    bot_log("mt5_disabled", "MT5 is disabled. Bot API will stay online without live trading.", persist=False)
     while True:
         time.sleep(60)
 
@@ -95,7 +131,12 @@ def resolve_symbols():
             valid.append(resolved)
             resolved_map[symbol] = resolved
         else:
-            print(f"Warning: symbol {symbol} unavailable in MT5 (tried candidates), skipping")
+            bot_log(
+                "symbol_unavailable",
+                f"Symbol {symbol} unavailable in MT5. Skipping it.",
+                {"symbol": symbol},
+                persist=False,
+            )
 
     if not valid:
         raise RuntimeError("No valid trading symbols available in MT5. Check account/instruments.")
@@ -119,13 +160,26 @@ def ensure_connected(force_reconnect=False):
     VALID_SYMBOLS, RESOLVED_MAP = resolve_symbols()
     LAST_CREDENTIAL_SIGNATURE = fetch_mt5_credentials_signature()
     CONNECTED = True
+    publish_runtime_metrics(list(VALID_SYMBOLS))
+    account = get_account_snapshot() or {}
+    bot_log(
+        "mt5_connected",
+        f"MT5 connected for account {account.get('login')} on {account.get('server')}.",
+        {
+            "account_login": account.get("login"),
+            "server": account.get("server"),
+            "balance": account.get("balance"),
+            "symbols": list(VALID_SYMBOLS),
+        },
+    )
 
 
 try:
     ensure_connected()
 except Exception as e:
+    set_connection(False, str(e), None)
     if fallback_allowed:
-        print(f"MT5 connect failed ({e}). Running in API-only mode (no live trading).")
+        bot_log("mt5_connect_failed", f"MT5 connect failed: {e}", {"error": str(e)})
     else:
         raise
 
@@ -134,6 +188,8 @@ except Exception as e:
 # 2️⃣ MAIN EXECUTION LOOP (resilient)
 # =====================================================
 last_sync_check = 0.0
+last_metrics_refresh = 0.0
+last_idle_summary = 0.0
 while True:
     try:
         now = time.time()
@@ -142,10 +198,11 @@ while True:
         if restart_requested:
             try:
                 ensure_connected(force_reconnect=True)
-                print("MT5 reconnect completed.")
+                bot_log("mt5_reconnect", "MT5 reconnect completed.")
             except Exception as e:
                 CONNECTED = False
-                print("MT5 reconnect failed:", e)
+                set_connection(False, str(e), None)
+                bot_log("mt5_reconnect_failed", f"MT5 reconnect failed: {e}", {"error": str(e)})
                 time.sleep(5)
                 continue
 
@@ -161,11 +218,12 @@ while True:
                 if not CONNECTED or credentials_changed:
                     ensure_connected(force_reconnect=CONNECTED or credentials_changed)
                     if credentials_changed:
-                        print("MT5 credentials changed in Supabase. Reconnected automatically.")
+                        bot_log("credentials_synced", "MT5 credentials changed in Supabase. Reconnected automatically.")
             except Exception as e:
                 CONNECTED = False
+                set_connection(False, str(e), None)
                 if fallback_allowed:
-                    print(f"MT5 sync/reconnect failed: {e}")
+                    bot_log("mt5_sync_failed", f"MT5 sync/reconnect failed: {e}", {"error": str(e)})
                 else:
                     raise
 
@@ -173,9 +231,26 @@ while True:
             time.sleep(1)
             continue
 
+        if now - last_metrics_refresh >= 5:
+            publish_runtime_metrics(list(VALID_SYMBOLS))
+            last_metrics_refresh = now
+
         if not is_running():
             time.sleep(1)
             continue
+
+        if now - last_idle_summary >= 30:
+            metrics_positions = len(get_open_positions())
+            bot_log(
+                "bot_heartbeat",
+                f"Bot is scanning {len(VALID_SYMBOLS)} symbols. Open positions: {metrics_positions}.",
+                {
+                    "symbols": list(VALID_SYMBOLS),
+                    "open_positions": metrics_positions,
+                },
+                persist=False,
+            )
+            last_idle_summary = now
 
         for symbol in VALID_SYMBOLS:
 
@@ -325,6 +400,19 @@ while True:
             except Exception:
                 pass
 
+            bot_log(
+                "signal_detected",
+                f"Signal detected on {original_symbol} ({direction}).",
+                {
+                    "symbol": original_symbol,
+                    "direction": direction,
+                    "entry": price,
+                    "sl": sl,
+                    "tp": tp,
+                    "probability": probability,
+                },
+            )
+
             # -----------------------------
             # EXECUTE TRADE
             # -----------------------------
@@ -336,6 +424,13 @@ while True:
                 tp_price=tp,
                 order_type=order_type
             )
+            if not trade:
+                bot_log(
+                    "trade_failed",
+                    f"Trade execution failed for {original_symbol}.",
+                    {"symbol": original_symbol, "direction": direction},
+                )
+                continue
             register_trade(symbol, ob_id)
 
             # -----------------------------
@@ -351,6 +446,19 @@ while True:
                 "ml_probability": probability,
                 "status": "OPEN"
             })
+            bot_log(
+                "trade_opened",
+                f"Trade opened on {original_symbol} ({direction}) with lot {lot}.",
+                {
+                    "symbol": original_symbol,
+                    "direction": direction,
+                    "lot": lot,
+                    "entry": price,
+                    "sl": sl,
+                    "tp": tp,
+                },
+            )
+            publish_runtime_metrics(list(VALID_SYMBOLS))
 
             # -----------------------------
             # LIVE TRADE MANAGEMENT
@@ -361,10 +469,21 @@ while True:
 
                 if action:
                     trade = apply_trade_action(trade, action)
+                    bot_log(
+                        "trade_update",
+                        f"Trade update on {original_symbol}: {action.get('action')}.",
+                        {
+                            "symbol": original_symbol,
+                            "action": action,
+                            "live_price": live_price,
+                        },
+                        persist=False,
+                    )
                 else:
                     break
     except Exception as e:
-        print("Error in main loop:", e)
+        set_connection(False, str(e), None)
+        bot_log("main_loop_error", f"Error in main loop: {e}", {"error": str(e)})
         traceback.print_exc()
         time.sleep(5)
         continue

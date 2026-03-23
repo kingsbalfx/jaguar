@@ -7,7 +7,12 @@ app = Flask("bot_api")
 @app.route("/health", methods=["GET"])
 def health():
     state = get_state()
-    return jsonify({"status": "ok", "running": state["running"]})
+    return jsonify({
+        "status": "ok",
+        "running": state["running"],
+        "connected": state.get("connected", False),
+        "last_heartbeat": state.get("last_heartbeat"),
+    })
 
 
 @app.route("/status", methods=["GET"])

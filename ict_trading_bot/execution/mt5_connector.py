@@ -169,3 +169,22 @@ def get_open_positions():
             continue
 
     return out
+
+
+def get_account_snapshot():
+    _require_mt5()
+    account = mt5.account_info()
+    if account is None:
+        return None
+
+    return {
+        "login": getattr(account, "login", None),
+        "server": getattr(account, "server", None),
+        "balance": getattr(account, "balance", None),
+        "equity": getattr(account, "equity", None),
+        "profit": getattr(account, "profit", None),
+        "margin": getattr(account, "margin", None),
+        "margin_free": getattr(account, "margin_free", None),
+        "currency": getattr(account, "currency", None),
+        "company": getattr(account, "company", None),
+    }
