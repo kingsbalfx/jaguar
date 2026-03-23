@@ -1,8 +1,9 @@
 # Common symbol alternatives to try when a requested symbol is unavailable in MT5
 # Add mappings as needed for your broker naming conventions.
 MAPPINGS = {
-    "BTCUSD": ["BTCUSD", "XBTUSD", "BTCUSD.i", "BTCUSD-IDEAL"],
-    "ETHBTC": ["ETHBTC", "ETHBTC.i", "ETH/BTC", "ETHUSD"],
+    "BTCUSD": ["BTCUSD", "BTC", "XBTUSD", "BTCUSD.i", "BTCUSD-IDEAL"],
+    "ETHUSD": ["ETHUSD", "ETH", "ETHUSD.i", "ETH/USD"],
+    "ETHBTC": ["ETHBTC", "ETHBTC.i", "ETH/BTC", "ETHUSD", "ETH"],
 }
 
 # Fallback candidate generator for unknown symbols

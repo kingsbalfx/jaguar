@@ -73,7 +73,7 @@ SYMBOLS = [
     "EURUSD", "GBPUSD", "USDJPY",
     "AUDUSD", "NZDUSD", "USDCAD",
     # added instruments (may require mapping)
-    "BTCUSD", "XAUUSD", "AUDJPY", "EURJPY", "ETHBTC"
+    "BTCUSD", "XAUUSD", "AUDJPY", "EURJPY", "ETHUSD"
 ]
 
 def resolve_symbols():

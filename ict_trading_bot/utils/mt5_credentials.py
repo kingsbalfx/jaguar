@@ -4,6 +4,7 @@ import os
 from supabase import create_client
 
 logger = logging.getLogger(__name__)
+_MISSING_COLUMN_WARNINGS = set()
 
 
 def _is_missing_column_error(exc, column_name):
@@ -12,6 +13,13 @@ def _is_missing_column_error(exc, column_name):
         f"mt5_credentials.{column_name}" in message
         or ("column" in message and column_name in message)
     )
+
+
+def _warn_once(message):
+    if message in _MISSING_COLUMN_WARNINGS:
+        return
+    _MISSING_COLUMN_WARNINGS.add(message)
+    logger.warning(message)
 
 
 def _select_fields(has_updated_at):
@@ -49,11 +57,11 @@ def _fetch_mt5_credentials_row():
         except Exception as exc:
             if has_active and _is_missing_column_error(exc, "active"):
                 has_active = False
-                logger.warning("mt5_credentials.active column missing; falling back without active filter")
+                _warn_once("mt5_credentials.active column missing; falling back without active filter")
                 continue
             if has_updated_at and _is_missing_column_error(exc, "updated_at"):
                 has_updated_at = False
-                logger.warning("mt5_credentials.updated_at column missing; falling back without updated_at ordering")
+                _warn_once("mt5_credentials.updated_at column missing; falling back without updated_at ordering")
                 continue
             raise RuntimeError(f"Failed to fetch MT5 credentials from Supabase: {exc}") from exc
 

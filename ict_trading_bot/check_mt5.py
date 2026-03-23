@@ -9,7 +9,7 @@ from utils.mt5_credentials import fetch_mt5_credentials
 
 load_dotenv()
 
-SYMBOLS_TO_CHECK = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "BTCUSD", "XAUUSD", "ETHBTC"]
+SYMBOLS_TO_CHECK = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "BTCUSD", "XAUUSD", "ETHUSD"]
 
 if mt5 is None:
     raise SystemExit("MetaTrader5 is not available on this platform. Run on Windows with MT5 installed.")
