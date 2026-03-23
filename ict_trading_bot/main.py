@@ -251,6 +251,24 @@ while True:
             time.sleep(1)
             continue
 
+        session_open = in_london_session() or in_newyork_session()
+        if not session_open:
+            if now - last_idle_summary >= 30:
+                metrics_positions = len(get_open_positions())
+                bot_log(
+                    "bot_heartbeat",
+                    f"Bot is online but outside the configured session window. Open positions: {metrics_positions}.",
+                    {
+                        "symbols": list(VALID_SYMBOLS),
+                        "open_positions": metrics_positions,
+                        "session_open": False,
+                    },
+                    persist=False,
+                )
+                last_idle_summary = now
+            time.sleep(15)
+            continue
+
         if now - last_idle_summary >= 30:
             metrics_positions = len(get_open_positions())
             skip_summary = ", ".join(f"{key}={value}" for key, value in sorted(skip_stats.items()))
@@ -283,10 +301,6 @@ while True:
             # -----------------------------
             # SESSION FILTER (HARD RULE)
             # -----------------------------
-            if not (in_london_session() or in_newyork_session()):
-                record_skip("session", symbol)
-                continue
-
             original_symbol = next((k for k, v in RESOLVED_MAP.items() if v == symbol), symbol)
 
             # -----------------------------
