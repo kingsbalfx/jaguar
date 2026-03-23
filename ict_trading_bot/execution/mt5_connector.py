@@ -60,14 +60,36 @@ def connect(credentials=None):
     except Exception:
         login_value = login
 
+    def _account_matches():
+        account_info = mt5.account_info()
+        if account_info is None:
+            return None
+
+        account_login = str(getattr(account_info, "login", ""))
+        account_server = str(getattr(account_info, "server", "")).lower()
+        expected_login = str(login_value)
+        expected_server = str(server).lower()
+
+        if account_login == expected_login and account_server == expected_server:
+            return account_info
+
+        return None
+
     initialize_kwargs = _build_initialize_kwargs(login_value, password, server)
     login_kwargs = _build_login_kwargs(login_value, password, server)
 
     # More reliable flow on Windows: attach to the terminal first, then log in.
     if mt5.initialize(**initialize_kwargs):
-        if not mt5.login(**login_kwargs):
-            last_error = mt5.last_error()
-            raise RuntimeError(f"MT5 login failed: {last_error}")
+        account_info = _account_matches()
+        if account_info is None:
+            if not mt5.login(**login_kwargs):
+                last_error = mt5.last_error()
+                account_info = _account_matches()
+                if account_info is None:
+                    raise RuntimeError(f"MT5 login failed: {last_error}")
+        else:
+            # Terminal is already authenticated and usable.
+            pass
     else:
         first_error = mt5.last_error()
 
