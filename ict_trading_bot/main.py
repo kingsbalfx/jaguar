@@ -34,6 +34,7 @@ from risk.trade_management import manage_trade
 # =====================================================
 from ml.rule_filter import rule_quality_filter
 from ml.ml_filter import ml_quality_filter
+from fundamentals.news_filter import news_allows_trade
 
 # =====================================================
 # SESSION FILTER
@@ -268,6 +269,16 @@ while True:
                 skip_stats["session"] = skip_stats.get("session", 0) + 1
                 continue
 
+            original_symbol = next((k for k, v in RESOLVED_MAP.items() if v == symbol), symbol)
+
+            # -----------------------------
+            # FUNDAMENTALS / NEWS FILTER
+            # -----------------------------
+            if os.getenv("NEWS_FILTER_ENABLED", "true").lower() in ("1", "true", "yes"):
+                if not news_allows_trade(original_symbol):
+                    skip_stats["fundamentals"] = skip_stats.get("fundamentals", 0) + 1
+                    continue
+
             # -----------------------------
             # LIVE MARKET DATA
             # -----------------------------
@@ -315,7 +326,6 @@ while True:
                 continue
 
             # attach symbol and direction (use original name mapping if available)
-            original_symbol = next((k for k, v in RESOLVED_MAP.items() if v == symbol), symbol)
             signal["symbol"] = original_symbol
             signal["direction"] = direction
             signal["trend"] = trend
