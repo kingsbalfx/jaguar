@@ -65,7 +65,10 @@ def detect_fvgs(symbol, timeframe, bars=200):
         if col not in df.columns:
             return []
 
-    return detect_fvg_from_df(df)
+    fvgs = detect_fvg_from_df(df)
+    for fvg in fvgs:
+        fvg["timeframe"] = timeframe
+    return fvgs
 
 
 def _tf_to_mt5(tf):

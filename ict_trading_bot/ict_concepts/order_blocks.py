@@ -64,14 +64,16 @@ def detect_htf_order_blocks(symbol, timeframe, bars=500):
                     'type': 'bearish',
                     'high': prev_hi,
                     'low': prev_lo,
-                    'index': i
+                    'index': i,
+                    'timeframe': timeframe,
                 })
             if lo < prev_lo and lo < next_lo:
                 obs.append({
                     'type': 'bullish',
                     'high': prev_hi,
                     'low': prev_lo,
-                    'index': i
+                    'index': i,
+                    'timeframe': timeframe,
                 })
         except Exception:
             continue

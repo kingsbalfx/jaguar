@@ -190,6 +190,7 @@ except Exception as e:
 last_sync_check = 0.0
 last_metrics_refresh = 0.0
 last_idle_summary = 0.0
+skip_stats = {}
 while True:
     try:
         now = time.time()
@@ -247,9 +248,11 @@ while True:
                 {
                     "symbols": list(VALID_SYMBOLS),
                     "open_positions": metrics_positions,
+                    "skip_stats": dict(skip_stats),
                 },
                 persist=False,
             )
+            skip_stats = {}
             last_idle_summary = now
 
         for symbol in VALID_SYMBOLS:
@@ -258,6 +261,7 @@ while True:
             # SESSION FILTER (HARD RULE)
             # -----------------------------
             if not (in_london_session() or in_newyork_session()):
+                skip_stats["session"] = skip_stats.get("session", 0) + 1
                 continue
 
             # -----------------------------
@@ -283,6 +287,7 @@ while True:
                 analysis["MTF"]["liquidity"],
                 direction
             ):
+                skip_stats["liquidity"] = skip_stats.get("liquidity", 0) + 1
                 continue
 
             # -----------------------------
@@ -298,26 +303,31 @@ while True:
                 )
             except Exception as e:
                 print("Entry model error, skipping symbol:", e)
+                skip_stats["entry_error"] = skip_stats.get("entry_error", 0) + 1
                 continue
 
             if not isinstance(signal, dict) or not signal:
+                skip_stats["entry"] = skip_stats.get("entry", 0) + 1
                 continue
 
             # attach symbol and direction (use original name mapping if available)
             original_symbol = next((k for k, v in RESOLVED_MAP.items() if v == symbol), symbol)
             signal["symbol"] = original_symbol
             signal["direction"] = direction
+            signal["trend"] = trend
 
             # -----------------------------
             # SMT CONFIRMATION
             # -----------------------------
             if not smt_confirmed(signal, analysis["correlated"]):
+                skip_stats["smt"] = skip_stats.get("smt", 0) + 1
                 continue
 
             # -----------------------------
             # RULE QUALITY FILTER
             # -----------------------------
             if not rule_quality_filter(signal):
+                skip_stats["rule_quality"] = skip_stats.get("rule_quality", 0) + 1
                 continue
 
             # -----------------------------
@@ -334,6 +344,7 @@ while True:
             ml_ok, probability = ml_quality_filter(features, model)
 
             if not ml_ok:
+                skip_stats["ml"] = skip_stats.get("ml", 0) + 1
                 continue
 
             # -----------------------------
@@ -342,6 +353,7 @@ while True:
             htf_ob = signal.get("htf_ob") or {}
             ob_id = htf_ob.get("id")
             if not ob_id or not can_trade(symbol, ob_id):
+                skip_stats["protection"] = skip_stats.get("protection", 0) + 1
                 continue
 
             # -----------------------------
@@ -351,6 +363,7 @@ while True:
             allowed_risk = allocate_risk(symbol, open_positions)
 
             if allowed_risk <= 0:
+                skip_stats["risk"] = skip_stats.get("risk", 0) + 1
                 continue
 
             # -----------------------------
@@ -425,6 +438,7 @@ while True:
                 order_type=order_type
             )
             if not trade:
+                skip_stats["trade_failed"] = skip_stats.get("trade_failed", 0) + 1
                 bot_log(
                     "trade_failed",
                     f"Trade execution failed for {original_symbol}.",
