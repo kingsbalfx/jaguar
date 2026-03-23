@@ -192,6 +192,16 @@ last_sync_check = 0.0
 last_metrics_refresh = 0.0
 last_idle_summary = 0.0
 skip_stats = {}
+skip_examples = {}
+
+
+def record_skip(reason, symbol):
+    skip_stats[reason] = skip_stats.get(reason, 0) + 1
+    examples = skip_examples.setdefault(reason, [])
+    if symbol not in examples and len(examples) < 5:
+        examples.append(symbol)
+
+
 while True:
     try:
         now = time.time()
@@ -247,6 +257,12 @@ while True:
             heartbeat_message = f"Bot is scanning {len(VALID_SYMBOLS)} symbols. Open positions: {metrics_positions}."
             if skip_summary:
                 heartbeat_message += f" Skip reasons: {skip_summary}."
+            if skip_examples:
+                examples_summary = "; ".join(
+                    f"{key}={', '.join(values)}" for key, values in sorted(skip_examples.items()) if values
+                )
+                if examples_summary:
+                    heartbeat_message += f" Examples: {examples_summary}."
             bot_log(
                 "bot_heartbeat",
                 heartbeat_message,
@@ -254,10 +270,12 @@ while True:
                     "symbols": list(VALID_SYMBOLS),
                     "open_positions": metrics_positions,
                     "skip_stats": dict(skip_stats),
+                    "skip_examples": dict(skip_examples),
                 },
                 persist=False,
             )
             skip_stats = {}
+            skip_examples = {}
             last_idle_summary = now
 
         for symbol in VALID_SYMBOLS:
@@ -266,7 +284,7 @@ while True:
             # SESSION FILTER (HARD RULE)
             # -----------------------------
             if not (in_london_session() or in_newyork_session()):
-                skip_stats["session"] = skip_stats.get("session", 0) + 1
+                record_skip("session", symbol)
                 continue
 
             original_symbol = next((k for k, v in RESOLVED_MAP.items() if v == symbol), symbol)
@@ -276,7 +294,7 @@ while True:
             # -----------------------------
             if os.getenv("NEWS_FILTER_ENABLED", "true").lower() in ("1", "true", "yes"):
                 if not news_allows_trade(original_symbol):
-                    skip_stats["fundamentals"] = skip_stats.get("fundamentals", 0) + 1
+                    record_skip("fundamentals", original_symbol)
                     continue
 
             # -----------------------------
@@ -302,7 +320,7 @@ while True:
                 analysis["MTF"]["liquidity"],
                 direction
             ):
-                skip_stats["liquidity"] = skip_stats.get("liquidity", 0) + 1
+                record_skip("liquidity", original_symbol)
                 continue
 
             # -----------------------------
@@ -318,11 +336,11 @@ while True:
                 )
             except Exception as e:
                 print("Entry model error, skipping symbol:", e)
-                skip_stats["entry_error"] = skip_stats.get("entry_error", 0) + 1
+                record_skip("entry_error", original_symbol)
                 continue
 
             if not isinstance(signal, dict) or not signal:
-                skip_stats["entry"] = skip_stats.get("entry", 0) + 1
+                record_skip("entry", original_symbol)
                 continue
 
             # attach symbol and direction (use original name mapping if available)
@@ -334,14 +352,14 @@ while True:
             # SMT CONFIRMATION
             # -----------------------------
             if not smt_confirmed(signal, analysis["correlated"]):
-                skip_stats["smt"] = skip_stats.get("smt", 0) + 1
+                record_skip("smt", original_symbol)
                 continue
 
             # -----------------------------
             # RULE QUALITY FILTER
             # -----------------------------
             if not rule_quality_filter(signal):
-                skip_stats["rule_quality"] = skip_stats.get("rule_quality", 0) + 1
+                record_skip("rule_quality", original_symbol)
                 continue
 
             # -----------------------------
@@ -358,7 +376,7 @@ while True:
             ml_ok, probability = ml_quality_filter(features, model)
 
             if not ml_ok:
-                skip_stats["ml"] = skip_stats.get("ml", 0) + 1
+                record_skip("ml", original_symbol)
                 continue
 
             # -----------------------------
@@ -367,7 +385,7 @@ while True:
             htf_ob = signal.get("htf_ob") or {}
             ob_id = htf_ob.get("id")
             if not ob_id or not can_trade(symbol, ob_id):
-                skip_stats["protection"] = skip_stats.get("protection", 0) + 1
+                record_skip("protection", original_symbol)
                 continue
 
             # -----------------------------
@@ -377,7 +395,7 @@ while True:
             allowed_risk = allocate_risk(symbol, open_positions)
 
             if allowed_risk <= 0:
-                skip_stats["risk"] = skip_stats.get("risk", 0) + 1
+                record_skip("risk", original_symbol)
                 continue
 
             # -----------------------------
@@ -452,7 +470,7 @@ while True:
                 order_type=order_type
             )
             if not trade:
-                skip_stats["trade_failed"] = skip_stats.get("trade_failed", 0) + 1
+                record_skip("trade_failed", original_symbol)
                 bot_log(
                     "trade_failed",
                     f"Trade execution failed for {original_symbol}.",
