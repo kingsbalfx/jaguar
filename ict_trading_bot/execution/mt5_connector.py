@@ -11,9 +11,6 @@ from utils.mt5_credentials import fetch_mt5_credentials
 
 def _build_initialize_kwargs(login_value, password, server):
     kwargs = {
-        "login": login_value,
-        "password": password,
-        "server": server,
     }
 
     mt5_path = os.getenv("MT5_PATH", "").strip()
@@ -31,6 +28,14 @@ def _build_initialize_kwargs(login_value, password, server):
         kwargs["portable"] = True
 
     return kwargs
+
+
+def _build_login_kwargs(login_value, password, server):
+    return {
+        "login": login_value,
+        "password": password,
+        "server": server,
+    }
 
 
 def connect(credentials=None):
@@ -55,9 +60,28 @@ def connect(credentials=None):
     except Exception:
         login_value = login
 
-    if not mt5.initialize(**_build_initialize_kwargs(login_value, password, server)):
-        last_error = mt5.last_error()
-        raise RuntimeError(f"MT5 initialization failed: {last_error}")
+    initialize_kwargs = _build_initialize_kwargs(login_value, password, server)
+    login_kwargs = _build_login_kwargs(login_value, password, server)
+
+    # More reliable flow on Windows: attach to the terminal first, then log in.
+    if mt5.initialize(**initialize_kwargs):
+        if not mt5.login(**login_kwargs):
+            last_error = mt5.last_error()
+            raise RuntimeError(f"MT5 login failed: {last_error}")
+    else:
+        first_error = mt5.last_error()
+
+        # Fallback for terminals that accept direct login during initialize.
+        mt5.shutdown()
+        direct_initialize_kwargs = {
+            **initialize_kwargs,
+            **login_kwargs,
+        }
+        if not mt5.initialize(**direct_initialize_kwargs):
+            last_error = mt5.last_error()
+            raise RuntimeError(
+                f"MT5 initialization failed: {first_error}; fallback failed: {last_error}"
+            )
 
     account_info = mt5.account_info()
     if account_info is None:

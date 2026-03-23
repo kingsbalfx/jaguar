@@ -4,7 +4,7 @@ except Exception:
     mt5 = None
 
 from dotenv import load_dotenv
-from execution.mt5_connector import _build_initialize_kwargs
+from execution.mt5_connector import _build_initialize_kwargs, _build_login_kwargs
 from utils.mt5_credentials import fetch_mt5_credentials
 
 load_dotenv()
@@ -20,12 +20,22 @@ try:
     login_value = int(creds.get("login"))
 except Exception:
     login_value = creds.get("login")
-init_ok = mt5.initialize(
-    **_build_initialize_kwargs(login_value, creds.get("password"), creds.get("server"))
+initialize_kwargs = _build_initialize_kwargs(
+    login_value, creds.get("password"), creds.get("server")
 )
+login_kwargs = _build_login_kwargs(
+    login_value, creds.get("password"), creds.get("server")
+)
+
+init_ok = mt5.initialize(**initialize_kwargs)
 print('initialize() ->', init_ok)
 if not init_ok:
     print('last_error() ->', mt5.last_error())
+else:
+    login_ok = mt5.login(**login_kwargs)
+    print('login() ->', login_ok)
+    if not login_ok:
+        print('last_error() ->', mt5.last_error())
 
 try:
     term_info = mt5.terminal_info()
