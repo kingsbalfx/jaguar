@@ -20,19 +20,34 @@ async function loadBotLogs(supabaseAdmin) {
 
   const msg = String(primary.error?.message || "").toLowerCase();
   if (!msg.includes("created_at")) {
-    throw new Error(primary.error.message || "failed to load bot logs");
+    if (!msg.includes("event")) {
+      throw new Error(primary.error.message || "failed to load bot logs");
+    }
   }
 
-  const fallback = await supabaseAdmin
+  let fallback = await supabaseAdmin
     .from("bot_logs")
     .select("id,event,payload")
     .limit(12);
 
   if (fallback.error) {
+    const fallbackMsg = String(fallback.error?.message || "").toLowerCase();
+    if (fallbackMsg.includes("event")) {
+      fallback = await supabaseAdmin
+        .from("bot_logs")
+        .select("id,payload")
+        .limit(12);
+    }
+  }
+
+  if (fallback.error) {
     throw new Error(fallback.error.message || "failed to load bot logs");
   }
 
-  return fallback.data || [];
+  return (fallback.data || []).map((item) => ({
+    ...item,
+    event: item.event || item.payload?.message || "bot_log",
+  }));
 }
 
 async function requireAdmin(req, res) {

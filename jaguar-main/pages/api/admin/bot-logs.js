@@ -35,6 +35,18 @@ export default async function handler(req, res) {
     }
 
     if (error) {
+      const msg = String(error?.message || "").toLowerCase();
+      if (msg.includes("event")) {
+        const fallback = await supabaseAdmin.from("bot_logs").select("id,payload").limit(limit);
+        data = fallback.data?.map((item) => ({
+          ...item,
+          event: item.payload?.message || "bot_log",
+        }));
+        error = fallback.error;
+      }
+    }
+
+    if (error) {
       return res.status(500).json({ error: "failed to fetch logs" });
     }
 

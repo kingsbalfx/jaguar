@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 _SUPABASE_CLIENT = None
 _BOT_LOGS_HAS_CREATED_AT = True
 _BOT_SIGNALS_HAS_CREATED_AT = True
+_BOT_LOGS_HAS_EVENT = True
+_BOT_LOGS_INSERT_DISABLED = False
 
 
 def _get_supabase_client():
@@ -58,15 +60,19 @@ def push_trade(trade: Dict[str, Any]):
 
 def persist_log_to_supabase(event_type: str, payload: Dict[str, Any]):
     """Persist a simple log record to Supabase `bot_logs` table."""
-    global _BOT_LOGS_HAS_CREATED_AT
+    global _BOT_LOGS_HAS_CREATED_AT, _BOT_LOGS_HAS_EVENT, _BOT_LOGS_INSERT_DISABLED
     client = _get_supabase_client()
     if not client:
         return
+    if _BOT_LOGS_INSERT_DISABLED:
+        return
 
+    payload_value = payload or {}
     record = {
-        "event": event_type,
-        "payload": payload or {},
+        "payload": payload_value,
     }
+    if _BOT_LOGS_HAS_EVENT:
+        record["event"] = event_type
     if _BOT_LOGS_HAS_CREATED_AT:
         record["created_at"] = datetime.utcnow().isoformat()
 
@@ -78,7 +84,14 @@ def persist_log_to_supabase(event_type: str, payload: Dict[str, Any]):
         _BOT_LOGS_HAS_CREATED_AT = False
         record.pop("created_at", None)
         res = _with_retries(_insert)
+    if res is None and _BOT_LOGS_HAS_EVENT:
+        _BOT_LOGS_HAS_EVENT = False
+        record.pop("event", None)
+        if not record.get("payload"):
+            record["payload"] = {"message": str(event_type), **payload_value}
+        res = _with_retries(_insert)
     if res is None:
+        _BOT_LOGS_INSERT_DISABLED = True
         logger.error("persist_log_to_supabase: failed to insert log: %s", record)
     else:
         logger.debug("persist_log_to_supabase: inserted log: %s", event_type)

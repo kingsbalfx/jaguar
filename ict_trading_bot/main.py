@@ -106,10 +106,10 @@ if os.getenv("MT5_DISABLED", "").lower() in ("1", "true", "yes"):
         time.sleep(60)
 
 SYMBOLS = [
-    "EURUSD", "GBPUSD", "USDJPY",
-    "AUDUSD", "NZDUSD", "USDCAD",
-    # added instruments (may require mapping)
-    "BTCUSD", "XAUUSD", "AUDJPY", "EURJPY", "ETHUSD"
+    "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "NZDUSD", "USDCAD",
+    "USDCHF", "EURGBP", "EURJPY", "GBPJPY", "AUDJPY", "CADJPY",
+    "GBPCHF", "EURCHF", "EURAUD", "GBPAUD",
+    "XAUUSD", "XAGUSD", "BTCUSD", "ETHUSD",
 ]
 
 def resolve_symbols():
