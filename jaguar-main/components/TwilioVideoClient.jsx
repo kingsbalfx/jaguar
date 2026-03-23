@@ -16,6 +16,7 @@ export default function TwilioVideoClient({
   joinVideo = true,
 }) {
   const [status, setStatus] = useState("idle");
+  const [statusDetail, setStatusDetail] = useState("");
   const [isSharing, setIsSharing] = useState(false);
   const [muted, setMuted] = useState(false);
   const [audienceMuted, setAudienceMuted] = useState(false);
@@ -31,29 +32,35 @@ export default function TwilioVideoClient({
     let mounted = true;
     async function init() {
       setStatus("requesting-token");
+      setStatusDetail("");
       try {
         const res = await fetch("/api/twilio/token", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ roomName }),
         });
+        const payload = await res.json().catch(() => ({}));
         if (!res.ok) {
           setStatus("token-failed");
+          setStatusDetail(
+            payload?.details || payload?.error || "Could not get a Twilio access token."
+          );
           return;
         }
-        const { token, roomName } = await res.json();
+        const { token, roomName: resolvedRoomName } = payload;
 
         // load twilio-video at runtime
         const TwilioVideo = await import("twilio-video");
         if (!mounted) return;
 
         const room = await TwilioVideo.connect(token, {
-          name: roomName,
+          name: resolvedRoomName,
           audio: joinAudio,
           video: joinVideo && !audioOnly ? { width: 640 } : false,
         });
         roomRef.current = room;
         setStatus("connected");
+        setStatusDetail("");
 
         // attach local tracks
         const localTracks = Array.from(room.localParticipant.tracks.values());
@@ -119,6 +126,7 @@ export default function TwilioVideoClient({
       } catch (err) {
         console.error("Twilio init error:", err);
         setStatus("error");
+        setStatusDetail(err?.message || "Twilio could not start.");
       }
     }
 
@@ -208,6 +216,7 @@ export default function TwilioVideoClient({
   return (
     <div>
       <div className="mb-2">Status: {status}</div>
+      {statusDetail && <div className="mb-3 text-sm text-amber-200">{statusDetail}</div>}
       {showControls && (
         <div className="mb-3 flex flex-wrap gap-2">
           <button

@@ -7,6 +7,7 @@ import dynamic from "next/dynamic";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { PRICING_TIERS, formatPrice } from "../lib/pricing-config";
 import { useRouter } from "next/router";
+import EmbeddedLivePlayer from "../components/EmbeddedLivePlayer";
 
 const TwilioVideoClient = dynamic(() => import("../components/TwilioVideoClient"), { ssr: false });
 
@@ -25,22 +26,6 @@ function canAccess(role, segment) {
   const r = ROLE_RANK[role] ?? 0;
   const s = ROLE_RANK[segment] ?? 0;
   return r >= s;
-}
-
-function toYouTubeEmbed(url) {
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname.includes("youtu.be")) {
-      const id = parsed.pathname.replace("/", "");
-      return `https://www.youtube.com/embed/${id}`;
-    }
-    if (parsed.searchParams.get("v")) {
-      return `https://www.youtube.com/embed/${parsed.searchParams.get("v")}`;
-    }
-    return url;
-  } catch {
-    return url;
-  }
 }
 
 async function fetchMessagesWithFallback(client) {
@@ -274,24 +259,22 @@ export default function Home({ initialMessages = [], liveSession = null, canView
               </div>
               {canViewLive ? (
                 <div className="mt-4">
-                  {liveSession.media_type === "youtube" && liveSession.media_url && (
-                    <div className="aspect-video w-full overflow-hidden rounded-lg border border-white/10">
-                      <iframe
-                        title="YouTube Live"
-                        src={toYouTubeEmbed(liveSession.media_url)}
-                        className="w-full h-full"
-                        allow="autoplay; encrypted-media"
-                        allowFullScreen
+                  {["youtube", "videosdk", "embed"].includes(liveSession.media_type) &&
+                    liveSession.media_url && (
+                      <EmbeddedLivePlayer
+                        mediaType={liveSession.media_type}
+                        mediaUrl={liveSession.media_url}
+                        title={liveSession.title || "Live Session"}
                       />
-                    </div>
-                  )}
-                  {(liveSession.media_type === "twilio_video" ||
-                    liveSession.media_type === "twilio_audio" ||
-                    liveSession.media_type === "twilio_screen") && (
+                    )}
+                  {["twilio_video", "twilio_audio", "twilio_screen"].includes(
+                    liveSession.media_type
+                  ) && (
                     <div className="mt-3">
                       <TwilioVideoClient
                         roomName={liveSession.room_name || "global-room"}
                         audioOnly={Boolean(liveSession.audio_only)}
+                        allowScreenShare={liveSession.media_type === "twilio_screen"}
                         joinAudio={false}
                         joinVideo={false}
                       />

@@ -3,24 +3,9 @@ import { useEffect, useState } from "react";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 import TwilioVideoClient from "../../components/TwilioVideoClient";
+import EmbeddedLivePlayer from "../../components/EmbeddedLivePlayer";
 
 const Chat = dynamic(() => import("../../components/Chat"), { ssr: false });
-
-function toYouTubeEmbed(url) {
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname.includes("youtu.be")) {
-      const id = parsed.pathname.replace("/", "");
-      return `https://www.youtube.com/embed/${id}`;
-    }
-    if (parsed.searchParams.get("v")) {
-      return `https://www.youtube.com/embed/${parsed.searchParams.get("v")}`;
-    }
-    return url;
-  } catch {
-    return url;
-  }
-}
 
 export const getServerSideProps = async (ctx) => {
   try {
@@ -302,6 +287,8 @@ export default function Mentorship() {
                   <option value="twilio_screen">Twilio Screen Share</option>
                   <option value="twilio_audio">Twilio Audio Only</option>
                   <option value="youtube">YouTube Live</option>
+                  <option value="videosdk">VideoSDK Live Embed</option>
+                  <option value="embed">Custom Embed / Player URL</option>
                 </select>
               </div>
 
@@ -319,14 +306,26 @@ export default function Mentorship() {
                 </div>
               )}
 
-              {mediaType === "youtube" && (
+              {["youtube", "videosdk", "embed"].includes(mediaType) && (
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">YouTube URL</label>
+                  <label className="block text-xs text-gray-400 mb-1">
+                    {mediaType === "youtube"
+                      ? "YouTube URL"
+                      : mediaType === "videosdk"
+                        ? "VideoSDK Embed URL"
+                        : "Custom Embed URL"}
+                  </label>
                   <input
                     className="w-full rounded bg-black/40 border border-white/10 px-3 py-2 text-white"
                     value={mediaUrl}
                     onChange={(e) => setMediaUrl(e.target.value)}
-                    placeholder="https://www.youtube.com/watch?v=..."
+                    placeholder={
+                      mediaType === "youtube"
+                        ? "https://www.youtube.com/watch?v=..."
+                        : mediaType === "videosdk"
+                          ? "https://app.videosdk.live/..."
+                          : "https://player.example.com/embed/..."
+                    }
                   />
                 </div>
               )}
@@ -341,16 +340,12 @@ export default function Mentorship() {
             </form>
             <div className="mt-4 border-t border-white/10 pt-4">
               <h4 className="text-sm font-semibold mb-2">Media Preview</h4>
-              {mediaType === "youtube" && mediaUrl && (
-                <div className="aspect-video w-full overflow-hidden rounded-lg border border-white/10">
-                  <iframe
-                    title="YouTube Live"
-                    src={toYouTubeEmbed(mediaUrl)}
-                    className="w-full h-full"
-                    allow="autoplay; encrypted-media"
-                    allowFullScreen
-                  />
-                </div>
+              {["youtube", "videosdk", "embed"].includes(mediaType) && mediaUrl && (
+                <EmbeddedLivePlayer
+                  mediaType={mediaType}
+                  mediaUrl={mediaUrl}
+                  title="Live Session Preview"
+                />
               )}
               {(mediaType === "twilio_video" ||
                 mediaType === "twilio_audio" ||

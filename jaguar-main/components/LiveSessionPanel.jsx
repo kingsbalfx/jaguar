@@ -1,23 +1,8 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
+import EmbeddedLivePlayer from "./EmbeddedLivePlayer";
 
 const TwilioVideoClient = dynamic(() => import("./TwilioVideoClient"), { ssr: false });
-
-function toYouTubeEmbed(url) {
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname.includes("youtu.be")) {
-      const id = parsed.pathname.replace("/", "");
-      return `https://www.youtube.com/embed/${id}`;
-    }
-    if (parsed.searchParams.get("v")) {
-      return `https://www.youtube.com/embed/${parsed.searchParams.get("v")}`;
-    }
-    return url;
-  } catch {
-    return url;
-  }
-}
 
 export default function LiveSessionPanel({ heading = "Live Session" }) {
   const [session, setSession] = useState(null);
@@ -91,23 +76,20 @@ export default function LiveSessionPanel({ heading = "Live Session" }) {
       </div>
 
       <div className="mt-4">
-        {session.media_type === "youtube" && session.media_url && (
-          <div className="aspect-video w-full overflow-hidden rounded-lg border border-white/10">
-            <iframe
-              title="YouTube Live"
-              src={toYouTubeEmbed(session.media_url)}
-              className="w-full h-full"
-              allow="autoplay; encrypted-media"
-              allowFullScreen
-            />
-          </div>
+        {["youtube", "videosdk", "embed"].includes(session.media_type) && session.media_url && (
+          <EmbeddedLivePlayer
+            mediaType={session.media_type}
+            mediaUrl={session.media_url}
+            title={session.title || "Live Session"}
+          />
         )}
 
-        {(session.media_type === "twilio_video" || session.media_type === "twilio_audio") && (
+        {["twilio_video", "twilio_audio", "twilio_screen"].includes(session.media_type) && (
           <div className="mt-3">
             <TwilioVideoClient
               roomName={session.room_name || "global-room"}
               audioOnly={Boolean(session.audio_only)}
+              allowScreenShare={session.media_type === "twilio_screen"}
             />
           </div>
         )}
