@@ -9,6 +9,15 @@ import os
 from utils.mt5_credentials import fetch_mt5_credentials
 
 
+def _require_mt5():
+    if mt5 is None:
+        raise RuntimeError(
+            "MetaTrader5 package not available on this platform. "
+            "Run the bot on Windows with MT5 installed, or set MT5_DISABLED=1 "
+            "to skip live trading in Linux environments."
+        )
+
+
 def _build_initialize_kwargs(login_value, password, server):
     kwargs = {
     }
@@ -39,12 +48,7 @@ def _build_login_kwargs(login_value, password, server):
 
 
 def connect(credentials=None):
-    if mt5 is None:
-        raise RuntimeError(
-            "MetaTrader5 package not available on this platform. "
-            "Run the bot on Windows with MT5 installed, or set MT5_DISABLED=1 "
-            "to skip live trading in Linux environments."
-        )
+    _require_mt5()
     if credentials is None:
         credentials = fetch_mt5_credentials()
 
@@ -114,12 +118,7 @@ def connect(credentials=None):
 
 
 def reconnect(credentials=None):
-    if mt5 is None:
-        raise RuntimeError(
-            "MetaTrader5 package not available on this platform. "
-            "Run the bot on Windows with MT5 installed, or set MT5_DISABLED=1 "
-            "to skip live trading in Linux environments."
-        )
+    _require_mt5()
     try:
         mt5.shutdown()
     except Exception:

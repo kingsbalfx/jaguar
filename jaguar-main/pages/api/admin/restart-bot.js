@@ -1,6 +1,12 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 
+function buildBotUrl(baseUrl, endpoint) {
+  const cleanBase = String(baseUrl || "").replace(/\/+$/, "");
+  const cleanEndpoint = String(endpoint || "").replace(/^\/+/, "");
+  return `${cleanBase}/${cleanEndpoint}`;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).end();
@@ -34,7 +40,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "BOT_API_URL not configured" });
     }
 
-    const restartUrl = new URL("/restart", baseUrl).toString();
+    const restartUrl = buildBotUrl(baseUrl, "restart");
     const response = await fetch(restartUrl, { method: "POST" });
     const text = await response.text();
     let payload = { raw: text };

@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 
 
 _SUPABASE_CLIENT = None
+_BOT_LOGS_HAS_CREATED_AT = True
+_BOT_SIGNALS_HAS_CREATED_AT = True
 
 
 def _get_supabase_client():
@@ -56,6 +58,7 @@ def push_trade(trade: Dict[str, Any]):
 
 def persist_log_to_supabase(event_type: str, payload: Dict[str, Any]):
     """Persist a simple log record to Supabase `bot_logs` table."""
+    global _BOT_LOGS_HAS_CREATED_AT
     client = _get_supabase_client()
     if not client:
         return
@@ -63,13 +66,18 @@ def persist_log_to_supabase(event_type: str, payload: Dict[str, Any]):
     record = {
         "event": event_type,
         "payload": payload or {},
-        "created_at": datetime.utcnow().isoformat(),
     }
+    if _BOT_LOGS_HAS_CREATED_AT:
+        record["created_at"] = datetime.utcnow().isoformat()
 
     def _insert():
         return client.table(os.getenv("BOT_LOGS_TABLE", "bot_logs")).insert(record).execute()
 
     res = _with_retries(_insert)
+    if res is None and _BOT_LOGS_HAS_CREATED_AT:
+        _BOT_LOGS_HAS_CREATED_AT = False
+        record.pop("created_at", None)
+        res = _with_retries(_insert)
     if res is None:
         logger.error("persist_log_to_supabase: failed to insert log: %s", record)
     else:
@@ -78,6 +86,7 @@ def persist_log_to_supabase(event_type: str, payload: Dict[str, Any]):
 
 def persist_signal_to_supabase(signal: Dict[str, Any]):
     """Persist a generated trading signal to Supabase `bot_signals` table with retries and logging."""
+    global _BOT_SIGNALS_HAS_CREATED_AT
     client = _get_supabase_client()
     if not client:
         return
@@ -94,13 +103,18 @@ def persist_signal_to_supabase(signal: Dict[str, Any]):
         "confidence": signal.get("ml_probability") or signal.get("confidence"),
         "reason": signal.get("reason") or {},
         "status": signal.get("status") or "pending",
-        "created_at": datetime.utcnow().isoformat(),
     }
+    if _BOT_SIGNALS_HAS_CREATED_AT:
+        record["created_at"] = datetime.utcnow().isoformat()
 
     def _insert_signal():
         return client.table(table).insert(record).execute()
 
     res = _with_retries(_insert_signal)
+    if res is None and _BOT_SIGNALS_HAS_CREATED_AT:
+        _BOT_SIGNALS_HAS_CREATED_AT = False
+        record.pop("created_at", None)
+        res = _with_retries(_insert_signal)
     if res is None:
         logger.error("persist_signal_to_supabase: failed to insert signal: %s", record)
     else:

@@ -1,6 +1,40 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 
+function buildBotUrl(baseUrl, endpoint) {
+  const cleanBase = String(baseUrl || "").replace(/\/+$/, "");
+  const cleanEndpoint = String(endpoint || "").replace(/^\/+/, "");
+  return `${cleanBase}/${cleanEndpoint}`;
+}
+
+async function loadBotLogs(supabaseAdmin) {
+  const primary = await supabaseAdmin
+    .from("bot_logs")
+    .select("id,event,payload,created_at")
+    .order("created_at", { ascending: false })
+    .limit(12);
+
+  if (!primary.error) {
+    return primary.data || [];
+  }
+
+  const msg = String(primary.error?.message || "").toLowerCase();
+  if (!msg.includes("created_at")) {
+    throw new Error(primary.error.message || "failed to load bot logs");
+  }
+
+  const fallback = await supabaseAdmin
+    .from("bot_logs")
+    .select("id,event,payload")
+    .limit(12);
+
+  if (fallback.error) {
+    throw new Error(fallback.error.message || "failed to load bot logs");
+  }
+
+  return fallback.data || [];
+}
+
 async function requireAdmin(req, res) {
   const supabase = createPagesServerClient({ req, res });
   const {
@@ -48,17 +82,12 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "BOT_API_URL not configured" });
     }
 
-    const [statusRes, logsRes] = await Promise.all([
-      fetch(new URL("/status", baseUrl).toString()),
-      supabaseAdmin
-        .from("bot_logs")
-        .select("id,event,payload,created_at")
-        .order("created_at", { ascending: false })
-        .limit(12),
+    const [statusRes, recentLogs] = await Promise.all([
+      fetch(buildBotUrl(baseUrl, "status")),
+      loadBotLogs(supabaseAdmin),
     ]);
 
     const botStatus = statusRes.ok ? await statusRes.json() : null;
-    const recentLogs = logsRes?.data || [];
 
     return res.status(200).json({
       bot: botStatus || {

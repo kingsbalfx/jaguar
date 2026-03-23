@@ -19,7 +19,20 @@ export default async function handler(req, res) {
     if (role !== "admin") return res.status(403).json({ error: "forbidden" });
 
     const limit = Number(req.query.limit) || 100;
-    const { data, error } = await supabaseAdmin.from("bot_logs").select("*").order("created_at", { ascending: false }).limit(limit);
+    let { data, error } = await supabaseAdmin
+      .from("bot_logs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      const msg = String(error?.message || "").toLowerCase();
+      if (msg.includes("created_at")) {
+        const fallback = await supabaseAdmin.from("bot_logs").select("*").limit(limit);
+        data = fallback.data;
+        error = fallback.error;
+      }
+    }
 
     if (error) {
       return res.status(500).json({ error: "failed to fetch logs" });

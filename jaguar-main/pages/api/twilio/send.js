@@ -2,9 +2,9 @@ import Twilio from "twilio";
 export default async function handler(req, res) {
   if (req.method !== "POST")
     return res.status(405).json({ error: "Method not allowed" });
-  const sid = process.env.TWILIO_SID;
+  const sid = process.env.TWILIO_SID || process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_PHONE;
+  const from = process.env.TWILIO_PHONE || process.env.TWILIO_FROM_NUMBER;
   if (!sid || !token || !from)
     return res.status(500).json({ error: "Twilio not configured" });
   const { to, body } = req.body;
