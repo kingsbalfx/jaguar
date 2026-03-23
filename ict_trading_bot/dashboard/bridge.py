@@ -14,6 +14,7 @@ _BOT_LOGS_HAS_CREATED_AT = True
 _BOT_SIGNALS_HAS_CREATED_AT = True
 _BOT_LOGS_HAS_EVENT = True
 _BOT_LOGS_INSERT_DISABLED = False
+_BOT_SIGNALS_INSERT_DISABLED = False
 
 
 def _get_supabase_client():
@@ -99,9 +100,11 @@ def persist_log_to_supabase(event_type: str, payload: Dict[str, Any]):
 
 def persist_signal_to_supabase(signal: Dict[str, Any]):
     """Persist a generated trading signal to Supabase `bot_signals` table with retries and logging."""
-    global _BOT_SIGNALS_HAS_CREATED_AT
+    global _BOT_SIGNALS_HAS_CREATED_AT, _BOT_SIGNALS_INSERT_DISABLED
     client = _get_supabase_client()
     if not client:
+        return
+    if _BOT_SIGNALS_INSERT_DISABLED:
         return
 
     table = os.getenv("BOT_SIGNALS_TABLE", "bot_signals")
@@ -129,6 +132,7 @@ def persist_signal_to_supabase(signal: Dict[str, Any]):
         record.pop("created_at", None)
         res = _with_retries(_insert_signal)
     if res is None:
+        _BOT_SIGNALS_INSERT_DISABLED = True
         logger.error("persist_signal_to_supabase: failed to insert signal: %s", record)
     else:
         logger.debug("persist_signal_to_supabase: inserted signal for %s", record.get("symbol"))
