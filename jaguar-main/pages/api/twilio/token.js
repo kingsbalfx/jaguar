@@ -2,7 +2,7 @@
 import Twilio from "twilio";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
+  if (req.method !== "POST" && req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
@@ -31,7 +31,12 @@ export default async function handler(req, res) {
 
     token.identity = identity;
 
-    const requestedRoom = (req.body?.roomName || "").toString().trim();
+    const requestedRoom = (
+      req.body?.roomName ||
+      req.query?.roomName ||
+      req.query?.room ||
+      ""
+    ).toString().trim();
     const roomName = requestedRoom || "global-room";
     const videoGrant = new VideoGrant({ room: roomName });
     token.addGrant(videoGrant);
@@ -41,6 +46,9 @@ export default async function handler(req, res) {
     res.status(200).json({ token: jwt, roomName });
   } catch (err) {
     console.error("Twilio token error:", err);
-    res.status(500).json({ error: "Could not create Twilio token" });
+    res.status(500).json({
+      error: "Could not create Twilio token",
+      details: err.message || String(err),
+    });
   }
 }
