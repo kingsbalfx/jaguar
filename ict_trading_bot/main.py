@@ -242,9 +242,13 @@ while True:
 
         if now - last_idle_summary >= 30:
             metrics_positions = len(get_open_positions())
+            skip_summary = ", ".join(f"{key}={value}" for key, value in sorted(skip_stats.items()))
+            heartbeat_message = f"Bot is scanning {len(VALID_SYMBOLS)} symbols. Open positions: {metrics_positions}."
+            if skip_summary:
+                heartbeat_message += f" Skip reasons: {skip_summary}."
             bot_log(
                 "bot_heartbeat",
-                f"Bot is scanning {len(VALID_SYMBOLS)} symbols. Open positions: {metrics_positions}.",
+                heartbeat_message,
                 {
                     "symbols": list(VALID_SYMBOLS),
                     "open_positions": metrics_positions,
