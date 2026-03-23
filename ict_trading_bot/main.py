@@ -18,7 +18,7 @@ from execution.order_router import choose_order_type
 # STRATEGY & ANALYSIS
 # =====================================================
 from strategy.pre_trade_analysis import analyze_market_top_down
-from strategy.entry_model import check_entry
+from strategy.entry_model import check_entry, explain_entry_failure
 from strategy.liquidity_filter import liquidity_taken
 from strategy.smt_filter import smt_confirmed
 
@@ -340,7 +340,14 @@ while True:
                 continue
 
             if not isinstance(signal, dict) or not signal:
-                record_skip("entry", original_symbol)
+                entry_reason = explain_entry_failure(
+                    trend=trend,
+                    price=price,
+                    fib_levels=analysis.get("MTF", {}).get("fib", {}),
+                    fvgs=analysis.get("LTF", {}).get("fvgs", {}),
+                    htf_order_blocks=analysis.get("MTF", {}).get("order_blocks", {}),
+                )
+                record_skip(f"entry_{entry_reason}", original_symbol)
                 continue
 
             # attach symbol and direction (use original name mapping if available)

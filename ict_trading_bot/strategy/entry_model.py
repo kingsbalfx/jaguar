@@ -1,5 +1,53 @@
 from ict_concepts.fib import in_discount, in_premium
 
+
+def explain_entry_failure(trend, price, fib_levels, fvgs, htf_order_blocks):
+    if trend not in ("bullish", "bearish"):
+        return "trend"
+
+    f025 = fib_levels.get("0.25") if isinstance(fib_levels, dict) else None
+    f05 = fib_levels.get("0.5") if isinstance(fib_levels, dict) else None
+    f075 = fib_levels.get("0.75") if isinstance(fib_levels, dict) else None
+
+    if trend == "bullish":
+        if f025 is None or f05 is None:
+            return "fib_missing"
+        if not (f025 <= price <= f05):
+            return "fib_zone"
+
+    if trend == "bearish":
+        if f05 is None or f075 is None:
+            return "fib_missing"
+        if not (f05 <= price <= f075):
+            return "fib_zone"
+
+    valid_fvg = None
+    try:
+        for fvg in (fvgs or []):
+            if not isinstance(fvg, dict):
+                continue
+            if fvg.get("type") == trend and fvg.get("low") is not None and fvg.get("high") is not None:
+                if fvg["low"] <= price <= fvg["high"]:
+                    valid_fvg = fvg
+                    break
+    except Exception:
+        valid_fvg = None
+
+    if not valid_fvg:
+        return "fvg"
+
+    try:
+        for ob in (htf_order_blocks or []):
+            if not isinstance(ob, dict):
+                continue
+            if ob.get("type") == trend and ob.get("low") is not None and ob.get("high") is not None:
+                if ob["low"] <= valid_fvg["low"] and valid_fvg["high"] <= ob["high"]:
+                    return "order_block_ok"
+    except Exception:
+        return "order_block"
+
+    return "order_block"
+
 def check_entry(
     trend,
     price,
@@ -22,6 +70,9 @@ def check_entry(
     f025 = fib_levels.get("0.25") if isinstance(fib_levels, dict) else None
     f05 = fib_levels.get("0.5") if isinstance(fib_levels, dict) else None
     f075 = fib_levels.get("0.75") if isinstance(fib_levels, dict) else None
+
+    if trend not in ("bullish", "bearish"):
+        return None
 
     if trend == "bullish":
         if f025 is None or f05 is None or not (f025 <= price <= f05):
