@@ -219,6 +219,28 @@ def record_stage(stage, symbol):
         examples.append(symbol)
 
 
+def get_order_block_id(symbol, htf_ob):
+    if not isinstance(htf_ob, dict):
+        return None
+
+    explicit = htf_ob.get("id")
+    if explicit:
+        return str(explicit)
+
+    parts = [
+        symbol,
+        htf_ob.get("timeframe"),
+        htf_ob.get("type"),
+        htf_ob.get("index"),
+        htf_ob.get("high"),
+        htf_ob.get("low"),
+    ]
+    normalized = [str(part) for part in parts if part is not None]
+    if not normalized:
+        return None
+    return "|".join(normalized)
+
+
 while True:
     try:
         now = time.time()
@@ -440,7 +462,7 @@ while True:
             # PROTECTION (ONE TRADE PER OB)
             # -----------------------------
             htf_ob = signal.get("htf_ob") or {}
-            ob_id = htf_ob.get("id")
+            ob_id = get_order_block_id(symbol, htf_ob)
             if not ob_id or not can_trade(symbol, ob_id):
                 record_skip("protection", original_symbol)
                 continue
