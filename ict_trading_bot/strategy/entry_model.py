@@ -1,4 +1,5 @@
 from ict_concepts.fib import in_discount, in_premium
+import os
 
 
 def explain_entry_failure(trend, price, fib_levels, fvgs, htf_order_blocks):
@@ -8,17 +9,24 @@ def explain_entry_failure(trend, price, fib_levels, fvgs, htf_order_blocks):
     f025 = fib_levels.get("0.25") if isinstance(fib_levels, dict) else None
     f05 = fib_levels.get("0.5") if isinstance(fib_levels, dict) else None
     f075 = fib_levels.get("0.75") if isinstance(fib_levels, dict) else None
+    fib_buffer_ratio = float(os.getenv("ENTRY_FIB_BUFFER_RATIO", "0.08"))
 
     if trend == "bullish":
         if f025 is None or f05 is None:
             return "fib_missing"
-        if not (f025 <= price <= f05):
+        zone_size = max(f05 - f025, 0.0)
+        lower = f025 - (zone_size * fib_buffer_ratio)
+        upper = f05 + (zone_size * fib_buffer_ratio)
+        if not (lower <= price <= upper):
             return "fib_zone"
 
     if trend == "bearish":
         if f05 is None or f075 is None:
             return "fib_missing"
-        if not (f05 <= price <= f075):
+        zone_size = max(f075 - f05, 0.0)
+        lower = f05 - (zone_size * fib_buffer_ratio)
+        upper = f075 + (zone_size * fib_buffer_ratio)
+        if not (lower <= price <= upper):
             return "fib_zone"
 
     valid_fvg = None
@@ -34,6 +42,8 @@ def explain_entry_failure(trend, price, fib_levels, fvgs, htf_order_blocks):
         valid_fvg = None
 
     if not valid_fvg:
+        if os.getenv("RELAX_FVG_REQUIREMENT", "true").lower() in ("1", "true", "yes"):
+            return "order_block"
         return "fvg"
 
     try:
@@ -70,16 +80,27 @@ def check_entry(
     f025 = fib_levels.get("0.25") if isinstance(fib_levels, dict) else None
     f05 = fib_levels.get("0.5") if isinstance(fib_levels, dict) else None
     f075 = fib_levels.get("0.75") if isinstance(fib_levels, dict) else None
+    fib_buffer_ratio = float(os.getenv("ENTRY_FIB_BUFFER_RATIO", "0.08"))
 
     if trend not in ("bullish", "bearish"):
         return None
 
     if trend == "bullish":
-        if f025 is None or f05 is None or not (f025 <= price <= f05):
+        if f025 is None or f05 is None:
+            return None
+        zone_size = max(f05 - f025, 0.0)
+        lower = f025 - (zone_size * fib_buffer_ratio)
+        upper = f05 + (zone_size * fib_buffer_ratio)
+        if not (lower <= price <= upper):
             return None
 
     if trend == "bearish":
-        if f05 is None or f075 is None or not (f05 <= price <= f075):
+        if f05 is None or f075 is None:
+            return None
+        zone_size = max(f075 - f05, 0.0)
+        lower = f05 - (zone_size * fib_buffer_ratio)
+        upper = f075 + (zone_size * fib_buffer_ratio)
+        if not (lower <= price <= upper):
             return None
 
     # -------------------------
@@ -98,7 +119,8 @@ def check_entry(
     except Exception:
         valid_fvg = None
 
-    if not valid_fvg:
+    relaxed_fvg = os.getenv("RELAX_FVG_REQUIREMENT", "true").lower() in ("1", "true", "yes")
+    if not valid_fvg and not relaxed_fvg:
         return None
 
     # -------------------------
@@ -111,9 +133,14 @@ def check_entry(
             if not isinstance(ob, dict):
                 continue
             if ob.get("type") == trend and ob.get("low") is not None and ob.get("high") is not None:
-                if valid_fvg and ob["low"] <= valid_fvg["low"] and valid_fvg["high"] <= ob["high"]:
-                    valid_ob = ob
-                    break
+                if valid_fvg:
+                    if ob["low"] <= valid_fvg["low"] and valid_fvg["high"] <= ob["high"]:
+                        valid_ob = ob
+                        break
+                else:
+                    if ob["low"] <= price <= ob["high"]:
+                        valid_ob = ob
+                        break
     except Exception:
         valid_ob = None
 

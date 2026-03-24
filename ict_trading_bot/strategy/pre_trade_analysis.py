@@ -4,6 +4,7 @@ from ict_concepts.fvg import detect_fvgs
 from ict_concepts.order_blocks import detect_htf_order_blocks
 from ict_concepts.liquidity import detect_liquidity_zones
 from ict_concepts.market_structure import get_swings
+import os
 
 def analyze_market_top_down(
     symbol,
@@ -64,6 +65,14 @@ def analyze_market_top_down(
     # OVERALL BIAS (TOP DOWN)
     # -------------------------
     overall_trend = analysis[htf]["trend"]
+    if overall_trend not in ("bullish", "bearish"):
+        mtf_trend = analysis[mtf]["trend"]
+        if mtf_trend in ("bullish", "bearish"):
+            overall_trend = mtf_trend
+        elif os.getenv("ALLOW_LTF_TREND_FALLBACK", "true").lower() in ("1", "true", "yes"):
+            ltf_trend = analysis[ltf]["trend"]
+            if ltf_trend in ("bullish", "bearish"):
+                overall_trend = ltf_trend
 
     return {
         "overall_trend": overall_trend,
