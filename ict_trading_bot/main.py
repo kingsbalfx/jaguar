@@ -39,7 +39,7 @@ from fundamentals.news_filter import news_allows_trade
 # =====================================================
 # SESSION FILTER
 # =====================================================
-from utils.sessions import in_london_session, in_newyork_session
+from utils.sessions import in_london_session, in_newyork_session, trading_session_open
 
 # =====================================================
 # PORTFOLIO + DASHBOARD
@@ -163,6 +163,7 @@ def ensure_connected(force_reconnect=False):
     CONNECTED = True
     publish_runtime_metrics(list(VALID_SYMBOLS))
     account = get_account_snapshot() or {}
+    symbol_map = {original: resolved for original, resolved in RESOLVED_MAP.items()}
     bot_log(
         "mt5_connected",
         f"MT5 connected for account {account.get('login')} on {account.get('server')}.",
@@ -171,7 +172,14 @@ def ensure_connected(force_reconnect=False):
             "server": account.get("server"),
             "balance": account.get("balance"),
             "symbols": list(VALID_SYMBOLS),
+            "symbol_map": symbol_map,
         },
+    )
+    bot_log(
+        "symbol_resolution",
+        "Resolved trading symbols for this broker.",
+        {"symbol_map": symbol_map},
+        persist=False,
     )
 
 
@@ -193,11 +201,20 @@ last_metrics_refresh = 0.0
 last_idle_summary = 0.0
 skip_stats = {}
 skip_examples = {}
+stage_hits = {}
+stage_examples = {}
 
 
 def record_skip(reason, symbol):
     skip_stats[reason] = skip_stats.get(reason, 0) + 1
     examples = skip_examples.setdefault(reason, [])
+    if symbol not in examples and len(examples) < 5:
+        examples.append(symbol)
+
+
+def record_stage(stage, symbol):
+    stage_hits[stage] = stage_hits.get(stage, 0) + 1
+    examples = stage_examples.setdefault(stage, [])
     if symbol not in examples and len(examples) < 5:
         examples.append(symbol)
 
@@ -251,13 +268,13 @@ while True:
             time.sleep(1)
             continue
 
-        session_open = in_london_session() or in_newyork_session()
+        session_open = trading_session_open()
         if not session_open:
             if now - last_idle_summary >= 30:
                 metrics_positions = len(get_open_positions())
                 bot_log(
                     "bot_heartbeat",
-                    f"Bot is online but outside the configured session window. Open positions: {metrics_positions}.",
+                    f"Bot is online but outside the configured session window. Open positions: {metrics_positions}. Set TRADE_ALL_SESSIONS=true to trade all day.",
                     {
                         "symbols": list(VALID_SYMBOLS),
                         "open_positions": metrics_positions,
@@ -281,6 +298,14 @@ while True:
                 )
                 if examples_summary:
                     heartbeat_message += f" Examples: {examples_summary}."
+            if stage_hits:
+                stage_summary = "; ".join(
+                    f"{key}={stage_hits[key]} ({', '.join(stage_examples.get(key, []))})"
+                    for key in sorted(stage_hits.keys())
+                    if stage_hits.get(key)
+                )
+                if stage_summary:
+                    heartbeat_message += f" Passed stages: {stage_summary}."
             bot_log(
                 "bot_heartbeat",
                 heartbeat_message,
@@ -289,11 +314,15 @@ while True:
                     "open_positions": metrics_positions,
                     "skip_stats": dict(skip_stats),
                     "skip_examples": dict(skip_examples),
+                    "stage_hits": dict(stage_hits),
+                    "stage_examples": dict(stage_examples),
                 },
                 persist=False,
             )
             skip_stats = {}
             skip_examples = {}
+            stage_hits = {}
+            stage_examples = {}
             last_idle_summary = now
 
         for symbol in VALID_SYMBOLS:
@@ -302,6 +331,7 @@ while True:
             # SESSION FILTER (HARD RULE)
             # -----------------------------
             original_symbol = next((k for k, v in RESOLVED_MAP.items() if v == symbol), symbol)
+            record_stage("seen", original_symbol)
 
             # -----------------------------
             # FUNDAMENTALS / NEWS FILTER
@@ -310,6 +340,7 @@ while True:
                 if not news_allows_trade(original_symbol):
                     record_skip("fundamentals", original_symbol)
                     continue
+            record_stage("fundamentals", original_symbol)
 
             # -----------------------------
             # LIVE MARKET DATA
@@ -336,6 +367,7 @@ while True:
             ):
                 record_skip("liquidity", original_symbol)
                 continue
+            record_stage("liquidity", original_symbol)
 
             # -----------------------------
             # ENTRY MODEL (ICT CORE)
@@ -363,6 +395,7 @@ while True:
                 )
                 record_skip(f"entry_{entry_reason}", original_symbol)
                 continue
+            record_stage("entry", original_symbol)
 
             # attach symbol and direction (use original name mapping if available)
             signal["symbol"] = original_symbol
@@ -375,6 +408,7 @@ while True:
             if not smt_confirmed(signal, analysis["correlated"]):
                 record_skip("smt", original_symbol)
                 continue
+            record_stage("smt", original_symbol)
 
             # -----------------------------
             # RULE QUALITY FILTER
@@ -382,6 +416,7 @@ while True:
             if not rule_quality_filter(signal):
                 record_skip("rule_quality", original_symbol)
                 continue
+            record_stage("rule_quality", original_symbol)
 
             # -----------------------------
             # ML QUALITY FILTER
@@ -399,6 +434,7 @@ while True:
             if not ml_ok:
                 record_skip("ml", original_symbol)
                 continue
+            record_stage("ml", original_symbol)
 
             # -----------------------------
             # PROTECTION (ONE TRADE PER OB)
@@ -408,6 +444,7 @@ while True:
             if not ob_id or not can_trade(symbol, ob_id):
                 record_skip("protection", original_symbol)
                 continue
+            record_stage("protection", original_symbol)
 
             # -----------------------------
             # PORTFOLIO RISK ALLOCATION
@@ -418,6 +455,7 @@ while True:
             if allowed_risk <= 0:
                 record_skip("risk", original_symbol)
                 continue
+            record_stage("risk", original_symbol)
 
             # -----------------------------
             # ORDER ROUTING
@@ -498,6 +536,7 @@ while True:
                     {"symbol": original_symbol, "direction": direction},
                 )
                 continue
+            record_stage("trade_opened", original_symbol)
             register_trade(symbol, ob_id)
 
             # -----------------------------
