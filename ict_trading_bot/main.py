@@ -241,6 +241,29 @@ def get_order_block_id(symbol, htf_ob):
     return "|".join(normalized)
 
 
+def build_signal_features(signal, price, analysis, atr):
+    fvg = signal.get("fvg") or {}
+    htf_ob = signal.get("htf_ob") or {}
+    fib_mid = analysis.get("MTF", {}).get("fib", {}).get("0.5", price)
+
+    if isinstance(fvg, dict) and fvg.get("high") is not None and fvg.get("low") is not None:
+        fvg_span = abs(float(fvg["high"]) - float(fvg["low"]))
+    else:
+        fvg_span = 0.0
+
+    if isinstance(htf_ob, dict) and htf_ob.get("high") is not None and htf_ob.get("low") is not None:
+        ob_span = abs(float(htf_ob["high"]) - float(htf_ob["low"]))
+    else:
+        ob_span = 0.0
+
+    return [
+        atr,
+        fvg_span,
+        ob_span,
+        abs(price - fib_mid),
+    ]
+
+
 MIN_EXTRA_CONFIRMATIONS = int(os.getenv("MIN_EXTRA_CONFIRMATIONS", "2"))
 STRICT_NEWS_FILTER = os.getenv("NEWS_FILTER_STRICT", "false").lower() in ("1", "true", "yes")
 
@@ -448,12 +471,7 @@ while True:
             # -----------------------------
             # ML QUALITY FILTER
             # -----------------------------
-            features = [
-                atr,
-                abs(signal["fvg"]["high"] - signal["fvg"]["low"]),
-                abs(signal["htf_ob"]["high"] - signal["htf_ob"]["low"]),
-                abs(price - analysis["MTF"]["fib"]["0.5"]),
-            ]
+            features = build_signal_features(signal, price, analysis, atr)
 
             model = None  # load trained model
             ml_ok, probability = ml_quality_filter(features, model)

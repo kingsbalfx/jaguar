@@ -43,8 +43,13 @@ def restart():
 
 
 def run_api(host="0.0.0.0", port=8000):
-    # Run Flask without blocking (use threaded server for dev)
-    app.run(host=host, port=port, threaded=True)
+    try:
+        from waitress import serve
+
+        serve(app, host=host, port=port, threads=8)
+    except Exception:
+        # Fallback to Flask dev server if waitress is not installed yet.
+        app.run(host=host, port=port, threaded=True)
 
 
 def start_in_thread():
