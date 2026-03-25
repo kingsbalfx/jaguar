@@ -2,6 +2,7 @@
 # CORE CONNECTION
 # =====================================================
 from dotenv import load_dotenv
+import sys
 from config.trading_pairs import TradingPairs
 from execution.mt5_connector import (
     connect,
@@ -61,6 +62,15 @@ from bot_state import (
 )
 
 load_dotenv()
+
+if (
+    os.getenv("MULTI_ACCOUNT_ENABLED", "false").lower() in ("1", "true", "yes", "on")
+    and os.getenv("MULTI_ACCOUNT_CHILD", "false").lower() not in ("1", "true", "yes", "on")
+):
+    from multi_account_runner import main as run_multi_account_supervisor
+
+    run_multi_account_supervisor()
+    sys.exit(0)
 
 
 def bot_log(event, message, payload=None, persist=True):
