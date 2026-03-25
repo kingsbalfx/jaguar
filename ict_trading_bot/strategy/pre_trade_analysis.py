@@ -9,10 +9,13 @@ import os
 def analyze_market_top_down(
     symbol,
     price,
-    htf="H4",
-    mtf="H1",
-    ltf="M15"
+    htf=None,
+    mtf=None,
+    ltf=None
 ):
+    htf = htf or os.getenv("HTF_TIMEFRAME", "H4")
+    mtf = mtf or os.getenv("MTF_TIMEFRAME", "H1")
+    ltf = ltf or os.getenv("LTF_TIMEFRAME", "M15")
     analysis = {}
 
     for tf in [htf, mtf, ltf]:
@@ -77,6 +80,7 @@ def analyze_market_top_down(
     return {
         "overall_trend": overall_trend,
         "price": price,
+        "timeframes": {"HTF": htf, "MTF": mtf, "LTF": ltf},
         "HTF": analysis[htf],
         "MTF": analysis[mtf],
         "LTF": analysis[ltf],

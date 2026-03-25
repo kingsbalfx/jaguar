@@ -266,6 +266,27 @@ def build_signal_features(signal, price, analysis, atr):
 
 MIN_EXTRA_CONFIRMATIONS = int(os.getenv("MIN_EXTRA_CONFIRMATIONS", "2"))
 STRICT_NEWS_FILTER = os.getenv("NEWS_FILTER_STRICT", "false").lower() in ("1", "true", "yes")
+COUNT_FUNDAMENTALS_AS_CONFIRMATION = os.getenv("COUNT_FUNDAMENTALS_AS_CONFIRMATION", "false").lower() in ("1", "true", "yes")
+
+
+def build_execution_context(signal, analysis, confirmation_flags, confirmation_threshold):
+    timeframes = analysis.get("timeframes", {"HTF": "H4", "MTF": "H1", "LTF": "M15"})
+    timeframe_trends = {
+        "HTF": analysis.get("HTF", {}).get("trend"),
+        "MTF": analysis.get("MTF", {}).get("trend"),
+        "LTF": analysis.get("LTF", {}).get("trend"),
+    }
+    met_confirmations = [name for name, passed in confirmation_flags.items() if passed]
+    return {
+        "topdown_trend": signal.get("trend"),
+        "timeframes": timeframes,
+        "timeframe_trends": timeframe_trends,
+        "confirmation_threshold": confirmation_threshold,
+        "confirmations_met": met_confirmations,
+        "fib_zone": signal.get("fib_zone"),
+        "fvg_timeframe": (signal.get("fvg") or {}).get("timeframe"),
+        "order_block_timeframe": (signal.get("htf_ob") or {}).get("timeframe"),
+    }
 
 
 while True:
@@ -481,9 +502,16 @@ while True:
             else:
                 record_skip("ml", original_symbol)
 
-            extra_confirmations = sum(
-                1 for passed in [fundamentals_ok, liquidity_ok, smt_ok, rule_ok, ml_ok] if passed
-            )
+            confirmation_flags = {
+                "liquidity": liquidity_ok,
+                "smt": smt_ok,
+                "rule_quality": rule_ok,
+                "ml": ml_ok,
+            }
+            if COUNT_FUNDAMENTALS_AS_CONFIRMATION:
+                confirmation_flags["fundamentals"] = fundamentals_ok
+
+            extra_confirmations = sum(1 for passed in confirmation_flags.values() if passed)
             if extra_confirmations < MIN_EXTRA_CONFIRMATIONS:
                 record_skip("confirmations", original_symbol)
                 continue
@@ -544,6 +572,7 @@ while True:
             # -----------------------------
             try:
                 persist_signal_to_supabase({
+                    "bot_id": os.getenv("BOT_ID") or os.getenv("BOT_INSTANCE_ID") or "windows_mt5_bot",
                     "symbol": original_symbol,
                     "direction": direction,
                     "entry": price,
@@ -552,14 +581,30 @@ while True:
                     "lot": lot,
                     "ml_probability": probability,
                     "signal_quality": "premium",
+                    "reason": build_execution_context(signal, analysis, confirmation_flags, MIN_EXTRA_CONFIRMATIONS),
                     "status": "pending",
                 })
             except Exception:
                 pass
 
+            execution_context = build_execution_context(
+                signal,
+                analysis,
+                confirmation_flags,
+                MIN_EXTRA_CONFIRMATIONS,
+            )
             bot_log(
                 "signal_detected",
-                f"Signal detected on {original_symbol} ({direction}).",
+                (
+                    f"Signal detected on {original_symbol} ({direction}). "
+                    f"Top-down {execution_context['timeframes']['HTF']}/"
+                    f"{execution_context['timeframes']['MTF']}/"
+                    f"{execution_context['timeframes']['LTF']} trends: "
+                    f"{execution_context['timeframe_trends']['HTF']}/"
+                    f"{execution_context['timeframe_trends']['MTF']}/"
+                    f"{execution_context['timeframe_trends']['LTF']}. "
+                    f"Confirmations met: {', '.join(execution_context['confirmations_met']) or 'none'}."
+                ),
                 {
                     "symbol": original_symbol,
                     "direction": direction,
@@ -567,6 +612,7 @@ while True:
                     "sl": sl,
                     "tp": tp,
                     "probability": probability,
+                    **execution_context,
                 },
             )
 
@@ -607,7 +653,14 @@ while True:
             })
             bot_log(
                 "trade_opened",
-                f"Trade opened on {original_symbol} ({direction}) with lot {lot}.",
+                (
+                    f"Trade opened on {original_symbol} ({direction}) with lot {lot}. "
+                    f"Top-down trend {execution_context['topdown_trend']} across "
+                    f"{execution_context['timeframes']['HTF']}/"
+                    f"{execution_context['timeframes']['MTF']}/"
+                    f"{execution_context['timeframes']['LTF']}. "
+                    f"Confirmations used: {', '.join(execution_context['confirmations_met']) or 'none'}."
+                ),
                 {
                     "symbol": original_symbol,
                     "direction": direction,
@@ -615,6 +668,7 @@ while True:
                     "entry": price,
                     "sl": sl,
                     "tp": tp,
+                    **execution_context,
                 },
             )
             publish_runtime_metrics(list(VALID_SYMBOLS))

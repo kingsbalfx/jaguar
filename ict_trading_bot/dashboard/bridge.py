@@ -109,6 +109,7 @@ def persist_signal_to_supabase(signal: Dict[str, Any]):
 
     table = os.getenv("BOT_SIGNALS_TABLE", "bot_signals")
     record = {
+        "bot_id": signal.get("bot_id") or os.getenv("BOT_ID") or os.getenv("BOT_INSTANCE_ID") or "windows_mt5_bot",
         "user_id": signal.get("user_id"),
         "symbol": signal.get("symbol"),
         "direction": signal.get("direction"),

@@ -6,9 +6,15 @@ def choose_order_type(price, fvg, mode="auto"):
         return "limit"
 
     # AUTO MODE
-    midpoint = (fvg["low"] + fvg["high"]) / 2
+    if not isinstance(fvg, dict):
+        return "market"
 
-    if fvg["low"] <= price <= fvg["high"]:
+    low = fvg.get("low")
+    high = fvg.get("high")
+    if low is None or high is None:
+        return "market"
+
+    if low <= price <= high:
         return "market"
 
     return "limit"
