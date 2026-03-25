@@ -74,13 +74,17 @@ class TradingPairs:
     CRYPTO = [
         "BTCUSD",  # Bitcoin vs USD
         "ETHUSD",  # Ethereum vs USD
+        "DOGEUSD", # Dogecoin vs USD
+        "BNBUSD",  # Binance Coin vs USD
+        "SOLUSD",  # Solana vs USD
+        "XRPUSD",  # Ripple vs USD
+        "TRXUSD",  # Tron vs USD
+        "TONUSD",  # Toncoin vs USD
+        "ADAUSD",  # Cardano vs USD
+        "AVAXUSD", # Avalanche vs USD
         "LTCUSD",  # Litecoin vs USD
         "BCHUSD",  # Bitcoin Cash vs USD
-        "XRPUSD",  # Ripple vs USD
         "EOSUSD",  # EOS vs USD
-        "ADAUSD",  # Cardano vs USD
-        "SOLUSD",  # Solana vs USD
-        "DOGUSD",  # Dogecoin vs USD
         "MATICUSD",  # Polygon vs USD
         "LINKUSD",  # Chainlink vs USD
         "UNIUSD",  # Uniswap vs USD

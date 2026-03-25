@@ -26,7 +26,7 @@ def _select_fields(has_updated_at):
     return "login,password,server,updated_at" if has_updated_at else "login,password,server"
 
 
-def _fetch_mt5_credentials_row():
+def _fetch_mt5_credentials_rows():
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_KEY")
 
@@ -35,16 +35,21 @@ def _fetch_mt5_credentials_row():
 
     client = create_client(url, key)
 
+    account_login = os.getenv("MT5_ACCOUNT_LOGIN", "").strip()
+
     def _query(has_active, has_updated_at):
         query = client.table("mt5_credentials").select(_select_fields(has_updated_at))
 
         if has_active:
             query = query.eq("active", True)
 
+        if account_login:
+            query = query.eq("login", account_login)
+
         if has_updated_at:
             query = query.order("updated_at", desc=True)
 
-        return query.limit(1).execute()
+        return query.execute()
 
     has_active = True
     has_updated_at = True
@@ -72,7 +77,12 @@ def _fetch_mt5_credentials_row():
     if not data:
         raise RuntimeError("No MT5 credentials found in Supabase (mt5_credentials)")
 
-    return data[0]
+    return data
+
+
+def _fetch_mt5_credentials_row():
+    rows = _fetch_mt5_credentials_rows()
+    return rows[0]
 
 
 def fetch_mt5_credentials():
@@ -93,3 +103,15 @@ def fetch_mt5_credentials_signature():
             str(row.get("server") or ""),
         ]
     )
+
+
+def fetch_all_mt5_credentials():
+    rows = _fetch_mt5_credentials_rows()
+    return [
+        {
+            "login": row.get("login"),
+            "password": row.get("password"),
+            "server": row.get("server"),
+        }
+        for row in rows
+    ]

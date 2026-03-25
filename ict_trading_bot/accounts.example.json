@@ -1,0 +1,67 @@
+{
+  "accounts": [
+    {
+      "enabled": true,
+      "login": "3611136",
+      "bot_id": "windows_mt5_bot_3611136",
+      "api_port": 8000,
+      "backtest_report_path": "backtest/latest_approval_3611136.json",
+      "symbols": [
+        "EURUSD",
+        "GBPUSD",
+        "USDJPY",
+        "AUDUSD",
+        "NZDUSD",
+        "USDCAD",
+        "USDCHF",
+        "EURGBP",
+        "EURJPY",
+        "GBPJPY",
+        "AUDJPY",
+        "CADJPY",
+        "GBPCHF",
+        "EURCHF",
+        "EURAUD",
+        "GBPAUD",
+        "XAUUSD",
+        "XAGUSD",
+        "BTCUSD",
+        "ETHUSD",
+        "DOGEUSD",
+        "BNBUSD",
+        "SOLUSD",
+        "XRPUSD",
+        "TRXUSD",
+        "TONUSD",
+        "ADAUSD",
+        "AVAXUSD",
+        "LTCUSD"
+      ]
+    },
+    {
+      "enabled": false,
+      "login": "PUT_SECOND_ACCOUNT_LOGIN_HERE",
+      "bot_id": "windows_mt5_bot_second_account",
+      "api_port": 8001,
+      "backtest_report_path": "backtest/latest_approval_second_account.json",
+      "symbols": [
+        "EURUSD",
+        "GBPUSD",
+        "BTCUSD",
+        "ETHUSD",
+        "DOGEUSD",
+        "BNBUSD",
+        "SOLUSD",
+        "XRPUSD",
+        "TRXUSD",
+        "TONUSD",
+        "ADAUSD",
+        "AVAXUSD",
+        "LTCUSD"
+      ],
+      "extra_env": {
+        "API_HOST": "0.0.0.0"
+      }
+    }
+  ]
+}

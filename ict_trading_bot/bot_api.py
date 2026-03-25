@@ -43,6 +43,13 @@ def restart():
 
 
 def run_api(host="0.0.0.0", port=8000):
+    import os
+
+    host = os.getenv("API_HOST", host)
+    try:
+        port = int(os.getenv("API_PORT", str(port)))
+    except Exception:
+        port = port
     try:
         from waitress import serve
 

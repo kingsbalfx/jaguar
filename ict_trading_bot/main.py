@@ -2,6 +2,7 @@
 # CORE CONNECTION
 # =====================================================
 from dotenv import load_dotenv
+from config.trading_pairs import TradingPairs
 from execution.mt5_connector import (
     connect,
     reconnect,
@@ -35,6 +36,7 @@ from risk.trade_management import manage_trade
 from ml.rule_filter import rule_quality_filter
 from ml.ml_filter import ml_quality_filter
 from fundamentals.news_filter import news_allows_trade
+from backtest.approval import ensure_backtest_approval
 
 # =====================================================
 # SESSION FILTER
@@ -106,12 +108,25 @@ if os.getenv("MT5_DISABLED", "").lower() in ("1", "true", "yes"):
     while True:
         time.sleep(60)
 
-SYMBOLS = [
+DEFAULT_SYMBOLS = [
     "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "NZDUSD", "USDCAD",
     "USDCHF", "EURGBP", "EURJPY", "GBPJPY", "AUDJPY", "CADJPY",
     "GBPCHF", "EURCHF", "EURAUD", "GBPAUD",
-    "XAUUSD", "XAGUSD", "BTCUSD", "ETHUSD",
-]
+    "XAUUSD", "XAGUSD",
+] + TradingPairs.CRYPTO
+
+
+def load_symbols():
+    raw = os.getenv("SYMBOLS", "").strip()
+    requested = [item.strip().upper() for item in raw.split(",") if item.strip()] if raw else DEFAULT_SYMBOLS
+    out = []
+    for symbol in requested:
+        if symbol not in out:
+            out.append(symbol)
+    return out
+
+
+SYMBOLS = load_symbols()
 
 def resolve_symbols():
     # Validate and resolve symbols using mapping candidates; keep a mapping original->resolved
@@ -199,6 +214,7 @@ except Exception as e:
 last_sync_check = 0.0
 last_metrics_refresh = 0.0
 last_idle_summary = 0.0
+last_backtest_check = 0.0
 skip_stats = {}
 skip_examples = {}
 stage_hits = {}
@@ -267,6 +283,7 @@ def build_signal_features(signal, price, analysis, atr):
 MIN_EXTRA_CONFIRMATIONS = int(os.getenv("MIN_EXTRA_CONFIRMATIONS", "2"))
 STRICT_NEWS_FILTER = os.getenv("NEWS_FILTER_STRICT", "false").lower() in ("1", "true", "yes")
 COUNT_FUNDAMENTALS_AS_CONFIRMATION = os.getenv("COUNT_FUNDAMENTALS_AS_CONFIRMATION", "false").lower() in ("1", "true", "yes")
+RULE_QUALITY_REQUIRED = os.getenv("RULE_QUALITY_REQUIRED", "false").lower() in ("1", "true", "yes")
 
 
 def build_execution_context(signal, analysis, confirmation_flags, confirmation_threshold):
@@ -325,6 +342,26 @@ while True:
                     bot_log("mt5_sync_failed", f"MT5 sync/reconnect failed: {e}", {"error": str(e)})
                 else:
                     raise
+
+        backtest_refresh_seconds = int(os.getenv("BACKTEST_REFRESH_MINUTES", "240")) * 60
+        if now - last_backtest_check >= max(60, backtest_refresh_seconds):
+            last_backtest_check = now
+            try:
+                backtest_approved, backtest_details = ensure_backtest_approval(list(VALID_SYMBOLS))
+                if not backtest_approved:
+                    bot_log(
+                        "backtest_gate",
+                        "Backtest approval is not currently satisfied for the active live profile.",
+                        {"backtest": backtest_details},
+                        persist=False,
+                    )
+            except Exception as backtest_error:
+                bot_log(
+                    "backtest_gate_error",
+                    f"Backtest approval refresh failed: {backtest_error}",
+                    {"error": str(backtest_error)},
+                    persist=False,
+                )
 
         if not CONNECTED:
             time.sleep(1)
@@ -488,6 +525,8 @@ while True:
                 record_stage("rule_quality", original_symbol)
             else:
                 record_skip("rule_quality", original_symbol)
+                if RULE_QUALITY_REQUIRED:
+                    continue
 
             # -----------------------------
             # ML QUALITY FILTER
@@ -516,6 +555,12 @@ while True:
                 record_skip("confirmations", original_symbol)
                 continue
             record_stage("confirmations", original_symbol)
+
+            backtest_approved, backtest_details = ensure_backtest_approval(list(VALID_SYMBOLS))
+            if not backtest_approved:
+                record_skip("backtest", original_symbol)
+                continue
+            record_stage("backtest", original_symbol)
 
             # -----------------------------
             # PROTECTION (ONE TRADE PER OB)
@@ -593,6 +638,7 @@ while True:
                 confirmation_flags,
                 MIN_EXTRA_CONFIRMATIONS,
             )
+            execution_context["backtest"] = backtest_details
             bot_log(
                 "signal_detected",
                 (
@@ -603,7 +649,8 @@ while True:
                     f"{execution_context['timeframe_trends']['HTF']}/"
                     f"{execution_context['timeframe_trends']['MTF']}/"
                     f"{execution_context['timeframe_trends']['LTF']}. "
-                    f"Confirmations met: {', '.join(execution_context['confirmations_met']) or 'none'}."
+                    f"Confirmations met: {', '.join(execution_context['confirmations_met']) or 'none'}. "
+                    f"Backtest status: {execution_context['backtest'].get('reason')}."
                 ),
                 {
                     "symbol": original_symbol,
