@@ -21,14 +21,28 @@ def _split_csv(value):
 def _indexed_env_accounts():
     accounts = []
     index = 1
+    found_any = False
+    base_api_port = int(os.getenv("MULTI_ACCOUNT_BASE_API_PORT", "8000"))
     while True:
         prefix = f"ACCOUNT_{index}_"
+        enabled = _env_truthy(f"{prefix}ENABLED", "false")
         login = os.getenv(f"{prefix}LOGIN", "").strip()
+
+        if not enabled and not login:
+            if found_any:
+                break
+            index += 1
+            continue
+
+        found_any = True
+        if not enabled:
+            index += 1
+            continue
         if not login:
-            break
+            raise RuntimeError(f"{prefix}ENABLED=true but {prefix}LOGIN is missing")
 
         account = {
-            "enabled": _env_truthy(f"{prefix}ENABLED", "true"),
+            "enabled": True,
             "login": login,
             "bot_id": os.getenv(f"{prefix}BOT_ID", f"mt5_bot_{login}"),
         }
@@ -36,6 +50,8 @@ def _indexed_env_accounts():
         api_port = os.getenv(f"{prefix}API_PORT", "").strip()
         if api_port:
             account["api_port"] = int(api_port)
+        else:
+            account["api_port"] = base_api_port + (index - 1)
 
         mt5_path = os.getenv(f"{prefix}MT5_PATH", "").strip()
         if mt5_path:
@@ -48,6 +64,8 @@ def _indexed_env_accounts():
         backtest_report_path = os.getenv(f"{prefix}BACKTEST_REPORT_PATH", "").strip()
         if backtest_report_path:
             account["backtest_report_path"] = backtest_report_path
+        else:
+            account["backtest_report_path"] = f"backtest/latest_approval_{login}.json"
 
         extra_env_raw = os.getenv(f"{prefix}EXTRA_ENV_JSON", "").strip()
         if extra_env_raw:
