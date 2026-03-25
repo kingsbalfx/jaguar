@@ -241,6 +241,10 @@ def get_order_block_id(symbol, htf_ob):
     return "|".join(normalized)
 
 
+MIN_EXTRA_CONFIRMATIONS = int(os.getenv("MIN_EXTRA_CONFIRMATIONS", "2"))
+STRICT_NEWS_FILTER = os.getenv("NEWS_FILTER_STRICT", "false").lower() in ("1", "true", "yes")
+
+
 while True:
     try:
         now = time.time()
@@ -358,11 +362,14 @@ while True:
             # -----------------------------
             # FUNDAMENTALS / NEWS FILTER
             # -----------------------------
+            fundamentals_ok = True
             if os.getenv("NEWS_FILTER_ENABLED", "true").lower() in ("1", "true", "yes"):
-                if not news_allows_trade(original_symbol):
+                fundamentals_ok = news_allows_trade(original_symbol)
+                if not fundamentals_ok and STRICT_NEWS_FILTER:
                     record_skip("fundamentals", original_symbol)
                     continue
-            record_stage("fundamentals", original_symbol)
+            if fundamentals_ok:
+                record_stage("fundamentals", original_symbol)
 
             # -----------------------------
             # LIVE MARKET DATA
@@ -377,19 +384,11 @@ while True:
             analysis = analyze_market_top_down(symbol, price)
 
             trend = analysis["overall_trend"]
-            direction = "buy" if trend == "bullish" else "sell"
-
-            # -----------------------------
-            # LIQUIDITY (MANDATORY)
-            # -----------------------------
-            if not liquidity_taken(
-                price,
-                analysis["MTF"]["liquidity"],
-                direction
-            ):
-                record_skip("liquidity", original_symbol)
+            if trend not in ("bullish", "bearish"):
+                record_skip("topdown", original_symbol)
                 continue
-            record_stage("liquidity", original_symbol)
+            record_stage("topdown", original_symbol)
+            direction = "buy" if trend == "bullish" else "sell"
 
             # -----------------------------
             # ENTRY MODEL (ICT CORE)
@@ -424,21 +423,27 @@ while True:
             signal["direction"] = direction
             signal["trend"] = trend
 
-            # -----------------------------
-            # SMT CONFIRMATION
-            # -----------------------------
-            if not smt_confirmed(signal, analysis["correlated"]):
-                record_skip("smt", original_symbol)
-                continue
-            record_stage("smt", original_symbol)
+            liquidity_ok = liquidity_taken(
+                price,
+                analysis["MTF"]["liquidity"],
+                direction
+            )
+            if liquidity_ok:
+                record_stage("liquidity", original_symbol)
+            else:
+                record_skip("liquidity", original_symbol)
 
-            # -----------------------------
-            # RULE QUALITY FILTER
-            # -----------------------------
-            if not rule_quality_filter(signal):
+            smt_ok = smt_confirmed(signal, analysis["correlated"])
+            if smt_ok:
+                record_stage("smt", original_symbol)
+            else:
+                record_skip("smt", original_symbol)
+
+            rule_ok = rule_quality_filter(signal)
+            if rule_ok:
+                record_stage("rule_quality", original_symbol)
+            else:
                 record_skip("rule_quality", original_symbol)
-                continue
-            record_stage("rule_quality", original_symbol)
 
             # -----------------------------
             # ML QUALITY FILTER
@@ -453,10 +458,18 @@ while True:
             model = None  # load trained model
             ml_ok, probability = ml_quality_filter(features, model)
 
-            if not ml_ok:
+            if ml_ok:
+                record_stage("ml", original_symbol)
+            else:
                 record_skip("ml", original_symbol)
+
+            extra_confirmations = sum(
+                1 for passed in [fundamentals_ok, liquidity_ok, smt_ok, rule_ok, ml_ok] if passed
+            )
+            if extra_confirmations < MIN_EXTRA_CONFIRMATIONS:
+                record_skip("confirmations", original_symbol)
                 continue
-            record_stage("ml", original_symbol)
+            record_stage("confirmations", original_symbol)
 
             # -----------------------------
             # PROTECTION (ONE TRADE PER OB)
