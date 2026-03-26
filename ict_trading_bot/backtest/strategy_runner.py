@@ -158,6 +158,7 @@ def _analysis_from_frames(symbol, price, frames, profile):
             ],
             "order_blocks": _order_blocks_from_df(symbol, timeframe, df),
             "liquidity": detect_liquidity_zones(swings),
+            "swings": swings,
         }
 
     overall_trend = analysis[htf]["trend"]

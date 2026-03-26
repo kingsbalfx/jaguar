@@ -4,6 +4,10 @@ import time
 from pathlib import Path
 from typing import Dict, Tuple
 
+from backtest.setup_occurrence import (
+    generate_setup_occurrence_report,
+    setup_signature_hash,
+)
 from backtest.strategy_runner import generate_latest_approval
 
 
@@ -81,13 +85,17 @@ def evaluate_backtest_approval(report_path: str = None) -> Tuple[bool, Dict[str,
     min_profit_factor = float(os.getenv("BACKTEST_MIN_PROFIT_FACTOR", "1.2"))
     min_expectancy = float(os.getenv("BACKTEST_MIN_EXPECTANCY", "0.0"))
     max_drawdown = float(os.getenv("BACKTEST_MAX_DRAWDOWN", "1500"))
+    min_occurrences = int(os.getenv("SETUP_BACKTEST_MIN_OCCURRENCES", "5"))
 
     win_rate = float(metrics.get("win_rate", 0.0))
     profit_factor = float(metrics.get("profit_factor", 0.0))
     expectancy = float(metrics.get("expectancy", 0.0))
     drawdown = float(metrics.get("max_drawdown", 0.0))
+    occurrences = int(report.get("occurrences", metrics.get("trades", 0)))
 
     approved = (
+        occurrences >= min_occurrences
+        and
         win_rate >= min_win_rate
         and profit_factor >= min_profit_factor
         and expectancy >= min_expectancy
@@ -98,7 +106,9 @@ def evaluate_backtest_approval(report_path: str = None) -> Tuple[bool, Dict[str,
         {
             "reason": "approved" if approved else "threshold_failed",
             "metrics": metrics,
+            "occurrences": occurrences,
             "thresholds": {
+                "min_occurrences": min_occurrences,
                 "min_win_rate": min_win_rate,
                 "min_profit_factor": min_profit_factor,
                 "min_expectancy": min_expectancy,
@@ -130,4 +140,52 @@ def ensure_symbol_backtest_approval(symbol: str, report_key: str = None) -> Tupl
     approved, details = ensure_backtest_approval(symbols=[symbol], report_path=report_path)
     details["symbol"] = symbol
     details["report_key"] = report_key or symbol
+    return approved, details
+
+
+def ensure_setup_backtest_approval(
+    symbol: str,
+    setup_signature: Dict[str, object],
+    report_key: str = None,
+) -> Tuple[bool, Dict[str, object]]:
+    setup_hash = setup_signature_hash(setup_signature)
+    resolved_report_key = f"{report_key or symbol}_{setup_hash}"
+    report_path = _resolve_report_path(report_key=resolved_report_key)
+    auto_generate = os.getenv("AUTO_GENERATE_BACKTEST_APPROVAL", "true").lower() in ("1", "true", "yes")
+    refresh_minutes = int(os.getenv("BACKTEST_REFRESH_MINUTES", "240"))
+
+    if auto_generate:
+        should_generate = not os.path.exists(report_path)
+        if not should_generate:
+            age_seconds = max(0.0, time.time() - os.path.getmtime(report_path))
+            should_generate = age_seconds >= (refresh_minutes * 60)
+        if should_generate or not os.path.exists(report_path):
+            print(
+                f"[BACKTEST] Running setup-occurrence approval for {symbol} "
+                f"({setup_hash}) before live execution."
+            )
+            generate_setup_occurrence_report(
+                symbol=symbol,
+                setup_signature=setup_signature,
+                report_path=report_path,
+            )
+            print(
+                f"[BACKTEST] Setup-occurrence approval ready for {symbol} "
+                f"({setup_hash})."
+            )
+
+    approved, details = evaluate_backtest_approval(report_path=report_path)
+    details["symbol"] = symbol
+    details["report_key"] = resolved_report_key
+    details["setup_signature"] = setup_signature
+    details["setup_signature_hash"] = setup_hash
+
+    if os.path.exists(report_path):
+        try:
+            report = _load_report(report_path)
+            details["occurrences"] = int(report.get("occurrences", 0))
+            details["occurrence_rate"] = float(report.get("occurrence_rate", 0.0))
+        except Exception:
+            pass
+
     return approved, details

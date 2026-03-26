@@ -37,7 +37,8 @@ from risk.trade_management import manage_trade
 from ml.rule_filter import rule_quality_filter
 from ml.ml_filter import ml_quality_filter
 from fundamentals.news_filter import news_allows_trade
-from backtest.approval import ensure_symbol_backtest_approval
+from backtest.approval import ensure_setup_backtest_approval
+from backtest.setup_occurrence import build_setup_signature
 
 # =====================================================
 # SESSION FILTER
@@ -545,8 +546,10 @@ while True:
                 continue
             record_stage("confirmations", original_symbol)
 
-            backtest_approved, backtest_details = ensure_symbol_backtest_approval(
+            setup_signature = build_setup_signature(signal, analysis, confirmation_flags)
+            backtest_approved, backtest_details = ensure_setup_backtest_approval(
                 symbol,
+                setup_signature=setup_signature,
                 report_key=original_symbol,
             )
             if not backtest_approved:

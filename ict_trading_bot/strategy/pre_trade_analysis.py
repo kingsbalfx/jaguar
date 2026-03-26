@@ -61,7 +61,8 @@ def analyze_market_top_down(
             "premium": premium,
             "fvgs": fvgs,
             "order_blocks": obs,
-            "liquidity": liquidity
+            "liquidity": liquidity,
+            "swings": swings,
         }
 
     # -------------------------
