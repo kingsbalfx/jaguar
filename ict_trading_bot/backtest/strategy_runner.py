@@ -221,17 +221,20 @@ def _simulate_outcome(direction, entry, sl, tp, future_df):
 def run_strategy_backtest(symbols):
     _require_mt5()
     profile = _profile_snapshot()
-    history_bars = int(os.getenv("BACKTEST_HISTORY_BARS", "1200"))
+    history_bars = int(os.getenv("BACKTEST_HISTORY_BARS", "600"))
     lookahead_bars = int(os.getenv("BACKTEST_LOOKAHEAD_BARS", "24"))
-    step_bars = max(1, int(os.getenv("BACKTEST_STEP_BARS", "4")))
+    step_bars = max(1, int(os.getenv("BACKTEST_STEP_BARS", "12")))
     warmup_bars = max(150, int(os.getenv("BACKTEST_WARMUP_BARS", "200")))
+    progress_logs = os.getenv("BACKTEST_PROGRESS_LOGS", "true").lower() in ("1", "true", "yes")
 
     all_trades = []
     equity = 10000.0
     equity_curve = [equity]
     symbol_stats = {}
 
-    for symbol in symbols:
+    for symbol_index, symbol in enumerate(symbols, start=1):
+        if progress_logs:
+            print(f"[BACKTEST] {symbol_index}/{len(symbols)} {symbol} ...")
         htf = profile["htf_timeframe"]
         mtf = profile["mtf_timeframe"]
         ltf = profile["ltf_timeframe"]
@@ -337,6 +340,12 @@ def run_strategy_backtest(symbols):
             symbol_stats[symbol] = calculate_metrics(symbol_trades, symbol_curve)
 
     metrics = calculate_metrics(all_trades, equity_curve)
+    if progress_logs:
+        print(
+            "[BACKTEST] completed "
+            f"{len(symbols)} symbols | trades={metrics.get('trades')} "
+            f"win_rate={metrics.get('win_rate')} profit_factor={metrics.get('profit_factor')}"
+        )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "profile": profile,

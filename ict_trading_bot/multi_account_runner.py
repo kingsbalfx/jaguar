@@ -199,14 +199,29 @@ def spawn_account(account):
     return subprocess.Popen(command, cwd=str(BASE_DIR), env=env)
 
 
+def _terminal_key(account):
+    return (account.get("mt5_path") or os.getenv("MT5_PATH") or "<default_mt5_terminal>").strip().lower()
+
+
 def main():
     accounts = load_accounts()
+    allow_shared_terminal = _env_truthy("MULTI_ACCOUNT_ALLOW_SHARED_TERMINAL", "false")
     processes = []
     restart_on_exit = _env_truthy("MULTI_ACCOUNT_RESTART_ON_EXIT", "false")
+    used_terminals = set()
     try:
         for account in accounts:
+            terminal_key = _terminal_key(account)
+            if not allow_shared_terminal and terminal_key in used_terminals:
+                print(
+                    f"[MULTI] Skipping account {account['login']} because it shares MT5 terminal "
+                    f"'{terminal_key}' with another running account. Set a unique ACCOUNT_n_MT5_PATH "
+                    f"for each account or enable MULTI_ACCOUNT_ALLOW_SHARED_TERMINAL=true at your own risk."
+                )
+                continue
             process = spawn_account(account)
             processes.append((account, process))
+            used_terminals.add(terminal_key)
             print(
                 f"[MULTI] Started account {account['login']} "
                 f"(bot_id={account.get('bot_id')}, pid={process.pid})"
