@@ -7,6 +7,21 @@ logger = logging.getLogger(__name__)
 _MISSING_COLUMN_WARNINGS = set()
 
 
+def _env_credentials():
+    login = os.getenv("MT5_ACCOUNT_LOGIN", "").strip() or os.getenv("MT5_LOGIN", "").strip()
+    password = os.getenv("MT5_ACCOUNT_PASSWORD", "").strip() or os.getenv("MT5_PASSWORD", "").strip()
+    server = os.getenv("MT5_ACCOUNT_SERVER", "").strip() or os.getenv("MT5_SERVER", "").strip()
+
+    if login and password and server:
+        return {
+            "login": login,
+            "password": password,
+            "server": server,
+        }
+
+    return None
+
+
 def _is_missing_column_error(exc, column_name):
     message = str(exc).lower()
     return (
@@ -86,6 +101,9 @@ def _fetch_mt5_credentials_row():
 
 
 def fetch_mt5_credentials():
+    env_creds = _env_credentials()
+    if env_creds:
+        return env_creds
     row = _fetch_mt5_credentials_row()
     return {
         "login": row.get("login"),
@@ -95,7 +113,7 @@ def fetch_mt5_credentials():
 
 
 def fetch_mt5_credentials_signature():
-    row = _fetch_mt5_credentials_row()
+    row = _env_credentials() or _fetch_mt5_credentials_row()
     return "|".join(
         [
             str(row.get("login") or ""),

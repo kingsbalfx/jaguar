@@ -57,6 +57,14 @@ def _indexed_env_accounts():
         if mt5_path:
             account["mt5_path"] = mt5_path
 
+        password = os.getenv(f"{prefix}PASSWORD", "").strip()
+        if password:
+            account["password"] = password
+
+        server = os.getenv(f"{prefix}SERVER", "").strip()
+        if server:
+            account["server"] = server
+
         symbols = _split_csv(os.getenv(f"{prefix}SYMBOLS", ""))
         if symbols:
             account["symbols"] = symbols
@@ -111,6 +119,10 @@ def build_env(account):
     env["MULTI_ACCOUNT_CHILD"] = "1"
     env["BOT_ID"] = str(account.get("bot_id") or f"mt5_bot_{account['login']}")
     env["MT5_ACCOUNT_LOGIN"] = str(account["login"])
+    if account.get("password"):
+        env["MT5_ACCOUNT_PASSWORD"] = str(account["password"])
+    if account.get("server"):
+        env["MT5_ACCOUNT_SERVER"] = str(account["server"])
     if account.get("api_port") is not None:
         env["API_PORT"] = str(account["api_port"])
     if account.get("mt5_path"):
@@ -134,6 +146,7 @@ def spawn_account(account):
 def main():
     accounts = load_accounts()
     processes = []
+    restart_on_exit = _env_truthy("MULTI_ACCOUNT_RESTART_ON_EXIT", "false")
     try:
         for account in accounts:
             process = spawn_account(account)
@@ -147,9 +160,17 @@ def main():
         while True:
             for account, process in list(processes):
                 if process.poll() is not None:
-                    raise RuntimeError(
-                        f"Account {account['login']} process exited with code {process.returncode}"
-                    )
+                    processes.remove((account, process))
+                    print(f"[MULTI] Account {account['login']} exited with code {process.returncode}.")
+                    if restart_on_exit:
+                        restarted = spawn_account(account)
+                        processes.append((account, restarted))
+                        print(
+                            f"[MULTI] Restarted account {account['login']} "
+                            f"(bot_id={account.get('bot_id')}, pid={restarted.pid})"
+                        )
+            if not processes:
+                raise RuntimeError("All multi-account bot processes have exited.")
             time.sleep(5)
     finally:
         for _, process in processes:
