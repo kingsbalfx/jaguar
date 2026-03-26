@@ -37,7 +37,7 @@ from risk.trade_management import manage_trade
 from ml.rule_filter import rule_quality_filter
 from ml.ml_filter import ml_quality_filter
 from fundamentals.news_filter import news_allows_trade
-from backtest.approval import ensure_backtest_approval
+from backtest.approval import ensure_symbol_backtest_approval
 
 # =====================================================
 # SESSION FILTER
@@ -224,10 +224,6 @@ except Exception as e:
 last_sync_check = 0.0
 last_metrics_refresh = 0.0
 last_idle_summary = 0.0
-last_backtest_check = 0.0
-last_backtest_blocked_summary = 0.0
-cached_backtest_approved = True
-cached_backtest_details = {"reason": "not_checked"}
 skip_stats = {}
 skip_examples = {}
 stage_hits = {}
@@ -306,29 +302,6 @@ def build_execution_context(signal, analysis, confirmation_flags, confirmation_t
         "MTF": analysis.get("MTF", {}).get("trend"),
         "LTF": analysis.get("LTF", {}).get("trend"),
     }
-
-
-def format_backtest_gate_message(details):
-    reason = details.get("reason", "unknown")
-    if reason == "threshold_failed":
-        metrics = details.get("metrics") or {}
-        thresholds = details.get("thresholds") or {}
-        return (
-            "Backtest gate is blocking new live trades. "
-            f"win_rate={metrics.get('win_rate')} (min {thresholds.get('min_win_rate')}), "
-            f"profit_factor={metrics.get('profit_factor')} (min {thresholds.get('min_profit_factor')}), "
-            f"expectancy={metrics.get('expectancy')} (min {thresholds.get('min_expectancy')}), "
-            f"max_drawdown={metrics.get('max_drawdown')} (max {thresholds.get('max_drawdown')})."
-        )
-    if reason == "profile_mismatch":
-        return "Backtest gate is blocking live trades because the report profile does not match the active bot settings."
-    if reason == "report_missing":
-        return "Backtest gate is blocking live trades because no approval report exists yet."
-    if reason == "report_invalid":
-        return "Backtest gate is blocking live trades because the approval report could not be read."
-    if reason == "approval_error":
-        return "Backtest gate is blocking live trades because approval refresh failed."
-    return f"Backtest gate is blocking new live trades. Reason: {reason}."
     met_confirmations = [name for name, passed in confirmation_flags.items() if passed]
     return {
         "topdown_trend": signal.get("trend"),
@@ -379,46 +352,6 @@ while True:
                 else:
                     raise
 
-        backtest_refresh_seconds = int(os.getenv("BACKTEST_REFRESH_MINUTES", "240")) * 60
-        if now - last_backtest_check >= max(60, backtest_refresh_seconds):
-            last_backtest_check = now
-            try:
-                bot_log(
-                    "backtest_gate",
-                    f"Running backtest approval for {len(VALID_SYMBOLS)} symbols before live scanning.",
-                    {
-                        "symbols": list(VALID_SYMBOLS),
-                        "report_path": os.getenv("BACKTEST_REPORT_PATH", "backtest/latest_approval.json"),
-                    },
-                    persist=False,
-                )
-                backtest_approved, backtest_details = ensure_backtest_approval(list(VALID_SYMBOLS))
-                cached_backtest_approved = backtest_approved
-                cached_backtest_details = backtest_details
-                if not backtest_approved:
-                    bot_log(
-                        "backtest_gate",
-                        "Backtest approval is not currently satisfied for the active live profile.",
-                        {"backtest": backtest_details},
-                        persist=False,
-                    )
-                else:
-                    bot_log(
-                        "backtest_gate",
-                        "Backtest approval passed. Live scanning is active.",
-                        {"backtest": backtest_details},
-                        persist=False,
-                    )
-            except Exception as backtest_error:
-                cached_backtest_approved = False
-                cached_backtest_details = {"reason": "approval_error", "error": str(backtest_error)}
-                bot_log(
-                    "backtest_gate_error",
-                    f"Backtest approval refresh failed: {backtest_error}",
-                    {"error": str(backtest_error)},
-                    persist=False,
-                )
-
         if not CONNECTED:
             time.sleep(1)
             continue
@@ -429,23 +362,6 @@ while True:
 
         if not is_running():
             time.sleep(1)
-            continue
-
-        if not cached_backtest_approved:
-            if now - last_backtest_blocked_summary >= 30:
-                metrics_positions = len(get_open_positions())
-                bot_log(
-                    "backtest_gate",
-                    format_backtest_gate_message(cached_backtest_details),
-                    {
-                        "open_positions": metrics_positions,
-                        "symbols": list(VALID_SYMBOLS),
-                        "backtest": cached_backtest_details,
-                    },
-                    persist=False,
-                )
-                last_backtest_blocked_summary = now
-            time.sleep(15)
             continue
 
         session_open = trading_session_open()
@@ -629,7 +545,10 @@ while True:
                 continue
             record_stage("confirmations", original_symbol)
 
-            backtest_approved, backtest_details = cached_backtest_approved, cached_backtest_details
+            backtest_approved, backtest_details = ensure_symbol_backtest_approval(
+                symbol,
+                report_key=original_symbol,
+            )
             if not backtest_approved:
                 record_skip("backtest", original_symbol)
                 continue

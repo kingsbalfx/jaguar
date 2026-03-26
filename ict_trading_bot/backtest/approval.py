@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from pathlib import Path
 from typing import Dict, Tuple
 
 from backtest.strategy_runner import generate_latest_approval
@@ -30,9 +31,21 @@ def _load_report(report_path: str) -> Dict[str, object]:
         return json.load(fh)
 
 
-def evaluate_backtest_approval() -> Tuple[bool, Dict[str, object]]:
+def _resolve_report_path(report_path: str = None, report_key: str = None) -> str:
+    base = Path(report_path or os.getenv("BACKTEST_REPORT_PATH", "backtest/latest_approval.json"))
+    if not base.is_absolute():
+        base = Path(__file__).resolve().parent.parent / base
+
+    if report_key:
+        safe_key = str(report_key).replace("/", "_").replace("\\", "_").replace(":", "_").upper()
+        base = base.with_name(f"{base.stem}_{safe_key}{base.suffix}")
+
+    return str(base)
+
+
+def evaluate_backtest_approval(report_path: str = None) -> Tuple[bool, Dict[str, object]]:
     required = os.getenv("BACKTEST_APPROVAL_REQUIRED", "false").lower() in ("1", "true", "yes")
-    report_path = os.getenv("BACKTEST_REPORT_PATH", "backtest/latest_approval.json")
+    report_path = _resolve_report_path(report_path)
     profile = build_strategy_profile()
 
     details: Dict[str, object] = {
@@ -96,9 +109,9 @@ def evaluate_backtest_approval() -> Tuple[bool, Dict[str, object]]:
     return approved, details
 
 
-def ensure_backtest_approval(symbols=None) -> Tuple[bool, Dict[str, object]]:
+def ensure_backtest_approval(symbols=None, report_path: str = None) -> Tuple[bool, Dict[str, object]]:
     auto_generate = os.getenv("AUTO_GENERATE_BACKTEST_APPROVAL", "true").lower() in ("1", "true", "yes")
-    report_path = os.getenv("BACKTEST_REPORT_PATH", "backtest/latest_approval.json")
+    report_path = _resolve_report_path(report_path)
     refresh_minutes = int(os.getenv("BACKTEST_REFRESH_MINUTES", "240"))
 
     if auto_generate:
@@ -109,4 +122,12 @@ def ensure_backtest_approval(symbols=None) -> Tuple[bool, Dict[str, object]]:
         if should_generate or not os.path.exists(report_path):
             generate_latest_approval(symbols=symbols, report_path=report_path)
 
-    return evaluate_backtest_approval()
+    return evaluate_backtest_approval(report_path=report_path)
+
+
+def ensure_symbol_backtest_approval(symbol: str, report_key: str = None) -> Tuple[bool, Dict[str, object]]:
+    report_path = _resolve_report_path(report_key=report_key or symbol)
+    approved, details = ensure_backtest_approval(symbols=[symbol], report_path=report_path)
+    details["symbol"] = symbol
+    details["report_key"] = report_key or symbol
+    return approved, details
