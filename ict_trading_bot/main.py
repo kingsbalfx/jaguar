@@ -620,7 +620,7 @@ while True:
             # -----------------------------
             order_type = choose_order_type(
                 price,
-                signal["fvg"],
+                signal.get("fvg"),
                 mode="auto"
             )
 

@@ -203,11 +203,40 @@ def _terminal_key(account):
     return (account.get("mt5_path") or os.getenv("MT5_PATH") or "<default_mt5_terminal>").strip().lower()
 
 
+def _stop_existing_terminal(account):
+    if not _env_truthy("MULTI_ACCOUNT_KILL_EXISTING_TERMINALS", "true"):
+        return
+
+    mt5_path = str(account.get("mt5_path") or "").strip()
+    if not mt5_path:
+        return
+
+    escaped_path = mt5_path.replace("'", "''")
+    command = (
+        "Get-CimInstance Win32_Process -Filter \"name = 'terminal64.exe'\" "
+        f"| Where-Object {{ $_.ExecutablePath -eq '{escaped_path}' }} "
+        "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", command],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            print(f"[MULTI] Cleared any existing MT5 terminal for account {account['login']}.")
+    except Exception as exc:
+        print(f"[MULTI] Failed to clear existing MT5 terminal for account {account['login']}: {exc}")
+
+
 def main():
     accounts = load_accounts()
     allow_shared_terminal = _env_truthy("MULTI_ACCOUNT_ALLOW_SHARED_TERMINAL", "false")
     processes = []
     restart_on_exit = _env_truthy("MULTI_ACCOUNT_RESTART_ON_EXIT", "false")
+    start_delay_seconds = max(2, int(os.getenv("MULTI_ACCOUNT_START_DELAY_SECONDS", "35")))
     used_terminals = set()
     try:
         for account in accounts:
@@ -219,6 +248,7 @@ def main():
                     f"for each account or enable MULTI_ACCOUNT_ALLOW_SHARED_TERMINAL=true at your own risk."
                 )
                 continue
+            _stop_existing_terminal(account)
             process = spawn_account(account)
             processes.append((account, process))
             used_terminals.add(terminal_key)
@@ -226,7 +256,12 @@ def main():
                 f"[MULTI] Started account {account['login']} "
                 f"(bot_id={account.get('bot_id')}, pid={process.pid})"
             )
-            time.sleep(2)
+            if start_delay_seconds:
+                print(
+                    f"[MULTI] Waiting {start_delay_seconds}s before starting the next account "
+                    f"to let MT5 initialize cleanly."
+                )
+                time.sleep(start_delay_seconds)
 
         while True:
             for account, process in list(processes):

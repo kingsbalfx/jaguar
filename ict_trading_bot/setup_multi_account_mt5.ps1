@@ -78,6 +78,26 @@ function Copy-Mt5Portable {
     Copy-Item -Path (Join-Path $SourceDir "*") -Destination $DestinationDir -Recurse -Force
 }
 
+function Reset-Mt5AccountState {
+    param([string]$AccountDir)
+
+    $configDir = Join-Path $AccountDir "Config"
+    if (-not (Test-Path $configDir)) {
+        return
+    }
+
+    $stateFiles = @(
+        (Join-Path $configDir "accounts.dat"),
+        (Join-Path $configDir "terminal.ini")
+    )
+
+    foreach ($file in $stateFiles) {
+        if (Test-Path $file) {
+            Remove-Item -Path $file -Force
+        }
+    }
+}
+
 $envMap = Get-EnvMap -Path $envFile
 $sourceTerminal = $envMap["MT5_PATH"]
 if (-not $sourceTerminal) {
@@ -116,6 +136,8 @@ while ($true) {
         } else {
             Write-Host "MT5 portable copy already exists for account $login." -ForegroundColor DarkYellow
         }
+
+        Reset-Mt5AccountState -AccountDir $accountDir
 
         $accountTerminal = Join-Path $accountDir "terminal64.exe"
         if (-not (Test-Path $accountTerminal)) {
