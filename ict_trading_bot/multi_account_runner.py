@@ -3,7 +3,10 @@ import os
 import subprocess
 import sys
 import time
+from collections import OrderedDict
 from pathlib import Path
+
+from utils.mt5_credentials import fetch_all_mt5_credentials
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -98,18 +101,71 @@ def _json_env_accounts():
     return [account for account in (accounts or []) if account.get("enabled", True)]
 
 
+def _server_accounts():
+    if not _env_truthy("MULTI_ACCOUNT_LOAD_SERVER", "true"):
+        return []
+    try:
+        credentials = fetch_all_mt5_credentials()
+    except Exception as exc:
+        print(f"[MULTI] Server account load skipped: {exc}")
+        return []
+
+    accounts = []
+    for row in credentials:
+        login = str(row.get("login") or "").strip()
+        if not login:
+            continue
+        accounts.append(
+            {
+                "enabled": True,
+                "login": login,
+                "bot_id": f"mt5_bot_{login}",
+                "password": row.get("password"),
+                "server": row.get("server"),
+                "source": "server",
+            }
+        )
+    return accounts
+
+
+def _merge_accounts(*groups):
+    merged = OrderedDict()
+    for group in groups:
+        for account in group:
+            login = str(account.get("login") or "").strip()
+            if not login:
+                continue
+            current = merged.get(login, {})
+            merged[login] = {**current, **account}
+
+    base_api_port = int(os.getenv("MULTI_ACCOUNT_BASE_API_PORT", "8000"))
+    for offset, login in enumerate(merged.keys()):
+        account = merged[login]
+        if account.get("api_port") is None:
+            account["api_port"] = base_api_port + offset
+        if not account.get("backtest_report_path"):
+            account["backtest_report_path"] = f"backtest/latest_approval_{login}.json"
+
+    return list(merged.values())
+
+
 def load_accounts():
-    accounts = _json_env_accounts()
-    if not accounts:
-        accounts = _indexed_env_accounts()
-    if not accounts:
+    env_accounts = _json_env_accounts()
+    if not env_accounts:
+        env_accounts = _indexed_env_accounts()
+
+    server_accounts = _server_accounts()
+    accounts = _merge_accounts(server_accounts, env_accounts)
+
+    if not accounts and _env_truthy("MULTI_ACCOUNT_LOAD_CONFIG", "true"):
         with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
             payload = json.load(fh)
-        accounts = [account for account in (payload.get("accounts") or []) if account.get("enabled", True)]
+        config_accounts = [account for account in (payload.get("accounts") or []) if account.get("enabled", True)]
+        accounts = _merge_accounts(server_accounts, env_accounts, config_accounts)
     if not accounts:
         raise RuntimeError(
-            f"No accounts configured in env or {CONFIG_PATH}. "
-            "Use MULTI_ACCOUNT_ACCOUNTS_JSON or ACCOUNT_1_LOGIN / ACCOUNT_2_LOGIN..."
+            f"No accounts configured in env, server, or {CONFIG_PATH}. "
+            "Use mt5_credentials rows, MULTI_ACCOUNT_ACCOUNTS_JSON, or ACCOUNT_1_LOGIN / ACCOUNT_2_LOGIN..."
         )
     return accounts
 
