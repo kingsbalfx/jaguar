@@ -225,6 +225,8 @@ last_sync_check = 0.0
 last_metrics_refresh = 0.0
 last_idle_summary = 0.0
 last_backtest_check = 0.0
+cached_backtest_approved = True
+cached_backtest_details = {"reason": "not_checked"}
 skip_stats = {}
 skip_examples = {}
 stage_hits = {}
@@ -357,7 +359,18 @@ while True:
         if now - last_backtest_check >= max(60, backtest_refresh_seconds):
             last_backtest_check = now
             try:
+                bot_log(
+                    "backtest_gate",
+                    f"Running backtest approval for {len(VALID_SYMBOLS)} symbols before live scanning.",
+                    {
+                        "symbols": list(VALID_SYMBOLS),
+                        "report_path": os.getenv("BACKTEST_REPORT_PATH", "backtest/latest_approval.json"),
+                    },
+                    persist=False,
+                )
                 backtest_approved, backtest_details = ensure_backtest_approval(list(VALID_SYMBOLS))
+                cached_backtest_approved = backtest_approved
+                cached_backtest_details = backtest_details
                 if not backtest_approved:
                     bot_log(
                         "backtest_gate",
@@ -365,7 +378,16 @@ while True:
                         {"backtest": backtest_details},
                         persist=False,
                     )
+                else:
+                    bot_log(
+                        "backtest_gate",
+                        "Backtest approval passed. Live scanning is active.",
+                        {"backtest": backtest_details},
+                        persist=False,
+                    )
             except Exception as backtest_error:
+                cached_backtest_approved = False
+                cached_backtest_details = {"reason": "approval_error", "error": str(backtest_error)}
                 bot_log(
                     "backtest_gate_error",
                     f"Backtest approval refresh failed: {backtest_error}",
@@ -566,7 +588,7 @@ while True:
                 continue
             record_stage("confirmations", original_symbol)
 
-            backtest_approved, backtest_details = ensure_backtest_approval(list(VALID_SYMBOLS))
+            backtest_approved, backtest_details = cached_backtest_approved, cached_backtest_details
             if not backtest_approved:
                 record_skip("backtest", original_symbol)
                 continue
