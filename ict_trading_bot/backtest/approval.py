@@ -16,7 +16,7 @@ def build_strategy_profile() -> Dict[str, object]:
         "htf_timeframe": os.getenv("HTF_TIMEFRAME", "H4"),
         "mtf_timeframe": os.getenv("MTF_TIMEFRAME", "H1"),
         "ltf_timeframe": os.getenv("LTF_TIMEFRAME", "M15"),
-        "min_extra_confirmations": int(os.getenv("MIN_EXTRA_CONFIRMATIONS", "2")),
+        "min_extra_confirmations": max(3, int(os.getenv("MIN_EXTRA_CONFIRMATIONS", "3"))),
         "count_fundamentals_as_confirmation": os.getenv("COUNT_FUNDAMENTALS_AS_CONFIRMATION", "false").lower() in ("1", "true", "yes"),
         "default_rr_ratio": float(os.getenv("DEFAULT_RR_RATIO", "3.0")),
         "min_rr_ratio": float(os.getenv("MIN_RR_RATIO", "2.0")),
