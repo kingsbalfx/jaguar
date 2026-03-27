@@ -9,10 +9,11 @@ from backtest.setup_occurrence import (
     setup_signature_hash,
 )
 from backtest.strategy_runner import generate_latest_approval
+from utils.symbol_profile import build_symbol_profile_snapshot, get_backtest_thresholds
 
 
 def build_strategy_profile() -> Dict[str, object]:
-    return {
+    profile = {
         "htf_timeframe": os.getenv("HTF_TIMEFRAME", "H4"),
         "mtf_timeframe": os.getenv("MTF_TIMEFRAME", "H1"),
         "ltf_timeframe": os.getenv("LTF_TIMEFRAME", "M15"),
@@ -28,6 +29,8 @@ def build_strategy_profile() -> Dict[str, object]:
         "news_filter_strict": os.getenv("NEWS_FILTER_STRICT", "false").lower() in ("1", "true", "yes"),
         "rule_quality_required": os.getenv("RULE_QUALITY_REQUIRED", "false").lower() in ("1", "true", "yes"),
     }
+    profile.update(build_symbol_profile_snapshot())
+    return profile
 
 
 def _load_report(report_path: str) -> Dict[str, object]:
@@ -81,11 +84,13 @@ def evaluate_backtest_approval(report_path: str = None, force_required: bool = F
         details["report_profile"] = report_profile
         return False, details
 
-    min_win_rate = float(os.getenv("BACKTEST_MIN_WIN_RATE", "0.70"))
-    min_profit_factor = float(os.getenv("BACKTEST_MIN_PROFIT_FACTOR", "1.2"))
-    min_expectancy = float(os.getenv("BACKTEST_MIN_EXPECTANCY", "0.0"))
-    max_drawdown = float(os.getenv("BACKTEST_MAX_DRAWDOWN", "1500"))
-    min_occurrences = int(os.getenv("SETUP_BACKTEST_MIN_OCCURRENCES", "8"))
+    symbol = report.get("symbol") or details.get("symbol")
+    thresholds = get_backtest_thresholds(symbol)
+    min_win_rate = float(thresholds["min_win_rate"])
+    min_profit_factor = float(thresholds["min_profit_factor"])
+    min_expectancy = float(thresholds["min_expectancy"])
+    max_drawdown = float(thresholds["max_drawdown"])
+    min_occurrences = int(thresholds["min_occurrences"])
 
     win_rate = float(metrics.get("win_rate", 0.0))
     profit_factor = float(metrics.get("profit_factor", 0.0))
@@ -135,6 +140,7 @@ def evaluate_backtest_approval(report_path: str = None, force_required: bool = F
             "expectancy": expectancy,
             "max_drawdown": drawdown,
             "thresholds": {
+                "asset_class": thresholds["asset_class"],
                 "min_occurrences": min_occurrences,
                 "min_win_rate": min_win_rate,
                 "min_profit_factor": min_profit_factor,
@@ -159,7 +165,11 @@ def ensure_backtest_approval(symbols=None, report_path: str = None) -> Tuple[boo
         if should_generate or not os.path.exists(report_path):
             generate_latest_approval(symbols=symbols, report_path=report_path)
 
-    return evaluate_backtest_approval(report_path=report_path)
+    approved, details = evaluate_backtest_approval(report_path=report_path)
+    if auto_generate and details.get("reason") == "profile_mismatch":
+        generate_latest_approval(symbols=symbols, report_path=report_path)
+        approved, details = evaluate_backtest_approval(report_path=report_path)
+    return approved, details
 
 
 def ensure_symbol_backtest_approval(symbol: str, report_key: str = None) -> Tuple[bool, Dict[str, object]]:
@@ -202,6 +212,17 @@ def ensure_setup_backtest_approval(
             )
 
     approved, details = evaluate_backtest_approval(report_path=report_path, force_required=True)
+    if auto_generate and details.get("reason") == "profile_mismatch":
+        print(
+            f"[BACKTEST] Strategy profile changed for {symbol} ({setup_hash}); "
+            f"regenerating setup-occurrence approval."
+        )
+        generate_setup_occurrence_report(
+            symbol=symbol,
+            setup_signature=setup_signature,
+            report_path=report_path,
+        )
+        approved, details = evaluate_backtest_approval(report_path=report_path, force_required=True)
     details["symbol"] = symbol
     details["report_key"] = resolved_report_key
     details["setup_signature"] = setup_signature
@@ -212,6 +233,9 @@ def ensure_setup_backtest_approval(
             report = _load_report(report_path)
             details["occurrences"] = int(report.get("occurrences", 0))
             details["occurrence_rate"] = float(report.get("occurrence_rate", 0.0))
+            details["match_level"] = report.get("match_level")
+            details["matched_symbols"] = report.get("matched_symbols") or []
+            details["candidate_symbols"] = report.get("candidate_symbols") or []
         except Exception:
             pass
 
@@ -222,11 +246,14 @@ def ensure_setup_backtest_approval(
     drawdown = float(details.get("max_drawdown", metrics.get("max_drawdown", 0.0)))
     occurrences = int(details.get("occurrences", 0))
     occurrence_rate = float(details.get("occurrence_rate", 0.0))
+    match_level = details.get("match_level") or "none"
+    matched_symbols = details.get("matched_symbols") or []
     decision = "APPROVED" if approved else "REJECTED"
     print(
         f"[BACKTEST] {symbol} {decision} | occurrences={occurrences} "
         f"| win_rate={win_rate * 100:.1f}% | occurrence_rate={occurrence_rate * 100:.1f}% "
         f"| profit_factor={profit_factor:.2f} | expectancy={expectancy:.3f} "
+        f"| match_level={match_level} | matched_symbols={len(matched_symbols)} "
         f"| drawdown={drawdown:.2f}"
     )
     if not approved:

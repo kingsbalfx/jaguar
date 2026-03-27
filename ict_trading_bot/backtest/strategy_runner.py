@@ -16,6 +16,7 @@ from ict_concepts.liquidity import detect_liquidity_zones
 from risk.sl_tp_engine import calculate_sl_tp
 from strategy.entry_model import check_entry
 from strategy.setup_confirmations import bos_setup, liquidity_sweep_or_swing, price_action_setup
+from utils.symbol_profile import build_symbol_profile_snapshot, get_entry_profile
 
 
 def _require_mt5():
@@ -38,7 +39,7 @@ def _tf_to_mt5(tf):
 
 
 def _profile_snapshot():
-    return {
+    profile = {
         "htf_timeframe": os.getenv("HTF_TIMEFRAME", "H4"),
         "mtf_timeframe": os.getenv("MTF_TIMEFRAME", "H1"),
         "ltf_timeframe": os.getenv("LTF_TIMEFRAME", "M15"),
@@ -54,6 +55,8 @@ def _profile_snapshot():
         "news_filter_strict": os.getenv("NEWS_FILTER_STRICT", "false").lower() in ("1", "true", "yes"),
         "rule_quality_required": os.getenv("RULE_QUALITY_REQUIRED", "false").lower() in ("1", "true", "yes"),
     }
+    profile.update(build_symbol_profile_snapshot())
+    return profile
 
 
 def _fetch_rates(symbol, timeframe, bars):
@@ -155,12 +158,43 @@ def _recent_candles_from_df(df, bars=4):
     return candles
 
 
+def _atr_from_df(df, period=14):
+    if df is None or len(df) == 0:
+        return 0.0
+
+    recent_df = df.tail(max(period + 1, 2)).reset_index(drop=True)
+    true_ranges = []
+    previous_close = None
+    for _, candle in recent_df.iterrows():
+        high_price = float(candle["high"])
+        low_price = float(candle["low"])
+        close_price = float(candle["close"])
+        if previous_close is None:
+            true_range = high_price - low_price
+        else:
+            true_range = max(
+                high_price - low_price,
+                abs(high_price - previous_close),
+                abs(low_price - previous_close),
+            )
+        true_ranges.append(true_range)
+        previous_close = close_price
+
+    if not true_ranges:
+        return 0.0
+    window = true_ranges[-max(1, min(period, len(true_ranges))):]
+    return sum(window) / len(window)
+
+
 def _analysis_from_frames(symbol, price, frames, profile):
     htf = profile["htf_timeframe"]
     mtf = profile["mtf_timeframe"]
     ltf = profile["ltf_timeframe"]
 
     analysis = {}
+    entry_profile = get_entry_profile(symbol)
+    recent_candle_count = max(16, int(entry_profile["recent_candles"]))
+    atr_period = max(5, int(profile.get("entry_atr_period", 14)))
     for timeframe, df in frames.items():
         if df is None or len(df) < 20:
             return None
@@ -175,7 +209,8 @@ def _analysis_from_frames(symbol, price, frames, profile):
             "order_blocks": _order_blocks_from_df(symbol, timeframe, df),
             "liquidity": detect_liquidity_zones(swings),
             "swings": swings,
-            "recent_candles": _recent_candles_from_df(df),
+            "recent_candles": _recent_candles_from_df(df, bars=recent_candle_count),
+            "atr": _atr_from_df(df, period=atr_period),
         }
 
     overall_trend = analysis[htf]["trend"]
@@ -293,6 +328,8 @@ def run_strategy_backtest(symbols):
                 fib_levels=analysis["MTF"]["fib"],
                 fvgs=analysis["LTF"]["fvgs"],
                 htf_order_blocks=analysis["MTF"]["order_blocks"],
+                symbol=symbol,
+                atr=analysis["MTF"].get("atr"),
             )
             if not isinstance(signal, dict) or not signal:
                 i += step_bars

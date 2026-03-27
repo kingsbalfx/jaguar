@@ -22,7 +22,12 @@ from execution.order_router import choose_order_type
 from strategy.pre_trade_analysis import analyze_market_top_down
 from strategy.entry_model import check_entry, explain_entry_failure
 from strategy.smt_filter import smt_confirmed
-from strategy.setup_confirmations import bos_setup, liquidity_sweep_or_swing, price_action_setup
+from strategy.setup_confirmations import (
+    bos_setup,
+    evaluate_confirmation_quality,
+    liquidity_sweep_or_swing,
+    price_action_setup,
+)
 
 # =====================================================
 # RISK & TRADE MANAGEMENT
@@ -457,6 +462,12 @@ while True:
             # TOP-DOWN ANALYSIS
             # -----------------------------
             analysis = analyze_market_top_down(symbol, price)
+            atr = float(
+                analysis.get("MTF", {}).get("atr")
+                or analysis.get("LTF", {}).get("atr")
+                or atr
+            )
+            atr_threshold = max(atr * 1.5, atr_threshold)
 
             trend = analysis["overall_trend"]
             if trend not in ("bullish", "bearish"):
@@ -474,7 +485,9 @@ while True:
                     price=price,
                     fib_levels=analysis.get("MTF", {}).get("fib", {}),
                     fvgs=analysis.get("LTF", {}).get("fvgs", {}),
-                    htf_order_blocks=analysis.get("MTF", {}).get("order_blocks", {})
+                    htf_order_blocks=analysis.get("MTF", {}).get("order_blocks", {}),
+                    symbol=original_symbol,
+                    atr=analysis.get("MTF", {}).get("atr"),
                 )
             except Exception as e:
                 print("Entry model error, skipping symbol:", e)
@@ -488,6 +501,8 @@ while True:
                     fib_levels=analysis.get("MTF", {}).get("fib", {}),
                     fvgs=analysis.get("LTF", {}).get("fvgs", {}),
                     htf_order_blocks=analysis.get("MTF", {}).get("order_blocks", {}),
+                    symbol=original_symbol,
+                    atr=analysis.get("MTF", {}).get("atr"),
                 )
                 record_skip(f"entry_{entry_reason}", original_symbol)
                 continue
@@ -565,6 +580,16 @@ while True:
                 record_skip("confirmations", original_symbol)
                 continue
             record_stage("confirmations", original_symbol)
+
+            confirmation_summary = evaluate_confirmation_quality(
+                confirmation_flags,
+                symbol=original_symbol,
+            )
+            signal["confirmation_summary"] = confirmation_summary
+            if not confirmation_summary["passed"]:
+                record_skip("confirmation_score", original_symbol)
+                continue
+            record_stage("confirmation_score", original_symbol)
 
             setup_signature = build_setup_signature(signal, analysis, confirmation_flags)
             backtest_approved, backtest_details = ensure_setup_backtest_approval(

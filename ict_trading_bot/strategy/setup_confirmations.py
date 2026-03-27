@@ -1,4 +1,5 @@
 from strategy.liquidity_filter import liquidity_taken
+from utils.symbol_profile import get_confirmation_profile
 
 
 def _direction_to_trend(direction):
@@ -223,4 +224,28 @@ def price_action_setup(analysis, trend):
         "ltf_momentum": ltf_state["momentum"],
         "mtf_patterns": mtf_state["patterns"],
         "ltf_patterns": ltf_state["patterns"],
+    }
+
+
+def evaluate_confirmation_quality(confirmation_flags, symbol=None):
+    profile = get_confirmation_profile(symbol)
+    weights = profile["weights"]
+    met_flags = {
+        name: bool(passed)
+        for name, passed in (confirmation_flags or {}).items()
+        if bool(passed)
+    }
+    weighted_flags = {
+        name: float(weights.get(name, 1.0))
+        for name in sorted(met_flags)
+    }
+    score = sum(weighted_flags.values())
+    min_score = float(profile["min_score"])
+    return {
+        "asset_class": profile["asset_class"],
+        "score": score,
+        "min_score": min_score,
+        "passed": score >= min_score,
+        "met_flags": sorted(met_flags),
+        "weighted_flags": weighted_flags,
     }

@@ -1,33 +1,49 @@
 from ict_concepts.fib import in_discount, in_premium
 import os
 
+from utils.symbol_profile import get_entry_profile, infer_asset_class
 
-def explain_entry_failure(trend, price, fib_levels, fvgs, htf_order_blocks):
-    if trend not in ("bullish", "bearish"):
-        return "trend"
 
+def _resolve_zone_bounds(trend, fib_levels, symbol=None, atr=None):
     f025 = fib_levels.get("0.25") if isinstance(fib_levels, dict) else None
     f05 = fib_levels.get("0.5") if isinstance(fib_levels, dict) else None
     f075 = fib_levels.get("0.75") if isinstance(fib_levels, dict) else None
-    fib_buffer_ratio = float(os.getenv("ENTRY_FIB_BUFFER_RATIO", "0.08"))
+    profile = get_entry_profile(symbol)
+    fib_buffer_ratio = profile["fib_buffer_ratio"]
+    atr_buffer_multiplier = profile["atr_buffer_multiplier"]
+    atr = abs(float(atr or 0.0))
 
     if trend == "bullish":
         if f025 is None or f05 is None:
-            return "fib_missing"
-        zone_size = max(f05 - f025, 0.0)
-        lower = f025 - (zone_size * fib_buffer_ratio)
-        upper = f05 + (zone_size * fib_buffer_ratio)
-        if not (lower <= price <= upper):
-            return "fib_zone"
-
-    if trend == "bearish":
+            return None
+        lower = float(f025)
+        upper = float(f05)
+    elif trend == "bearish":
         if f05 is None or f075 is None:
-            return "fib_missing"
-        zone_size = max(f075 - f05, 0.0)
-        lower = f05 - (zone_size * fib_buffer_ratio)
-        upper = f075 + (zone_size * fib_buffer_ratio)
-        if not (lower <= price <= upper):
-            return "fib_zone"
+            return None
+        lower = float(f05)
+        upper = float(f075)
+    else:
+        return None
+
+    zone_size = max(upper - lower, 0.0)
+    adaptive_buffer = max(zone_size * fib_buffer_ratio, atr * atr_buffer_multiplier)
+    return {
+        "lower": lower - adaptive_buffer,
+        "upper": upper + adaptive_buffer,
+        "buffer": adaptive_buffer,
+    }
+
+
+def explain_entry_failure(trend, price, fib_levels, fvgs, htf_order_blocks, symbol=None, atr=None):
+    if trend not in ("bullish", "bearish"):
+        return "trend"
+
+    bounds = _resolve_zone_bounds(trend, fib_levels, symbol=symbol, atr=atr)
+    if not bounds:
+        return "fib_missing"
+    if not (bounds["lower"] <= price <= bounds["upper"]):
+        return "fib_zone"
 
     valid_fvg = None
     try:
@@ -63,7 +79,9 @@ def check_entry(
     price,
     fib_levels,
     fvgs,
-    htf_order_blocks
+    htf_order_blocks,
+    symbol=None,
+    atr=None,
 ):
     """
     trend: 'bullish' or 'bearish'
@@ -77,31 +95,14 @@ def check_entry(
     # 1️⃣ FIB FILTER
     # -------------------------
     # Defensive fib access
-    f025 = fib_levels.get("0.25") if isinstance(fib_levels, dict) else None
-    f05 = fib_levels.get("0.5") if isinstance(fib_levels, dict) else None
-    f075 = fib_levels.get("0.75") if isinstance(fib_levels, dict) else None
-    fib_buffer_ratio = float(os.getenv("ENTRY_FIB_BUFFER_RATIO", "0.08"))
-
     if trend not in ("bullish", "bearish"):
         return None
 
-    if trend == "bullish":
-        if f025 is None or f05 is None:
-            return None
-        zone_size = max(f05 - f025, 0.0)
-        lower = f025 - (zone_size * fib_buffer_ratio)
-        upper = f05 + (zone_size * fib_buffer_ratio)
-        if not (lower <= price <= upper):
-            return None
-
-    if trend == "bearish":
-        if f05 is None or f075 is None:
-            return None
-        zone_size = max(f075 - f05, 0.0)
-        lower = f05 - (zone_size * fib_buffer_ratio)
-        upper = f075 + (zone_size * fib_buffer_ratio)
-        if not (lower <= price <= upper):
-            return None
+    bounds = _resolve_zone_bounds(trend, fib_levels, symbol=symbol, atr=atr)
+    if not bounds:
+        return None
+    if not (bounds["lower"] <= price <= bounds["upper"]):
+        return None
 
     # -------------------------
     # 2️⃣ FIND VALID FVG
@@ -155,6 +156,8 @@ def check_entry(
         "price": price,
         "fvg": valid_fvg,
         "htf_ob": valid_ob,
-        "fib_zone": "discount" if trend == "bullish" else "premium"
+        "fib_zone": "discount" if trend == "bullish" else "premium",
+        "entry_buffer": bounds["buffer"],
+        "asset_class": infer_asset_class(symbol),
     }
 
