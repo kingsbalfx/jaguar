@@ -18,6 +18,17 @@ from strategy.entry_model import check_entry
 from strategy.setup_confirmations import bos_setup, liquidity_sweep_or_swing, price_action_setup
 from utils.symbol_profile import build_symbol_profile_snapshot, get_entry_profile
 
+RATE_COLUMNS = [
+    "time",
+    "open",
+    "high",
+    "low",
+    "close",
+    "tick_volume",
+    "spread",
+    "real_volume",
+]
+
 
 def _require_mt5():
     if mt5 is None:
@@ -62,8 +73,11 @@ def _profile_snapshot():
 def _fetch_rates(symbol, timeframe, bars):
     rates = mt5.copy_rates_from_pos(symbol, _tf_to_mt5(timeframe), 0, bars)
     if rates is None or len(rates) == 0:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=RATE_COLUMNS)
     df = pd.DataFrame(rates)
+    required_columns = {"time", "open", "high", "low", "close"}
+    if not required_columns.issubset(df.columns):
+        return pd.DataFrame(columns=RATE_COLUMNS)
     df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
     return df
 
