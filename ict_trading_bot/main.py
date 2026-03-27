@@ -21,8 +21,8 @@ from execution.order_router import choose_order_type
 # =====================================================
 from strategy.pre_trade_analysis import analyze_market_top_down
 from strategy.entry_model import check_entry, explain_entry_failure
-from strategy.liquidity_filter import liquidity_taken
 from strategy.smt_filter import smt_confirmed
+from strategy.setup_confirmations import bos_setup, liquidity_sweep_or_swing
 
 # =====================================================
 # RISK & TRADE MANAGEMENT
@@ -294,6 +294,8 @@ MIN_EXTRA_CONFIRMATIONS = int(os.getenv("MIN_EXTRA_CONFIRMATIONS", "2"))
 STRICT_NEWS_FILTER = os.getenv("NEWS_FILTER_STRICT", "false").lower() in ("1", "true", "yes")
 COUNT_FUNDAMENTALS_AS_CONFIRMATION = os.getenv("COUNT_FUNDAMENTALS_AS_CONFIRMATION", "false").lower() in ("1", "true", "yes")
 RULE_QUALITY_REQUIRED = os.getenv("RULE_QUALITY_REQUIRED", "false").lower() in ("1", "true", "yes")
+REQUIRE_BOS_CONFIRMATION = os.getenv("REQUIRE_BOS_CONFIRMATION", "true").lower() in ("1", "true", "yes")
+REQUIRE_LIQUIDITY_SWING_CONFIRMATION = os.getenv("REQUIRE_LIQUIDITY_SWING_CONFIRMATION", "true").lower() in ("1", "true", "yes")
 
 
 def build_execution_context(signal, analysis, confirmation_flags, confirmation_threshold):
@@ -304,6 +306,7 @@ def build_execution_context(signal, analysis, confirmation_flags, confirmation_t
         "LTF": analysis.get("LTF", {}).get("trend"),
     }
     met_confirmations = [name for name, passed in confirmation_flags.items() if passed]
+    setup_context = signal.get("setup_context") or {}
     return {
         "topdown_trend": signal.get("trend"),
         "timeframes": timeframes,
@@ -313,6 +316,8 @@ def build_execution_context(signal, analysis, confirmation_flags, confirmation_t
         "fib_zone": signal.get("fib_zone"),
         "fvg_timeframe": (signal.get("fvg") or {}).get("timeframe"),
         "order_block_timeframe": (signal.get("htf_ob") or {}).get("timeframe"),
+        "bos": setup_context.get("bos"),
+        "liquidity": setup_context.get("liquidity"),
     }
 
 
@@ -494,15 +499,26 @@ while True:
             signal["direction"] = direction
             signal["trend"] = trend
 
-            liquidity_ok = liquidity_taken(
-                price,
-                analysis["MTF"]["liquidity"],
-                direction
-            )
-            if liquidity_ok:
-                record_stage("liquidity", original_symbol)
+            liquidity_state = liquidity_sweep_or_swing(price, analysis, direction)
+            if liquidity_state["confirmed"]:
+                record_stage("liquidity_setup", original_symbol)
             else:
-                record_skip("liquidity", original_symbol)
+                record_skip("liquidity_setup", original_symbol)
+                if REQUIRE_LIQUIDITY_SWING_CONFIRMATION:
+                    continue
+
+            bos_state = bos_setup(analysis, trend)
+            if bos_state["confirmed"]:
+                record_stage("bos", original_symbol)
+            else:
+                record_skip("bos", original_symbol)
+                if REQUIRE_BOS_CONFIRMATION:
+                    continue
+
+            signal["setup_context"] = {
+                "liquidity": liquidity_state,
+                "bos": bos_state,
+            }
 
             smt_ok = smt_confirmed(signal, analysis["correlated"])
             if smt_ok:
@@ -532,7 +548,8 @@ while True:
                 record_skip("ml", original_symbol)
 
             confirmation_flags = {
-                "liquidity": liquidity_ok,
+                "liquidity_setup": liquidity_state["confirmed"],
+                "bos": bos_state["confirmed"],
                 "smt": smt_ok,
                 "rule_quality": rule_ok,
                 "ml": ml_ok,

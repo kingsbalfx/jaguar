@@ -16,21 +16,7 @@ from backtest.strategy_runner import (
 )
 from risk.sl_tp_engine import calculate_sl_tp
 from strategy.entry_model import check_entry
-from strategy.liquidity_filter import liquidity_taken
-
-
-def _recent_bos(swings, trend):
-    if not isinstance(swings, list):
-        return False
-
-    highs = [s for s in swings if isinstance(s, dict) and s.get("type") == "high"]
-    lows = [s for s in swings if isinstance(s, dict) and s.get("type") == "low"]
-
-    if trend == "bullish":
-        return len(highs) >= 2 and float(highs[-1]["price"]) > float(highs[-2]["price"])
-    if trend == "bearish":
-        return len(lows) >= 2 and float(lows[-1]["price"]) < float(lows[-2]["price"])
-    return False
+from strategy.setup_confirmations import bos_setup, liquidity_sweep_or_swing
 
 
 def build_setup_signature(signal, analysis, confirmation_flags):
@@ -40,6 +26,9 @@ def build_setup_signature(signal, analysis, confirmation_flags):
     ltf = analysis.get("LTF", {})
     fvg = signal.get("fvg") or {}
     htf_ob = signal.get("htf_ob") or {}
+    setup_context = signal.get("setup_context") or {}
+    bos = setup_context.get("bos") or {}
+    liquidity = setup_context.get("liquidity") or {}
 
     confirmations_met = sorted(
         name for name, passed in (confirmation_flags or {}).items() if passed and name != "fundamentals"
@@ -53,7 +42,11 @@ def build_setup_signature(signal, analysis, confirmation_flags):
         "mtf_trend": mtf.get("trend"),
         "ltf_trend": ltf.get("trend"),
         "fib_zone": signal.get("fib_zone"),
-        "liquidity_sweep": bool((confirmation_flags or {}).get("liquidity")),
+        "liquidity_event_confirmed": bool(liquidity.get("confirmed")),
+        "liquidity_sweep": bool(liquidity.get("liquidity_sweep")),
+        "mtf_swing": bool(liquidity.get("mtf_swing")),
+        "ltf_swing": bool(liquidity.get("ltf_swing")),
+        "bos_confirmed": bool(bos.get("confirmed")),
         "smt_confirmed": bool((confirmation_flags or {}).get("smt")),
         "rule_quality": bool((confirmation_flags or {}).get("rule_quality")),
         "ml_quality": bool((confirmation_flags or {}).get("ml")),
@@ -61,8 +54,8 @@ def build_setup_signature(signal, analysis, confirmation_flags):
         "fvg_timeframe": fvg.get("timeframe"),
         "has_order_block": isinstance(htf_ob, dict) and htf_ob.get("low") is not None and htf_ob.get("high") is not None,
         "order_block_timeframe": htf_ob.get("timeframe"),
-        "mtf_bos": _recent_bos(mtf.get("swings") or [], trend),
-        "ltf_bos": _recent_bos(ltf.get("swings") or [], trend),
+        "mtf_bos": bool(bos.get("mtf_bos")),
+        "ltf_bos": bool(bos.get("ltf_bos")),
         "confirmations_met": confirmations_met,
         "confirmation_count": len(confirmations_met),
     }
@@ -158,14 +151,20 @@ def run_setup_occurrence_backtest(symbol: str, target_signature: Dict[str, objec
         signal["direction"] = direction
         signal["trend"] = trend
 
-        liquidity_ok = liquidity_taken(price, analysis["MTF"]["liquidity"], direction)
+        liquidity_state = liquidity_sweep_or_swing(price, analysis, direction)
+        bos_state = bos_setup(analysis, trend)
         smt_ok = True
         daily_trend = analysis["D1"].get("trend")
         rule_ok = _rule_quality_from_context(signal, daily_trend)
         ml_ok = True
+        signal["setup_context"] = {
+            "liquidity": liquidity_state,
+            "bos": bos_state,
+        }
 
         confirmation_flags = {
-            "liquidity": liquidity_ok,
+            "liquidity_setup": liquidity_state["confirmed"],
+            "bos": bos_state["confirmed"],
             "smt": smt_ok,
             "rule_quality": rule_ok,
             "ml": ml_ok,
