@@ -47,8 +47,8 @@ def _resolve_report_path(report_path: str = None, report_key: str = None) -> str
     return str(base)
 
 
-def evaluate_backtest_approval(report_path: str = None) -> Tuple[bool, Dict[str, object]]:
-    required = os.getenv("BACKTEST_APPROVAL_REQUIRED", "false").lower() in ("1", "true", "yes")
+def evaluate_backtest_approval(report_path: str = None, force_required: bool = False) -> Tuple[bool, Dict[str, object]]:
+    required = force_required or os.getenv("BACKTEST_APPROVAL_REQUIRED", "true").lower() in ("1", "true", "yes")
     report_path = _resolve_report_path(report_path)
     profile = build_strategy_profile()
 
@@ -174,7 +174,7 @@ def ensure_setup_backtest_approval(
                 f"({setup_hash})."
             )
 
-    approved, details = evaluate_backtest_approval(report_path=report_path)
+    approved, details = evaluate_backtest_approval(report_path=report_path, force_required=True)
     details["symbol"] = symbol
     details["report_key"] = resolved_report_key
     details["setup_signature"] = setup_signature

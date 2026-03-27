@@ -294,8 +294,6 @@ MIN_EXTRA_CONFIRMATIONS = max(3, int(os.getenv("MIN_EXTRA_CONFIRMATIONS", "3")))
 STRICT_NEWS_FILTER = os.getenv("NEWS_FILTER_STRICT", "false").lower() in ("1", "true", "yes")
 COUNT_FUNDAMENTALS_AS_CONFIRMATION = os.getenv("COUNT_FUNDAMENTALS_AS_CONFIRMATION", "false").lower() in ("1", "true", "yes")
 RULE_QUALITY_REQUIRED = os.getenv("RULE_QUALITY_REQUIRED", "false").lower() in ("1", "true", "yes")
-REQUIRE_BOS_CONFIRMATION = os.getenv("REQUIRE_BOS_CONFIRMATION", "true").lower() in ("1", "true", "yes")
-REQUIRE_LIQUIDITY_SWING_CONFIRMATION = os.getenv("REQUIRE_LIQUIDITY_SWING_CONFIRMATION", "true").lower() in ("1", "true", "yes")
 
 
 def build_execution_context(signal, analysis, confirmation_flags, confirmation_threshold):
@@ -504,16 +502,12 @@ while True:
                 record_stage("liquidity_setup", original_symbol)
             else:
                 record_skip("liquidity_setup", original_symbol)
-                if REQUIRE_LIQUIDITY_SWING_CONFIRMATION:
-                    continue
 
             bos_state = bos_setup(analysis, trend)
             if bos_state["confirmed"]:
                 record_stage("bos", original_symbol)
             else:
                 record_skip("bos", original_symbol)
-                if REQUIRE_BOS_CONFIRMATION:
-                    continue
 
             signal["setup_context"] = {
                 "liquidity": liquidity_state,
