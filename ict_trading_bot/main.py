@@ -299,9 +299,18 @@ MIN_EXTRA_CONFIRMATIONS = max(3, int(os.getenv("MIN_EXTRA_CONFIRMATIONS", "3")))
 STRICT_NEWS_FILTER = os.getenv("NEWS_FILTER_STRICT", "false").lower() in ("1", "true", "yes")
 COUNT_FUNDAMENTALS_AS_CONFIRMATION = os.getenv("COUNT_FUNDAMENTALS_AS_CONFIRMATION", "false").lower() in ("1", "true", "yes")
 RULE_QUALITY_REQUIRED = os.getenv("RULE_QUALITY_REQUIRED", "false").lower() in ("1", "true", "yes")
+WEIGHTED_CONFIRMATION_DIRECT_EXECUTION = os.getenv("WEIGHTED_CONFIRMATION_DIRECT_EXECUTION", "true").lower() in ("1", "true", "yes")
+WEIGHTED_CONFIRMATION_BACKTEST_FALLBACK = os.getenv("WEIGHTED_CONFIRMATION_BACKTEST_FALLBACK", "true").lower() in ("1", "true", "yes")
 
 
-def build_execution_context(signal, analysis, confirmation_flags, confirmation_threshold):
+def build_execution_context(
+    signal,
+    analysis,
+    confirmation_flags,
+    confirmation_threshold,
+    confirmation_summary=None,
+    execution_route=None,
+):
     timeframes = analysis.get("timeframes", {"HTF": "H4", "MTF": "H1", "LTF": "M15"})
     timeframe_trends = {
         "HTF": analysis.get("HTF", {}).get("trend"),
@@ -315,7 +324,11 @@ def build_execution_context(signal, analysis, confirmation_flags, confirmation_t
         "timeframes": timeframes,
         "timeframe_trends": timeframe_trends,
         "confirmation_threshold": confirmation_threshold,
+        "confirmation_score": float((confirmation_summary or {}).get("score", 0.0)),
+        "confirmation_score_required": float((confirmation_summary or {}).get("min_score", 0.0)),
+        "confirmation_weighted_flags": (confirmation_summary or {}).get("weighted_flags") or {},
         "confirmations_met": met_confirmations,
+        "execution_route": execution_route or "unknown",
         "fib_zone": signal.get("fib_zone"),
         "fvg_timeframe": (signal.get("fvg") or {}).get("timeframe"),
         "order_block_timeframe": (signal.get("htf_ob") or {}).get("timeframe"),
@@ -576,31 +589,41 @@ while True:
                 confirmation_flags["fundamentals"] = fundamentals_ok
 
             extra_confirmations = sum(1 for passed in confirmation_flags.values() if passed)
-            if extra_confirmations < MIN_EXTRA_CONFIRMATIONS:
-                record_skip("confirmations", original_symbol)
-                continue
-            record_stage("confirmations", original_symbol)
-
             confirmation_summary = evaluate_confirmation_quality(
                 confirmation_flags,
                 symbol=original_symbol,
             )
             signal["confirmation_summary"] = confirmation_summary
-            if not confirmation_summary["passed"]:
-                record_skip("confirmation_score", original_symbol)
-                continue
-            record_stage("confirmation_score", original_symbol)
+            execution_route = None
+            if extra_confirmations >= MIN_EXTRA_CONFIRMATIONS:
+                record_stage("confirmations", original_symbol)
+            else:
+                record_skip("confirmations", original_symbol)
 
-            setup_signature = build_setup_signature(signal, analysis, confirmation_flags)
-            backtest_approved, backtest_details = ensure_setup_backtest_approval(
-                symbol,
-                setup_signature=setup_signature,
-                report_key=original_symbol,
-            )
-            if not backtest_approved:
-                record_skip("backtest", original_symbol)
-                continue
-            record_stage("backtest", original_symbol)
+            if confirmation_summary["passed"] and WEIGHTED_CONFIRMATION_DIRECT_EXECUTION:
+                record_stage("confirmation_score", original_symbol)
+                record_stage("weighted_execute", original_symbol)
+                execution_route = "weighted_confirmation"
+                backtest_details = {
+                    "reason": "skipped_weighted_confirmation_pass",
+                    "required": False,
+                }
+            else:
+                record_skip("confirmation_score", original_symbol)
+                if not WEIGHTED_CONFIRMATION_BACKTEST_FALLBACK:
+                    continue
+                setup_signature = build_setup_signature(signal, analysis, confirmation_flags)
+                backtest_approved, backtest_details = ensure_setup_backtest_approval(
+                    symbol,
+                    setup_signature=setup_signature,
+                    report_key=original_symbol,
+                )
+                if not backtest_approved:
+                    record_skip("backtest", original_symbol)
+                    continue
+                record_stage("backtest", original_symbol)
+                record_stage("backtest_execute", original_symbol)
+                execution_route = "backtest_fallback"
 
             # -----------------------------
             # PROTECTION (ONE TRADE PER OB)
@@ -666,7 +689,14 @@ while True:
                     "lot": lot,
                     "ml_probability": probability,
                     "signal_quality": "premium",
-                    "reason": build_execution_context(signal, analysis, confirmation_flags, MIN_EXTRA_CONFIRMATIONS),
+                    "reason": build_execution_context(
+                        signal,
+                        analysis,
+                        confirmation_flags,
+                        MIN_EXTRA_CONFIRMATIONS,
+                        confirmation_summary=confirmation_summary,
+                        execution_route=execution_route,
+                    ),
                     "status": "pending",
                 })
             except Exception:
@@ -677,6 +707,8 @@ while True:
                 analysis,
                 confirmation_flags,
                 MIN_EXTRA_CONFIRMATIONS,
+                confirmation_summary=confirmation_summary,
+                execution_route=execution_route,
             )
             execution_context["backtest"] = backtest_details
             bot_log(
@@ -690,6 +722,7 @@ while True:
                     f"{execution_context['timeframe_trends']['MTF']}/"
                     f"{execution_context['timeframe_trends']['LTF']}. "
                     f"Confirmations met: {', '.join(execution_context['confirmations_met']) or 'none'}. "
+                    f"Execution route: {execution_context['execution_route']}. "
                     f"Backtest status: {execution_context['backtest'].get('reason')}."
                 ),
                 {
@@ -746,7 +779,8 @@ while True:
                     f"{execution_context['timeframes']['HTF']}/"
                     f"{execution_context['timeframes']['MTF']}/"
                     f"{execution_context['timeframes']['LTF']}. "
-                    f"Confirmations used: {', '.join(execution_context['confirmations_met']) or 'none'}."
+                    f"Confirmations used: {', '.join(execution_context['confirmations_met']) or 'none'}. "
+                    f"Execution route: {execution_context['execution_route']}."
                 ),
                 {
                     "symbol": original_symbol,
