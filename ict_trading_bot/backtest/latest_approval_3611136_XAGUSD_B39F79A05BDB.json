@@ -1,0 +1,224 @@
+{
+  "generated_at": "2026-03-27T11:05:56.730446+00:00",
+  "profile": {
+    "htf_timeframe": "H4",
+    "mtf_timeframe": "H1",
+    "ltf_timeframe": "M15",
+    "min_extra_confirmations": 3,
+    "count_fundamentals_as_confirmation": false,
+    "default_rr_ratio": 3.0,
+    "min_rr_ratio": 2.0,
+    "relax_liquidity_rule": true,
+    "liquidity_tolerance_ratio": 0.0015,
+    "relax_fvg_requirement": true,
+    "entry_fib_buffer_ratio": 0.08,
+    "allow_ltf_trend_fallback": true,
+    "news_filter_strict": false,
+    "rule_quality_required": true
+  },
+  "symbol": "XAGUSD",
+  "setup_signature": {
+    "direction": "buy",
+    "trend": "bullish",
+    "timeframes": {
+      "HTF": "H4",
+      "MTF": "H1",
+      "LTF": "M15"
+    },
+    "htf_trend": "range",
+    "mtf_trend": "bullish",
+    "ltf_trend": "bearish",
+    "fib_zone": "discount",
+    "liquidity_event_confirmed": true,
+    "liquidity_sweep": false,
+    "mtf_swing": true,
+    "ltf_swing": false,
+    "bos_confirmed": true,
+    "smt_confirmed": true,
+    "rule_quality": true,
+    "ml_quality": true,
+    "has_fvg": true,
+    "fvg_timeframe": "M15",
+    "has_order_block": true,
+    "order_block_timeframe": "H1",
+    "mtf_bos": true,
+    "ltf_bos": false,
+    "confirmations_met": [
+      "bos",
+      "liquidity_setup",
+      "ml",
+      "rule_quality",
+      "smt"
+    ],
+    "confirmation_count": 5
+  },
+  "setup_signature_hash": "B39F79A05BDB",
+  "occurrences": 3,
+  "candidate_setups": 55,
+  "occurrence_rate": 0.05454545454545454,
+  "metrics": {
+    "trades": 3,
+    "win_rate": 0.0,
+    "profit_factor": 0.0,
+    "max_drawdown": -300.0,
+    "expectancy": -1.0
+  },
+  "trades_sample": [
+    {
+      "symbol": "XAGUSD",
+      "direction": "buy",
+      "entry": 85.0,
+      "sl": 83.97,
+      "tp": 88.09,
+      "result": -1.0,
+      "opened_at": "2026-03-12T20:00:00+00:00",
+      "bars_held": 9,
+      "confirmations": [
+        "bos",
+        "liquidity_setup",
+        "ml",
+        "rule_quality",
+        "smt"
+      ],
+      "setup_signature": {
+        "direction": "buy",
+        "trend": "bullish",
+        "timeframes": {
+          "HTF": "H4",
+          "MTF": "H1",
+          "LTF": "M15"
+        },
+        "htf_trend": "range",
+        "mtf_trend": "bullish",
+        "ltf_trend": "bearish",
+        "fib_zone": "discount",
+        "liquidity_event_confirmed": true,
+        "liquidity_sweep": false,
+        "mtf_swing": true,
+        "ltf_swing": false,
+        "bos_confirmed": true,
+        "smt_confirmed": true,
+        "rule_quality": true,
+        "ml_quality": true,
+        "has_fvg": true,
+        "fvg_timeframe": "M15",
+        "has_order_block": true,
+        "order_block_timeframe": "H1",
+        "mtf_bos": true,
+        "ltf_bos": false,
+        "confirmations_met": [
+          "bos",
+          "liquidity_setup",
+          "ml",
+          "rule_quality",
+          "smt"
+        ],
+        "confirmation_count": 5
+      }
+    },
+    {
+      "symbol": "XAGUSD",
+      "direction": "buy",
+      "entry": 80.75,
+      "sl": 80.14,
+      "tp": 82.58,
+      "result": -1.0,
+      "opened_at": "2026-03-17T00:15:00+00:00",
+      "bars_held": 11,
+      "confirmations": [
+        "bos",
+        "liquidity_setup",
+        "ml",
+        "rule_quality",
+        "smt"
+      ],
+      "setup_signature": {
+        "direction": "buy",
+        "trend": "bullish",
+        "timeframes": {
+          "HTF": "H4",
+          "MTF": "H1",
+          "LTF": "M15"
+        },
+        "htf_trend": "range",
+        "mtf_trend": "bullish",
+        "ltf_trend": "bearish",
+        "fib_zone": "discount",
+        "liquidity_event_confirmed": true,
+        "liquidity_sweep": false,
+        "mtf_swing": true,
+        "ltf_swing": false,
+        "bos_confirmed": true,
+        "smt_confirmed": true,
+        "rule_quality": true,
+        "ml_quality": true,
+        "has_fvg": true,
+        "fvg_timeframe": "M15",
+        "has_order_block": true,
+        "order_block_timeframe": "H1",
+        "mtf_bos": true,
+        "ltf_bos": false,
+        "confirmations_met": [
+          "bos",
+          "liquidity_setup",
+          "ml",
+          "rule_quality",
+          "smt"
+        ],
+        "confirmation_count": 5
+      }
+    },
+    {
+      "symbol": "XAGUSD",
+      "direction": "buy",
+      "entry": 73.54,
+      "sl": 72.33,
+      "tp": 77.17000000000003,
+      "result": -1.0,
+      "opened_at": "2026-03-25T06:00:00+00:00",
+      "bars_held": 23,
+      "confirmations": [
+        "bos",
+        "liquidity_setup",
+        "ml",
+        "rule_quality",
+        "smt"
+      ],
+      "setup_signature": {
+        "direction": "buy",
+        "trend": "bullish",
+        "timeframes": {
+          "HTF": "H4",
+          "MTF": "H1",
+          "LTF": "M15"
+        },
+        "htf_trend": "range",
+        "mtf_trend": "bullish",
+        "ltf_trend": "bearish",
+        "fib_zone": "discount",
+        "liquidity_event_confirmed": true,
+        "liquidity_sweep": false,
+        "mtf_swing": true,
+        "ltf_swing": false,
+        "bos_confirmed": true,
+        "smt_confirmed": true,
+        "rule_quality": true,
+        "ml_quality": true,
+        "has_fvg": true,
+        "fvg_timeframe": "M15",
+        "has_order_block": true,
+        "order_block_timeframe": "H1",
+        "mtf_bos": true,
+        "ltf_bos": false,
+        "confirmations_met": [
+          "bos",
+          "liquidity_setup",
+          "ml",
+          "rule_quality",
+          "smt"
+        ],
+        "confirmation_count": 5
+      }
+    }
+  ]
+}

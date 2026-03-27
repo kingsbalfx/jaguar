@@ -1,0 +1,495 @@
+{
+  "generated_at": "2026-03-26T08:30:01.071401+00:00",
+  "profile": {
+    "htf_timeframe": "H4",
+    "mtf_timeframe": "H1",
+    "ltf_timeframe": "M15",
+    "min_extra_confirmations": 3,
+    "count_fundamentals_as_confirmation": false,
+    "default_rr_ratio": 3.0,
+    "min_rr_ratio": 2.0,
+    "relax_liquidity_rule": true,
+    "liquidity_tolerance_ratio": 0.0015,
+    "relax_fvg_requirement": true,
+    "entry_fib_buffer_ratio": 0.08,
+    "allow_ltf_trend_fallback": true,
+    "news_filter_strict": false,
+    "rule_quality_required": true
+  },
+  "symbols": [
+    "BTC",
+    "ETH",
+    "DOGE",
+    "BNB",
+    "SOL",
+    "XRP",
+    "TRX",
+    "TON",
+    "ADA",
+    "AVAX",
+    "LTC"
+  ],
+  "metrics": {
+    "trades": 195,
+    "win_rate": 0.13846153846153847,
+    "profit_factor": 0.6982758620689655,
+    "max_drawdown": -5700.0,
+    "expectancy": -0.1794871794871795
+  },
+  "symbol_metrics": {
+    "BTC": {
+      "trades": 30,
+      "win_rate": 0.23333333333333334,
+      "profit_factor": 0.9545454545454546,
+      "max_drawdown": -1400.0,
+      "expectancy": -0.03333333333333333
+    },
+    "ETH": {
+      "trades": 13,
+      "win_rate": 0.07692307692307693,
+      "profit_factor": 0.42857142857142855,
+      "max_drawdown": -500.0,
+      "expectancy": -0.3076923076923077
+    },
+    "DOGE": {
+      "trades": 15,
+      "win_rate": 0.06666666666666667,
+      "profit_factor": 0.3,
+      "max_drawdown": -900.0,
+      "expectancy": -0.4666666666666667
+    },
+    "BNB": {
+      "trades": 10,
+      "win_rate": 0.1,
+      "profit_factor": 0.5,
+      "max_drawdown": -600.0,
+      "expectancy": -0.3
+    },
+    "SOL": {
+      "trades": 18,
+      "win_rate": 0.05555555555555555,
+      "profit_factor": 0.3333333333333333,
+      "max_drawdown": -700.0,
+      "expectancy": -0.3333333333333333
+    },
+    "XRP": {
+      "trades": 20,
+      "win_rate": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": -1300.0,
+      "expectancy": -0.65
+    },
+    "TRX": {
+      "trades": 17,
+      "win_rate": 0.058823529411764705,
+      "profit_factor": 0.25,
+      "max_drawdown": -1200.0,
+      "expectancy": -0.5294117647058824
+    },
+    "TON": {
+      "trades": 22,
+      "win_rate": 0.18181818181818182,
+      "profit_factor": 0.8571428571428571,
+      "max_drawdown": -800.0,
+      "expectancy": -0.09090909090909091
+    },
+    "ADA": {
+      "trades": 11,
+      "win_rate": 0.18181818181818182,
+      "profit_factor": 1.5,
+      "max_drawdown": -400.0,
+      "expectancy": 0.18181818181818182
+    },
+    "AVAX": {
+      "trades": 10,
+      "win_rate": 0.3,
+      "profit_factor": 2.25,
+      "max_drawdown": -200.0,
+      "expectancy": 0.5
+    },
+    "LTC": {
+      "trades": 29,
+      "win_rate": 0.20689655172413793,
+      "profit_factor": 1.2,
+      "max_drawdown": -700.0,
+      "expectancy": 0.10344827586206896
+    }
+  },
+  "trades_sample": [
+    {
+      "symbol": "BTC",
+      "direction": "sell",
+      "entry": 71430.74,
+      "sl": 71669.81,
+      "tp": 70713.53000000003,
+      "result": -1.0,
+      "opened_at": "2026-03-15T18:45:00+00:00",
+      "bars_held": 4,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "sell",
+      "entry": 71815.34,
+      "sl": 72098.25,
+      "tp": 70966.60999999999,
+      "result": -1.0,
+      "opened_at": "2026-03-15T19:45:00+00:00",
+      "bars_held": 15,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "sell",
+      "entry": 74157.44,
+      "sl": 74299.84,
+      "tp": 73730.24000000002,
+      "result": -1.0,
+      "opened_at": "2026-03-18T00:30:00+00:00",
+      "bars_held": 1,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "sell",
+      "entry": 73939.67,
+      "sl": 74299.84,
+      "tp": 72859.16,
+      "result": -1.0,
+      "opened_at": "2026-03-18T01:30:00+00:00",
+      "bars_held": 12,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "sell",
+      "entry": 73995.29,
+      "sl": 74299.84,
+      "tp": 73081.63999999998,
+      "result": 3.0,
+      "opened_at": "2026-03-18T07:30:00+00:00",
+      "bars_held": 24,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 71059.39,
+      "sl": 70898.49,
+      "tp": 71542.08999999998,
+      "result": 3.0,
+      "opened_at": "2026-03-19T02:30:00+00:00",
+      "bars_held": 11,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 70686.02,
+      "sl": 70504.97,
+      "tp": 71229.17000000001,
+      "result": -1.0,
+      "opened_at": "2026-03-21T00:15:00+00:00",
+      "bars_held": 3,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 70478.79,
+      "sl": 70389.45,
+      "tp": 70746.80999999998,
+      "result": 3.0,
+      "opened_at": "2026-03-21T01:15:00+00:00",
+      "bars_held": 4,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 70657.24,
+      "sl": 70504.97,
+      "tp": 71114.05000000002,
+      "result": -1.0,
+      "opened_at": "2026-03-21T02:15:00+00:00",
+      "bars_held": 6,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 70464.28,
+      "sl": 70389.45,
+      "tp": 70688.77,
+      "result": 3.0,
+      "opened_at": "2026-03-21T03:45:00+00:00",
+      "bars_held": 2,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 70732.18,
+      "sl": 70504.97,
+      "tp": 71413.80999999997,
+      "result": -1.0,
+      "opened_at": "2026-03-21T04:45:00+00:00",
+      "bars_held": 23,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 70589.16,
+      "sl": 70504.97,
+      "tp": 70841.73000000001,
+      "result": 3.0,
+      "opened_at": "2026-03-21T10:30:00+00:00",
+      "bars_held": 22,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 71014.95,
+      "sl": 70898.49,
+      "tp": 71364.32999999997,
+      "result": -1.0,
+      "opened_at": "2026-03-21T16:00:00+00:00",
+      "bars_held": 3,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 70637.36,
+      "sl": 70504.97,
+      "tp": 71034.53,
+      "result": -1.0,
+      "opened_at": "2026-03-21T17:00:00+00:00",
+      "bars_held": 1,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 70563.98,
+      "sl": 70389.45,
+      "tp": 71087.56999999999,
+      "result": -1.0,
+      "opened_at": "2026-03-21T18:00:00+00:00",
+      "bars_held": 1,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 71520.53,
+      "sl": 71406.12,
+      "tp": 71863.76000000001,
+      "result": -1.0,
+      "opened_at": "2026-03-23T16:00:00+00:00",
+      "bars_held": 1,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 71366.03,
+      "sl": 71099.95,
+      "tp": 72164.27,
+      "result": -1.0,
+      "opened_at": "2026-03-23T17:00:00+00:00",
+      "bars_held": 1,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 70518.79,
+      "sl": 70180.92,
+      "tp": 71532.39999999998,
+      "result": -1.0,
+      "opened_at": "2026-03-23T18:00:00+00:00",
+      "bars_held": 2,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 70625.66,
+      "sl": 70504.97,
+      "tp": 70987.73000000001,
+      "result": -1.0,
+      "opened_at": "2026-03-23T19:00:00+00:00",
+      "bars_held": 1,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 70967.32,
+      "sl": 70414.96,
+      "tp": 72624.40000000001,
+      "result": -1.0,
+      "opened_at": "2026-03-23T20:00:00+00:00",
+      "bars_held": 21,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 70703.0,
+      "sl": 70504.97,
+      "tp": 71297.09,
+      "result": -1.0,
+      "opened_at": "2026-03-24T01:15:00+00:00",
+      "bars_held": 5,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 70531.15,
+      "sl": 70180.92,
+      "tp": 71581.83999999998,
+      "result": -1.0,
+      "opened_at": "2026-03-24T04:30:00+00:00",
+      "bars_held": 10,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 70828.69,
+      "sl": 70504.97,
+      "tp": 71799.85,
+      "result": 0.0,
+      "opened_at": "2026-03-24T09:00:00+00:00",
+      "bars_held": 24,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "buy",
+      "entry": 70823.85,
+      "sl": 70504.97,
+      "tp": 71780.49000000002,
+      "result": -1.0,
+      "opened_at": "2026-03-24T15:00:00+00:00",
+      "bars_held": 2,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "BTC",
+      "direction": "sell",
+      "entry": 71414.59,
+      "sl": 71745.17,
+      "tp": 70422.84999999999,
+      "result": -1.0,
+      "opened_at": "2026-03-25T12:00:00+00:00",
+      "bars_held": 5,
+      "confirmations": [
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    }
+  ]
+}

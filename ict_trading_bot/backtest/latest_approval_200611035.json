@@ -1,0 +1,491 @@
+{
+  "generated_at": "2026-03-26T05:14:43.917633+00:00",
+  "profile": {
+    "htf_timeframe": "H4",
+    "mtf_timeframe": "H1",
+    "ltf_timeframe": "M15",
+    "min_extra_confirmations": 3,
+    "count_fundamentals_as_confirmation": false,
+    "default_rr_ratio": 3.0,
+    "min_rr_ratio": 2.0,
+    "relax_liquidity_rule": true,
+    "liquidity_tolerance_ratio": 0.0015,
+    "relax_fvg_requirement": true,
+    "entry_fib_buffer_ratio": 0.08,
+    "allow_ltf_trend_fallback": true,
+    "news_filter_strict": false,
+    "rule_quality_required": true
+  },
+  "symbols": [
+    "EURUSD",
+    "GBPUSD",
+    "USDJPY",
+    "AUDUSD",
+    "NZDUSD",
+    "USDCAD",
+    "USDCHF",
+    "EURGBP",
+    "EURJPY",
+    "GBPJPY",
+    "AUDJPY",
+    "CADJPY",
+    "GBPCHF",
+    "EURCHF",
+    "EURAUD",
+    "GBPAUD",
+    "XAUUSD",
+    "XAGUSD",
+    "BTCUSD",
+    "ETHUSD",
+    "DOGE",
+    "BNBUSD",
+    "SOLUSD",
+    "XRP",
+    "TRX",
+    "TON",
+    "ADAUSD",
+    "AVAX",
+    "LTCUSD",
+    "BCHUSD",
+    "UNIUSD"
+  ],
+  "metrics": {
+    "trades": 101,
+    "win_rate": 0.15841584158415842,
+    "profit_factor": 0.7384615384615385,
+    "max_drawdown": -3200.0,
+    "expectancy": -0.16831683168316833
+  },
+  "symbol_metrics": {
+    "EURUSD": {
+      "trades": 31,
+      "win_rate": 0.0967741935483871,
+      "profit_factor": 0.375,
+      "max_drawdown": -1600.0,
+      "expectancy": -0.4838709677419355
+    },
+    "GBPUSD": {
+      "trades": 38,
+      "win_rate": 0.13157894736842105,
+      "profit_factor": 0.625,
+      "max_drawdown": -1400.0,
+      "expectancy": -0.23684210526315788
+    },
+    "USDJPY": {
+      "trades": 18,
+      "win_rate": 0.16666666666666666,
+      "profit_factor": 0.8181818181818182,
+      "max_drawdown": -700.0,
+      "expectancy": -0.1111111111111111
+    },
+    "AUDUSD": {
+      "trades": 14,
+      "win_rate": 0.35714285714285715,
+      "profit_factor": 2.5,
+      "max_drawdown": -200.0,
+      "expectancy": 0.6428571428571429
+    }
+  },
+  "trades_sample": [
+    {
+      "symbol": "EURUSD",
+      "direction": "buy",
+      "entry": 1.15191,
+      "sl": 1.15154,
+      "tp": 1.15302,
+      "result": -1.0,
+      "opened_at": "2026-03-16T20:45:00+00:00",
+      "bars_held": 2,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "buy",
+      "entry": 1.14912,
+      "sl": 1.14805,
+      "tp": 1.1523299999999996,
+      "result": -1.0,
+      "opened_at": "2026-03-17T02:45:00+00:00",
+      "bars_held": 20,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "buy",
+      "entry": 1.1494900000000001,
+      "sl": 1.14805,
+      "tp": 1.1538100000000004,
+      "result": 3.0,
+      "opened_at": "2026-03-17T09:45:00+00:00",
+      "bars_held": 22,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "buy",
+      "entry": 1.15247,
+      "sl": 1.1515,
+      "tp": 1.1553800000000005,
+      "result": 0.0,
+      "opened_at": "2026-03-17T16:15:00+00:00",
+      "bars_held": 24,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "buy",
+      "entry": 1.15417,
+      "sl": 1.15349,
+      "tp": 1.15621,
+      "result": -1.0,
+      "opened_at": "2026-03-18T00:15:00+00:00",
+      "bars_held": 9,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "buy",
+      "entry": 1.1535,
+      "sl": 1.15323,
+      "tp": 1.15431,
+      "result": -1.0,
+      "opened_at": "2026-03-18T02:30:00+00:00",
+      "bars_held": 1,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "buy",
+      "entry": 1.15357,
+      "sl": 1.15349,
+      "tp": 1.1538100000000002,
+      "result": -1.0,
+      "opened_at": "2026-03-18T03:30:00+00:00",
+      "bars_held": 1,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "buy",
+      "entry": 1.15356,
+      "sl": 1.15349,
+      "tp": 1.15377,
+      "result": -1.0,
+      "opened_at": "2026-03-18T04:30:00+00:00",
+      "bars_held": 1,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "buy",
+      "entry": 1.15335,
+      "sl": 1.15323,
+      "tp": 1.1537100000000005,
+      "result": 3.0,
+      "opened_at": "2026-03-18T05:30:00+00:00",
+      "bars_held": 2,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "buy",
+      "entry": 1.15391,
+      "sl": 1.15349,
+      "tp": 1.1551700000000003,
+      "result": -1.0,
+      "opened_at": "2026-03-18T06:30:00+00:00",
+      "bars_held": 12,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "buy",
+      "entry": 1.15275,
+      "sl": 1.1515,
+      "tp": 1.1564999999999999,
+      "result": -1.0,
+      "opened_at": "2026-03-18T09:30:00+00:00",
+      "bars_held": 20,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "buy",
+      "entry": 1.15137,
+      "sl": 1.1504699999999999,
+      "tp": 1.1540700000000004,
+      "result": -1.0,
+      "opened_at": "2026-03-18T16:30:00+00:00",
+      "bars_held": 10,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "buy",
+      "entry": 1.15138,
+      "sl": 1.1504699999999999,
+      "tp": 1.1541100000000006,
+      "result": -1.0,
+      "opened_at": "2026-03-18T20:00:00+00:00",
+      "bars_held": 1,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "buy",
+      "entry": 1.14727,
+      "sl": 1.14526,
+      "tp": 1.1533000000000002,
+      "result": -1.0,
+      "opened_at": "2026-03-19T06:00:00+00:00",
+      "bars_held": 15,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "sell",
+      "entry": 1.15362,
+      "sl": 1.15401,
+      "tp": 1.1524500000000004,
+      "result": -1.0,
+      "opened_at": "2026-03-19T18:45:00+00:00",
+      "bars_held": 1,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "sell",
+      "entry": 1.15597,
+      "sl": 1.1568,
+      "tp": 1.1534799999999996,
+      "result": -1.0,
+      "opened_at": "2026-03-19T19:45:00+00:00",
+      "bars_held": 4,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "sell",
+      "entry": 1.1584,
+      "sl": 1.15936,
+      "tp": 1.1555200000000005,
+      "result": -1.0,
+      "opened_at": "2026-03-19T20:45:00+00:00",
+      "bars_held": 1,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "sell",
+      "entry": 1.15849,
+      "sl": 1.15936,
+      "tp": 1.1558800000000002,
+      "result": -1.0,
+      "opened_at": "2026-03-19T21:45:00+00:00",
+      "bars_held": 9,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "sell",
+      "entry": 1.1588,
+      "sl": 1.15936,
+      "tp": 1.1571200000000004,
+      "result": 3.0,
+      "opened_at": "2026-03-20T00:00:00+00:00",
+      "bars_held": 11,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "sell",
+      "entry": 1.15745,
+      "sl": 1.15758,
+      "tp": 1.1570600000000002,
+      "result": -1.0,
+      "opened_at": "2026-03-20T02:45:00+00:00",
+      "bars_held": 1,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "sell",
+      "entry": 1.15652,
+      "sl": 1.15758,
+      "tp": 1.1533399999999998,
+      "result": 0.0,
+      "opened_at": "2026-03-20T03:45:00+00:00",
+      "bars_held": 24,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "buy",
+      "entry": 1.15409,
+      "sl": 1.15322,
+      "tp": 1.1567000000000005,
+      "result": -1.0,
+      "opened_at": "2026-03-20T15:45:00+00:00",
+      "bars_held": 2,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "sell",
+      "entry": 1.15357,
+      "sl": 1.15492,
+      "tp": 1.14952,
+      "result": -1.0,
+      "opened_at": "2026-03-20T16:45:00+00:00",
+      "bars_held": 2,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "sell",
+      "entry": 1.15429,
+      "sl": 1.15492,
+      "tp": 1.1524000000000003,
+      "result": -1.0,
+      "opened_at": "2026-03-20T17:45:00+00:00",
+      "bars_held": 1,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    },
+    {
+      "symbol": "EURUSD",
+      "direction": "sell",
+      "entry": 1.15599,
+      "sl": 1.15843,
+      "tp": 1.14867,
+      "result": 0.0,
+      "opened_at": "2026-03-20T18:45:00+00:00",
+      "bars_held": 24,
+      "confirmations": [
+        "liquidity",
+        "smt",
+        "rule_quality",
+        "ml"
+      ]
+    }
+  ]
+}
