@@ -3,6 +3,7 @@ import time
 import logging
 from datetime import datetime
 from typing import Any, Dict
+from uuid import UUID
 
 from supabase import create_client
 
@@ -15,6 +16,16 @@ _BOT_SIGNALS_HAS_CREATED_AT = True
 _BOT_LOGS_HAS_EVENT = True
 _BOT_LOGS_INSERT_DISABLED = False
 _BOT_SIGNALS_INSERT_DISABLED = False
+
+
+def _normalize_uuid(value: Any):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return str(UUID(raw))
+    except Exception:
+        return None
 
 
 def _get_supabase_client():
@@ -108,9 +119,13 @@ def persist_signal_to_supabase(signal: Dict[str, Any]):
         return
 
     table = os.getenv("BOT_SIGNALS_TABLE", "bot_signals")
+    bot_uuid = (
+        _normalize_uuid(signal.get("bot_id"))
+        or _normalize_uuid(os.getenv("BOT_INSTANCE_ID"))
+        or _normalize_uuid(os.getenv("BOT_ID"))
+    )
+    user_uuid = _normalize_uuid(signal.get("user_id"))
     record = {
-        "bot_id": signal.get("bot_id") or os.getenv("BOT_ID") or os.getenv("BOT_INSTANCE_ID") or "windows_mt5_bot",
-        "user_id": signal.get("user_id"),
         "symbol": signal.get("symbol"),
         "direction": signal.get("direction"),
         "entry_price": signal.get("entry"),
@@ -121,6 +136,10 @@ def persist_signal_to_supabase(signal: Dict[str, Any]):
         "reason": signal.get("reason") or {},
         "status": signal.get("status") or "pending",
     }
+    if bot_uuid:
+        record["bot_id"] = bot_uuid
+    if user_uuid:
+        record["user_id"] = user_uuid
     if _BOT_SIGNALS_HAS_CREATED_AT:
         record["created_at"] = datetime.utcnow().isoformat()
 
