@@ -301,6 +301,8 @@ COUNT_FUNDAMENTALS_AS_CONFIRMATION = os.getenv("COUNT_FUNDAMENTALS_AS_CONFIRMATI
 RULE_QUALITY_REQUIRED = os.getenv("RULE_QUALITY_REQUIRED", "false").lower() in ("1", "true", "yes")
 WEIGHTED_CONFIRMATION_DIRECT_EXECUTION = os.getenv("WEIGHTED_CONFIRMATION_DIRECT_EXECUTION", "true").lower() in ("1", "true", "yes")
 WEIGHTED_CONFIRMATION_BACKTEST_FALLBACK = os.getenv("WEIGHTED_CONFIRMATION_BACKTEST_FALLBACK", "true").lower() in ("1", "true", "yes")
+FOUR_CONFIRMATION_DIRECT_EXECUTION = os.getenv("FOUR_CONFIRMATION_DIRECT_EXECUTION", "true").lower() in ("1", "true", "yes")
+FOUR_CONFIRMATION_DIRECT_MIN_COUNT = max(4, int(os.getenv("FOUR_CONFIRMATION_DIRECT_MIN_COUNT", "4")))
 
 
 def build_execution_context(
@@ -324,12 +326,15 @@ def build_execution_context(
         "timeframes": timeframes,
         "timeframe_trends": timeframe_trends,
         "confirmation_threshold": confirmation_threshold,
+        "confirmation_count": len(met_confirmations),
         "confirmation_score": float((confirmation_summary or {}).get("score", 0.0)),
         "confirmation_score_required": float((confirmation_summary or {}).get("min_score", 0.0)),
         "confirmation_weighted_flags": (confirmation_summary or {}).get("weighted_flags") or {},
         "confirmations_met": met_confirmations,
         "execution_route": execution_route or "unknown",
         "weighted_direct_alignment": signal.get("weighted_direct_alignment"),
+        "four_confirmation_direct_alignment": signal.get("four_confirmation_direct_alignment"),
+        "four_confirmation_direct_threshold": FOUR_CONFIRMATION_DIRECT_MIN_COUNT,
         "fib_zone": signal.get("fib_zone"),
         "fvg_timeframe": (signal.get("fvg") or {}).get("timeframe"),
         "order_block_timeframe": (signal.get("htf_ob") or {}).get("timeframe"),
@@ -426,6 +431,15 @@ while True:
                 )
                 if stage_summary:
                     heartbeat_message += f" Passed stages: {stage_summary}."
+            route_summary = []
+            if stage_hits.get("weighted_execute"):
+                route_summary.append(f"weighted_confirmation={stage_hits['weighted_execute']}")
+            if stage_hits.get("four_confirmation_execute"):
+                route_summary.append(f"four_confirmation_direct={stage_hits['four_confirmation_execute']}")
+            if stage_hits.get("backtest_execute"):
+                route_summary.append(f"backtest_fallback={stage_hits['backtest_execute']}")
+            if route_summary:
+                heartbeat_message += f" Execution routes: {', '.join(route_summary)}."
             bot_log(
                 "bot_heartbeat",
                 heartbeat_message,
@@ -618,6 +632,15 @@ while True:
                 else:
                     record_skip("weighted_trend_alignment", original_symbol)
 
+            four_confirmation_alignment = (
+                extra_confirmations >= FOUR_CONFIRMATION_DIRECT_MIN_COUNT
+                and signal.get("trend") in ("bullish", "bearish")
+                and htf_trend in ("bullish", "bearish")
+                and mtf_trend in ("bullish", "bearish")
+                and htf_trend == mtf_trend == signal.get("trend")
+            )
+            signal["four_confirmation_direct_alignment"] = four_confirmation_alignment
+
             if extra_confirmations >= MIN_EXTRA_CONFIRMATIONS:
                 record_stage("confirmations", original_symbol)
             else:
@@ -628,6 +651,13 @@ while True:
                 execution_route = "weighted_confirmation"
                 backtest_details = {
                     "reason": "skipped_weighted_confirmation_pass",
+                    "required": False,
+                }
+            elif FOUR_CONFIRMATION_DIRECT_EXECUTION and four_confirmation_alignment:
+                record_stage("four_confirmation_execute", original_symbol)
+                execution_route = "four_confirmation_direct"
+                backtest_details = {
+                    "reason": "skipped_four_confirmation_direct_pass",
                     "required": False,
                 }
             else:
@@ -743,6 +773,9 @@ while True:
                     f"{execution_context['timeframe_trends']['MTF']}/"
                     f"{execution_context['timeframe_trends']['LTF']}. "
                     f"Confirmations met: {', '.join(execution_context['confirmations_met']) or 'none'}. "
+                    f"Score: {execution_context['confirmation_score']:.1f}/"
+                    f"{execution_context['confirmation_score_required']:.1f} "
+                    f"({execution_context['confirmation_count']} flags). "
                     f"Execution route: {execution_context['execution_route']}. "
                     f"Backtest status: {execution_context['backtest'].get('reason')}."
                 ),
@@ -801,6 +834,8 @@ while True:
                     f"{execution_context['timeframes']['MTF']}/"
                     f"{execution_context['timeframes']['LTF']}. "
                     f"Confirmations used: {', '.join(execution_context['confirmations_met']) or 'none'}. "
+                    f"Score: {execution_context['confirmation_score']:.1f}/"
+                    f"{execution_context['confirmation_score_required']:.1f}. "
                     f"Execution route: {execution_context['execution_route']}."
                 ),
                 {
