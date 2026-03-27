@@ -6,6 +6,52 @@ from ict_concepts.liquidity import detect_liquidity_zones
 from ict_concepts.market_structure import get_swings
 import os
 
+try:
+    import MetaTrader5 as mt5
+except Exception:
+    mt5 = None
+
+
+def _tf_to_mt5(tf):
+    if mt5 is None:
+        return None
+    mapping = {
+        "M1": mt5.TIMEFRAME_M1,
+        "M5": mt5.TIMEFRAME_M5,
+        "M15": mt5.TIMEFRAME_M15,
+        "M30": mt5.TIMEFRAME_M30,
+        "H1": mt5.TIMEFRAME_H1,
+        "H4": mt5.TIMEFRAME_H4,
+        "D1": mt5.TIMEFRAME_D1,
+    }
+    return mapping.get(tf)
+
+
+def _fetch_recent_candles(symbol, timeframe, bars=4):
+    tf = _tf_to_mt5(timeframe)
+    if mt5 is None or tf is None:
+        return []
+
+    try:
+        rates = mt5.copy_rates_from_pos(symbol, tf, 0, bars)
+    except Exception:
+        return []
+
+    if rates is None or len(rates) == 0:
+        return []
+
+    candles = []
+    for candle in rates[-bars:]:
+        candles.append(
+            {
+                "open": float(candle["open"]),
+                "high": float(candle["high"]),
+                "low": float(candle["low"]),
+                "close": float(candle["close"]),
+            }
+        )
+    return candles
+
 def analyze_market_top_down(
     symbol,
     price,
@@ -63,6 +109,7 @@ def analyze_market_top_down(
             "order_blocks": obs,
             "liquidity": liquidity,
             "swings": swings,
+            "recent_candles": _fetch_recent_candles(symbol, tf),
         }
 
     # -------------------------

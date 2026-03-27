@@ -81,11 +81,11 @@ def evaluate_backtest_approval(report_path: str = None, force_required: bool = F
         details["report_profile"] = report_profile
         return False, details
 
-    min_win_rate = float(os.getenv("BACKTEST_MIN_WIN_RATE", "0.45"))
+    min_win_rate = float(os.getenv("BACKTEST_MIN_WIN_RATE", "0.70"))
     min_profit_factor = float(os.getenv("BACKTEST_MIN_PROFIT_FACTOR", "1.2"))
     min_expectancy = float(os.getenv("BACKTEST_MIN_EXPECTANCY", "0.0"))
     max_drawdown = float(os.getenv("BACKTEST_MAX_DRAWDOWN", "1500"))
-    min_occurrences = int(os.getenv("SETUP_BACKTEST_MIN_OCCURRENCES", "5"))
+    min_occurrences = int(os.getenv("SETUP_BACKTEST_MIN_OCCURRENCES", "8"))
 
     win_rate = float(metrics.get("win_rate", 0.0))
     profit_factor = float(metrics.get("profit_factor", 0.0))
@@ -102,11 +102,38 @@ def evaluate_backtest_approval(report_path: str = None, force_required: bool = F
         and abs(drawdown) <= max_drawdown
     )
 
+    failed_checks = []
+    if occurrences < min_occurrences:
+        failed_checks.append(
+            f"occurrences {occurrences} < required {min_occurrences}"
+        )
+    if win_rate < min_win_rate:
+        failed_checks.append(
+            f"win_rate {win_rate * 100:.1f}% < required {min_win_rate * 100:.1f}%"
+        )
+    if profit_factor < min_profit_factor:
+        failed_checks.append(
+            f"profit_factor {profit_factor:.2f} < required {min_profit_factor:.2f}"
+        )
+    if expectancy < min_expectancy:
+        failed_checks.append(
+            f"expectancy {expectancy:.3f} < required {min_expectancy:.3f}"
+        )
+    if abs(drawdown) > max_drawdown:
+        failed_checks.append(
+            f"drawdown {abs(drawdown):.2f} > allowed {max_drawdown:.2f}"
+        )
+
     details.update(
         {
             "reason": "approved" if approved else "threshold_failed",
             "metrics": metrics,
             "occurrences": occurrences,
+            "failed_checks": failed_checks,
+            "win_rate": win_rate,
+            "profit_factor": profit_factor,
+            "expectancy": expectancy,
+            "max_drawdown": drawdown,
             "thresholds": {
                 "min_occurrences": min_occurrences,
                 "min_win_rate": min_win_rate,
@@ -187,5 +214,24 @@ def ensure_setup_backtest_approval(
             details["occurrence_rate"] = float(report.get("occurrence_rate", 0.0))
         except Exception:
             pass
+
+    metrics = details.get("metrics") or {}
+    win_rate = float(details.get("win_rate", metrics.get("win_rate", 0.0)))
+    profit_factor = float(details.get("profit_factor", metrics.get("profit_factor", 0.0)))
+    expectancy = float(details.get("expectancy", metrics.get("expectancy", 0.0)))
+    drawdown = float(details.get("max_drawdown", metrics.get("max_drawdown", 0.0)))
+    occurrences = int(details.get("occurrences", 0))
+    occurrence_rate = float(details.get("occurrence_rate", 0.0))
+    decision = "APPROVED" if approved else "REJECTED"
+    print(
+        f"[BACKTEST] {symbol} {decision} | occurrences={occurrences} "
+        f"| win_rate={win_rate * 100:.1f}% | occurrence_rate={occurrence_rate * 100:.1f}% "
+        f"| profit_factor={profit_factor:.2f} | expectancy={expectancy:.3f} "
+        f"| drawdown={drawdown:.2f}"
+    )
+    if not approved:
+        failed_checks = details.get("failed_checks") or []
+        if failed_checks:
+            print(f"[BACKTEST] {symbol} rejection reasons: {', '.join(failed_checks)}")
 
     return approved, details

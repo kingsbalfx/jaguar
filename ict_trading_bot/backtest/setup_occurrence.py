@@ -16,7 +16,7 @@ from backtest.strategy_runner import (
 )
 from risk.sl_tp_engine import calculate_sl_tp
 from strategy.entry_model import check_entry
-from strategy.setup_confirmations import bos_setup, liquidity_sweep_or_swing
+from strategy.setup_confirmations import bos_setup, liquidity_sweep_or_swing, price_action_setup
 
 
 def build_setup_signature(signal, analysis, confirmation_flags):
@@ -29,6 +29,7 @@ def build_setup_signature(signal, analysis, confirmation_flags):
     setup_context = signal.get("setup_context") or {}
     bos = setup_context.get("bos") or {}
     liquidity = setup_context.get("liquidity") or {}
+    price_action = setup_context.get("price_action") or {}
 
     confirmations_met = sorted(
         name for name, passed in (confirmation_flags or {}).items() if passed and name != "fundamentals"
@@ -47,6 +48,11 @@ def build_setup_signature(signal, analysis, confirmation_flags):
         "mtf_swing": bool(liquidity.get("mtf_swing")),
         "ltf_swing": bool(liquidity.get("ltf_swing")),
         "bos_confirmed": bool(bos.get("confirmed")),
+        "price_action_confirmed": bool(price_action.get("confirmed")),
+        "mtf_price_action_confirmed": bool(price_action.get("mtf_confirmed")),
+        "ltf_price_action_confirmed": bool(price_action.get("ltf_confirmed")),
+        "mtf_price_action_patterns": sorted(price_action.get("mtf_patterns") or []),
+        "ltf_price_action_patterns": sorted(price_action.get("ltf_patterns") or []),
         "smt_confirmed": bool((confirmation_flags or {}).get("smt")),
         "rule_quality": bool((confirmation_flags or {}).get("rule_quality")),
         "ml_quality": bool((confirmation_flags or {}).get("ml")),
@@ -81,11 +87,11 @@ def run_setup_occurrence_backtest(symbol: str, target_signature: Dict[str, objec
     _require_mt5()
 
     profile = _profile_snapshot()
-    history_bars = int(os.getenv("BACKTEST_HISTORY_BARS", "600"))
+    history_bars = int(os.getenv("BACKTEST_HISTORY_BARS", "2400"))
     lookahead_bars = int(os.getenv("BACKTEST_LOOKAHEAD_BARS", "24"))
-    step_bars = max(1, int(os.getenv("BACKTEST_STEP_BARS", "12")))
-    warmup_bars = max(150, int(os.getenv("BACKTEST_WARMUP_BARS", "200")))
-    progress_logs = os.getenv("BACKTEST_PROGRESS_LOGS", "true").lower() in ("1", "true", "yes")
+    step_bars = max(1, int(os.getenv("BACKTEST_STEP_BARS", "24")))
+    warmup_bars = max(200, int(os.getenv("BACKTEST_WARMUP_BARS", "300")))
+    progress_logs = os.getenv("BACKTEST_PROGRESS_LOGS", "false").lower() in ("1", "true", "yes")
 
     htf = profile["htf_timeframe"]
     mtf = profile["mtf_timeframe"]
@@ -153,6 +159,7 @@ def run_setup_occurrence_backtest(symbol: str, target_signature: Dict[str, objec
 
         liquidity_state = liquidity_sweep_or_swing(price, analysis, direction)
         bos_state = bos_setup(analysis, trend)
+        price_action_state = price_action_setup(analysis, trend)
         smt_ok = True
         daily_trend = analysis["D1"].get("trend")
         rule_ok = _rule_quality_from_context(signal, daily_trend)
@@ -160,11 +167,13 @@ def run_setup_occurrence_backtest(symbol: str, target_signature: Dict[str, objec
         signal["setup_context"] = {
             "liquidity": liquidity_state,
             "bos": bos_state,
+            "price_action": price_action_state,
         }
 
         confirmation_flags = {
             "liquidity_setup": liquidity_state["confirmed"],
             "bos": bos_state["confirmed"],
+            "price_action": price_action_state["confirmed"],
             "smt": smt_ok,
             "rule_quality": rule_ok,
             "ml": ml_ok,

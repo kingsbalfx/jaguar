@@ -15,7 +15,7 @@ from ict_concepts.fvg import detect_fvg_from_df
 from ict_concepts.liquidity import detect_liquidity_zones
 from risk.sl_tp_engine import calculate_sl_tp
 from strategy.entry_model import check_entry
-from strategy.liquidity_filter import liquidity_taken
+from strategy.setup_confirmations import bos_setup, liquidity_sweep_or_swing, price_action_setup
 
 
 def _require_mt5():
@@ -139,6 +139,22 @@ def _order_blocks_from_df(symbol, timeframe, df):
     return obs
 
 
+def _recent_candles_from_df(df, bars=4):
+    if df is None or len(df) == 0:
+        return []
+    candles = []
+    for _, candle in df.tail(bars).iterrows():
+        candles.append(
+            {
+                "open": float(candle["open"]),
+                "high": float(candle["high"]),
+                "low": float(candle["low"]),
+                "close": float(candle["close"]),
+            }
+        )
+    return candles
+
+
 def _analysis_from_frames(symbol, price, frames, profile):
     htf = profile["htf_timeframe"]
     mtf = profile["mtf_timeframe"]
@@ -159,6 +175,7 @@ def _analysis_from_frames(symbol, price, frames, profile):
             "order_blocks": _order_blocks_from_df(symbol, timeframe, df),
             "liquidity": detect_liquidity_zones(swings),
             "swings": swings,
+            "recent_candles": _recent_candles_from_df(df),
         }
 
     overall_trend = analysis[htf]["trend"]
@@ -222,11 +239,11 @@ def _simulate_outcome(direction, entry, sl, tp, future_df):
 def run_strategy_backtest(symbols):
     _require_mt5()
     profile = _profile_snapshot()
-    history_bars = int(os.getenv("BACKTEST_HISTORY_BARS", "600"))
+    history_bars = int(os.getenv("BACKTEST_HISTORY_BARS", "2400"))
     lookahead_bars = int(os.getenv("BACKTEST_LOOKAHEAD_BARS", "24"))
-    step_bars = max(1, int(os.getenv("BACKTEST_STEP_BARS", "12")))
-    warmup_bars = max(150, int(os.getenv("BACKTEST_WARMUP_BARS", "200")))
-    progress_logs = os.getenv("BACKTEST_PROGRESS_LOGS", "true").lower() in ("1", "true", "yes")
+    step_bars = max(1, int(os.getenv("BACKTEST_STEP_BARS", "24")))
+    warmup_bars = max(200, int(os.getenv("BACKTEST_WARMUP_BARS", "300")))
+    progress_logs = os.getenv("BACKTEST_PROGRESS_LOGS", "false").lower() in ("1", "true", "yes")
 
     all_trades = []
     equity = 10000.0
@@ -286,18 +303,28 @@ def run_strategy_backtest(symbols):
             signal["direction"] = direction
             signal["trend"] = trend
 
-            liquidity_ok = liquidity_taken(price, analysis["MTF"]["liquidity"], direction)
+            liquidity_state = liquidity_sweep_or_swing(price, analysis, direction)
+            bos_state = bos_setup(analysis, trend)
+            price_action_state = price_action_setup(analysis, trend)
             smt_ok = True
             daily_trend = analysis["D1"].get("trend")
             rule_ok = _rule_quality_from_context(signal, daily_trend)
             ml_ok = True
+
+            signal["setup_context"] = {
+                "liquidity": liquidity_state,
+                "bos": bos_state,
+                "price_action": price_action_state,
+            }
 
             if profile["rule_quality_required"] and not rule_ok:
                 i += step_bars
                 continue
 
             confirmation_flags = {
-                "liquidity": liquidity_ok,
+                "liquidity_setup": liquidity_state["confirmed"],
+                "bos": bos_state["confirmed"],
+                "price_action": price_action_state["confirmed"],
                 "smt": smt_ok,
                 "rule_quality": rule_ok,
                 "ml": ml_ok,

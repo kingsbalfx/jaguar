@@ -66,3 +66,161 @@ def liquidity_sweep_or_swing(price, analysis, direction):
         "mtf_swing": mtf_swing,
         "ltf_swing": ltf_swing,
     }
+
+
+def _recent_candles(timeframe_state):
+    candles = (timeframe_state or {}).get("recent_candles") or []
+    if not isinstance(candles, list):
+        return []
+    return [
+        candle
+        for candle in candles
+        if isinstance(candle, dict)
+        and all(key in candle for key in ("open", "high", "low", "close"))
+    ]
+
+
+def _candle_metrics(candle):
+    open_price = float(candle["open"])
+    high_price = float(candle["high"])
+    low_price = float(candle["low"])
+    close_price = float(candle["close"])
+    candle_range = max(high_price - low_price, 1e-9)
+    body = abs(close_price - open_price)
+    upper_wick = max(high_price - max(open_price, close_price), 0.0)
+    lower_wick = max(min(open_price, close_price) - low_price, 0.0)
+    close_position = (close_price - low_price) / candle_range
+    return {
+        "open": open_price,
+        "high": high_price,
+        "low": low_price,
+        "close": close_price,
+        "range": candle_range,
+        "body": body,
+        "upper_wick": upper_wick,
+        "lower_wick": lower_wick,
+        "close_position": close_position,
+    }
+
+
+def _bullish_engulfing(previous_candle, current_candle):
+    prev = _candle_metrics(previous_candle)
+    curr = _candle_metrics(current_candle)
+    return (
+        prev["close"] < prev["open"]
+        and curr["close"] > curr["open"]
+        and curr["open"] <= prev["close"]
+        and curr["close"] >= prev["open"]
+    )
+
+
+def _bearish_engulfing(previous_candle, current_candle):
+    prev = _candle_metrics(previous_candle)
+    curr = _candle_metrics(current_candle)
+    return (
+        prev["close"] > prev["open"]
+        and curr["close"] < curr["open"]
+        and curr["open"] >= prev["close"]
+        and curr["close"] <= prev["open"]
+    )
+
+
+def _bullish_rejection(candle):
+    current = _candle_metrics(candle)
+    return (
+        current["close"] > current["open"]
+        and current["lower_wick"] >= current["body"] * 1.2
+        and current["close_position"] >= 0.6
+    )
+
+
+def _bearish_rejection(candle):
+    current = _candle_metrics(candle)
+    return (
+        current["close"] < current["open"]
+        and current["upper_wick"] >= current["body"] * 1.2
+        and current["close_position"] <= 0.4
+    )
+
+
+def _bullish_momentum(candle):
+    current = _candle_metrics(candle)
+    return (
+        current["close"] > current["open"]
+        and current["body"] / current["range"] >= 0.55
+        and current["close_position"] >= 0.7
+    )
+
+
+def _bearish_momentum(candle):
+    current = _candle_metrics(candle)
+    return (
+        current["close"] < current["open"]
+        and current["body"] / current["range"] >= 0.55
+        and current["close_position"] <= 0.3
+    )
+
+
+def _timeframe_price_action(candles, trend):
+    if len(candles) < 2:
+        return {
+            "confirmed": False,
+            "engulfing": False,
+            "rejection": False,
+            "momentum": False,
+            "patterns": [],
+        }
+
+    previous_candle = candles[-2]
+    current_candle = candles[-1]
+
+    if trend == "bullish":
+        engulfing = _bullish_engulfing(previous_candle, current_candle)
+        rejection = _bullish_rejection(current_candle)
+        momentum = _bullish_momentum(current_candle)
+    elif trend == "bearish":
+        engulfing = _bearish_engulfing(previous_candle, current_candle)
+        rejection = _bearish_rejection(current_candle)
+        momentum = _bearish_momentum(current_candle)
+    else:
+        engulfing = False
+        rejection = False
+        momentum = False
+
+    patterns = []
+    if engulfing:
+        patterns.append("engulfing")
+    if rejection:
+        patterns.append("rejection")
+    if momentum:
+        patterns.append("momentum")
+
+    return {
+        "confirmed": bool(patterns),
+        "engulfing": engulfing,
+        "rejection": rejection,
+        "momentum": momentum,
+        "patterns": patterns,
+    }
+
+
+def price_action_setup(analysis, trend):
+    mtf = analysis.get("MTF") or {}
+    ltf = analysis.get("LTF") or {}
+
+    mtf_state = _timeframe_price_action(_recent_candles(mtf), trend)
+    ltf_state = _timeframe_price_action(_recent_candles(ltf), trend)
+
+    return {
+        "confirmed": mtf_state["confirmed"] or ltf_state["confirmed"],
+        "mtf_confirmed": mtf_state["confirmed"],
+        "ltf_confirmed": ltf_state["confirmed"],
+        "mtf_engulfing": mtf_state["engulfing"],
+        "ltf_engulfing": ltf_state["engulfing"],
+        "mtf_rejection": mtf_state["rejection"],
+        "ltf_rejection": ltf_state["rejection"],
+        "mtf_momentum": mtf_state["momentum"],
+        "ltf_momentum": ltf_state["momentum"],
+        "mtf_patterns": mtf_state["patterns"],
+        "ltf_patterns": ltf_state["patterns"],
+    }

@@ -22,7 +22,7 @@ from execution.order_router import choose_order_type
 from strategy.pre_trade_analysis import analyze_market_top_down
 from strategy.entry_model import check_entry, explain_entry_failure
 from strategy.smt_filter import smt_confirmed
-from strategy.setup_confirmations import bos_setup, liquidity_sweep_or_swing
+from strategy.setup_confirmations import bos_setup, liquidity_sweep_or_swing, price_action_setup
 
 # =====================================================
 # RISK & TRADE MANAGEMENT
@@ -316,6 +316,7 @@ def build_execution_context(signal, analysis, confirmation_flags, confirmation_t
         "order_block_timeframe": (signal.get("htf_ob") or {}).get("timeframe"),
         "bos": setup_context.get("bos"),
         "liquidity": setup_context.get("liquidity"),
+        "price_action": setup_context.get("price_action"),
     }
 
 
@@ -509,9 +510,16 @@ while True:
             else:
                 record_skip("bos", original_symbol)
 
+            price_action_state = price_action_setup(analysis, trend)
+            if price_action_state["confirmed"]:
+                record_stage("price_action", original_symbol)
+            else:
+                record_skip("price_action", original_symbol)
+
             signal["setup_context"] = {
                 "liquidity": liquidity_state,
                 "bos": bos_state,
+                "price_action": price_action_state,
             }
 
             smt_ok = smt_confirmed(signal, analysis["correlated"])
@@ -544,6 +552,7 @@ while True:
             confirmation_flags = {
                 "liquidity_setup": liquidity_state["confirmed"],
                 "bos": bos_state["confirmed"],
+                "price_action": price_action_state["confirmed"],
                 "smt": smt_ok,
                 "rule_quality": rule_ok,
                 "ml": ml_ok,
