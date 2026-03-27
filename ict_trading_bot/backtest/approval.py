@@ -9,7 +9,7 @@ from backtest.setup_occurrence import (
     setup_signature_hash,
 )
 from backtest.strategy_runner import generate_latest_approval
-from utils.symbol_profile import build_symbol_profile_snapshot, get_backtest_thresholds
+from utils.symbol_profile import build_symbol_profile_snapshot, get_backtest_thresholds, related_symbols
 
 
 def build_strategy_profile() -> Dict[str, object]:
@@ -190,6 +190,9 @@ def ensure_setup_backtest_approval(
     report_path = _resolve_report_path(report_key=resolved_report_key)
     auto_generate = os.getenv("AUTO_GENERATE_BACKTEST_APPROVAL", "true").lower() in ("1", "true", "yes")
     refresh_minutes = int(os.getenv("BACKTEST_REFRESH_MINUTES", "240"))
+    account_login = str(os.getenv("MT5_ACCOUNT_LOGIN") or "").strip()
+    account_label = f" account={account_login}" if account_login else ""
+    peer_count = len(related_symbols(symbol))
 
     if auto_generate:
         should_generate = not os.path.exists(report_path)
@@ -199,7 +202,7 @@ def ensure_setup_backtest_approval(
         if should_generate or not os.path.exists(report_path):
             print(
                 f"[BACKTEST] Running setup-occurrence approval for {symbol} "
-                f"({setup_hash}) before live execution."
+                f"({setup_hash}) before live execution | peers={peer_count}{account_label}."
             )
             generate_setup_occurrence_report(
                 symbol=symbol,
@@ -208,14 +211,14 @@ def ensure_setup_backtest_approval(
             )
             print(
                 f"[BACKTEST] Setup-occurrence approval ready for {symbol} "
-                f"({setup_hash})."
+                f"({setup_hash}) | peers={peer_count}{account_label}."
             )
 
     approved, details = evaluate_backtest_approval(report_path=report_path, force_required=True)
     if auto_generate and details.get("reason") == "profile_mismatch":
         print(
             f"[BACKTEST] Strategy profile changed for {symbol} ({setup_hash}); "
-            f"regenerating setup-occurrence approval."
+            f"regenerating setup-occurrence approval | peers={peer_count}{account_label}."
         )
         generate_setup_occurrence_report(
             symbol=symbol,
