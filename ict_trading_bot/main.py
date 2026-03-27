@@ -329,6 +329,7 @@ def build_execution_context(
         "confirmation_weighted_flags": (confirmation_summary or {}).get("weighted_flags") or {},
         "confirmations_met": met_confirmations,
         "execution_route": execution_route or "unknown",
+        "weighted_direct_alignment": signal.get("weighted_direct_alignment"),
         "fib_zone": signal.get("fib_zone"),
         "fvg_timeframe": (signal.get("fvg") or {}).get("timeframe"),
         "order_block_timeframe": (signal.get("htf_ob") or {}).get("timeframe"),
@@ -595,13 +596,34 @@ while True:
             )
             signal["confirmation_summary"] = confirmation_summary
             execution_route = None
+            confirmation_score_passed = bool(confirmation_summary["passed"])
+            if confirmation_score_passed:
+                record_stage("confirmation_score", original_symbol)
+            else:
+                record_skip("confirmation_score", original_symbol)
+
+            htf_trend = analysis.get("HTF", {}).get("trend")
+            mtf_trend = analysis.get("MTF", {}).get("trend")
+            weighted_trend_alignment = (
+                confirmation_score_passed
+                and signal.get("trend") in ("bullish", "bearish")
+                and htf_trend in ("bullish", "bearish")
+                and mtf_trend in ("bullish", "bearish")
+                and htf_trend == mtf_trend == signal.get("trend")
+            )
+            signal["weighted_direct_alignment"] = weighted_trend_alignment
+            if confirmation_score_passed:
+                if weighted_trend_alignment:
+                    record_stage("weighted_trend_alignment", original_symbol)
+                else:
+                    record_skip("weighted_trend_alignment", original_symbol)
+
             if extra_confirmations >= MIN_EXTRA_CONFIRMATIONS:
                 record_stage("confirmations", original_symbol)
             else:
                 record_skip("confirmations", original_symbol)
 
-            if confirmation_summary["passed"] and WEIGHTED_CONFIRMATION_DIRECT_EXECUTION:
-                record_stage("confirmation_score", original_symbol)
+            if confirmation_score_passed and WEIGHTED_CONFIRMATION_DIRECT_EXECUTION and weighted_trend_alignment:
                 record_stage("weighted_execute", original_symbol)
                 execution_route = "weighted_confirmation"
                 backtest_details = {
@@ -609,7 +631,6 @@ while True:
                     "required": False,
                 }
             else:
-                record_skip("confirmation_score", original_symbol)
                 if not WEIGHTED_CONFIRMATION_BACKTEST_FALLBACK:
                     continue
                 setup_signature = build_setup_signature(signal, analysis, confirmation_flags)
