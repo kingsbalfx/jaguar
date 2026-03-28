@@ -12,6 +12,11 @@ MAPPINGS = {
     "ADAUSD": ["ADAUSD", "ADA", "ADAUSDm", "ADA/USD"],
     "AVAXUSD": ["AVAXUSD", "AVAX", "AVAXUSDm", "AVAX/USD"],
     "LTCUSD": ["LTCUSD", "LTC", "LTCUSDm", "LTC/USD"],
+    "BCHUSD": ["BCHUSD", "BCH", "BCHUSDm", "BCH/USD"],
+    "EOSUSD": ["EOSUSD", "EOS", "EOSUSDm", "EOS/USD"],
+    "MATICUSD": ["MATICUSD", "MATIC", "MATICUSDm", "MATIC/USD"],
+    "LINKUSD": ["LINKUSD", "LINK", "LINKUSDm", "LINK/USD"],
+    "UNIUSD": ["UNIUSD", "UNI", "UNIUSDm", "UNI/USD"],
     "BTC": ["BTC", "BTCUSD", "BTCUSDm", "XBTUSD", "BTCUSD.i", "BTCUSD-IDEAL"],
     "ETH": ["ETH", "ETHUSD", "ETHUSDm", "ETHUSD.i", "ETH/USD"],
     "DOGE": ["DOGE", "DOGEUSD", "DOGUSD", "DOGEUSDm", "DOGE/USD"],
@@ -23,6 +28,11 @@ MAPPINGS = {
     "ADA": ["ADA", "ADAUSD", "ADAUSDm", "ADA/USD"],
     "AVAX": ["AVAX", "AVAXUSD", "AVAXUSDm", "AVAX/USD"],
     "LTC": ["LTC", "LTCUSD", "LTCUSDm", "LTC/USD"],
+    "BCH": ["BCH", "BCHUSD", "BCHUSDm", "BCH/USD"],
+    "EOS": ["EOS", "EOSUSD", "EOSUSDm", "EOS/USD"],
+    "MATIC": ["MATIC", "MATICUSD", "MATICUSDm", "MATIC/USD"],
+    "LINK": ["LINK", "LINKUSD", "LINKUSDm", "LINK/USD"],
+    "UNI": ["UNI", "UNIUSD", "UNIUSDm", "UNI/USD"],
     "ETHBTC": ["ETHBTC", "ETHBTC.i", "ETH/BTC", "ETHUSD", "ETH"],
 }
 

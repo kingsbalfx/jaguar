@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List
+from typing import Dict, List, Set
 
 from config.symbol_mappings import MAPPINGS as SYMBOL_MAPPINGS
 
@@ -64,6 +64,10 @@ LIQUID_CRYPTO = [
     "TRXUSD",
     "TONUSD",
     "AVAXUSD",
+    "EOSUSD",
+    "MATICUSD",
+    "LINKUSD",
+    "UNIUSD",
 ]
 
 ASSET_CLASS_EXAMPLES = {
@@ -73,26 +77,55 @@ ASSET_CLASS_EXAMPLES = {
     "other": "SPX500",
 }
 
+def normalize_symbol(symbol: str) -> str:
+    return str(symbol or "").strip().upper()
+
+
+def _build_asset_aliases(base_symbols: List[str]) -> Set[str]:
+    aliases: Set[str] = set()
+    for canonical_symbol in base_symbols:
+        normalized_canonical = normalize_symbol(canonical_symbol)
+        aliases.add(normalized_canonical)
+        for alias in SYMBOL_MAPPINGS.get(normalized_canonical, []):
+            aliases.add(normalize_symbol(alias))
+    return aliases
+
+
 CANONICAL_SYMBOL_ALIASES = {}
 for canonical_symbol in LIQUID_FOREX + LIQUID_METALS + LIQUID_CRYPTO:
-    normalized_canonical = canonical_symbol.upper()
+    normalized_canonical = normalize_symbol(canonical_symbol)
     CANONICAL_SYMBOL_ALIASES[normalized_canonical] = normalized_canonical
     for alias in SYMBOL_MAPPINGS.get(normalized_canonical, []):
-        CANONICAL_SYMBOL_ALIASES[str(alias).strip().upper()] = normalized_canonical
+        CANONICAL_SYMBOL_ALIASES[normalize_symbol(alias)] = normalized_canonical
+
+FOREX_SYMBOLS = {normalize_symbol(symbol) for symbol in LIQUID_FOREX}
+METAL_SYMBOLS = {normalize_symbol(symbol) for symbol in LIQUID_METALS}
+CRYPTO_SYMBOLS = {normalize_symbol(symbol) for symbol in LIQUID_CRYPTO}
+
+FOREX_ALIASES = _build_asset_aliases(LIQUID_FOREX)
+METAL_ALIASES = _build_asset_aliases(LIQUID_METALS)
+CRYPTO_ALIASES = _build_asset_aliases(LIQUID_CRYPTO)
 
 
-def normalize_symbol(symbol: str) -> str:
-    normalized = str(symbol or "").strip().upper()
+def canonical_symbol(symbol: str) -> str:
+    normalized = normalize_symbol(symbol)
     return CANONICAL_SYMBOL_ALIASES.get(normalized, normalized)
 
 
 def infer_asset_class(symbol: str) -> str:
     normalized = normalize_symbol(symbol)
-    if normalized in LIQUID_METALS or normalized.startswith(("XAU", "XAG", "XPT", "XPD")):
+    canonical = canonical_symbol(normalized)
+    if (
+        normalized in METAL_ALIASES
+        or canonical in METAL_SYMBOLS
+        or normalized.startswith(("XAU", "XAG", "XPT", "XPD"))
+    ):
         return "metals"
-    if normalized in LIQUID_CRYPTO:
+    if normalized in CRYPTO_ALIASES or canonical in CRYPTO_SYMBOLS:
         return "crypto"
     if len(normalized) >= 6 and normalized[:3] in FX_CODES and normalized[3:6] in FX_CODES:
+        return "forex"
+    if normalized in FOREX_ALIASES or canonical in FOREX_SYMBOLS:
         return "forex"
     return "other"
 
@@ -242,6 +275,7 @@ def get_confirmation_profile(symbol: str = None) -> Dict[str, object]:
 
 def related_symbols(symbol: str) -> List[str]:
     normalized = normalize_symbol(symbol)
+    canonical = canonical_symbol(normalized)
     asset_class = infer_asset_class(normalized)
     env_symbols = [
         normalize_symbol(item)
@@ -264,8 +298,10 @@ def related_symbols(symbol: str) -> List[str]:
 
     limit = _int_env("SETUP_BACKTEST_MAX_PEER_SYMBOLS", default_limit)
     pool = [normalized]
+    if canonical != normalized:
+        pool.append(canonical)
     pool.extend(item for item in env_symbols if infer_asset_class(item) == asset_class and item != normalized)
-    pool.extend(item for item in base_pool if item != normalized)
+    pool.extend(item for item in base_pool if item not in {normalized, canonical})
 
     unique_symbols = []
     seen = set()

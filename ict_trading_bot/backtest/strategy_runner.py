@@ -11,6 +11,7 @@ except Exception:
     mt5 = None
 
 from backtest.metrics import calculate_metrics
+from config.symbol_mappings import candidates_for
 from ict_concepts.fvg import detect_fvg_from_df
 from ict_concepts.liquidity import detect_liquidity_zones
 from risk.sl_tp_engine import calculate_sl_tp
@@ -28,6 +29,7 @@ RATE_COLUMNS = [
     "spread",
     "real_volume",
 ]
+_RATE_SYMBOL_CACHE = {}
 
 
 def _require_mt5():
@@ -71,15 +73,25 @@ def _profile_snapshot():
 
 
 def _fetch_rates(symbol, timeframe, bars):
-    rates = mt5.copy_rates_from_pos(symbol, _tf_to_mt5(timeframe), 0, bars)
-    if rates is None or len(rates) == 0:
-        return pd.DataFrame(columns=RATE_COLUMNS)
-    df = pd.DataFrame(rates)
+    symbol = str(symbol or "").strip().upper()
+    attempts = []
+    cached_symbol = _RATE_SYMBOL_CACHE.get(symbol)
+    if cached_symbol:
+        attempts.append(cached_symbol)
+    attempts.extend(candidate for candidate in candidates_for(symbol) if candidate not in attempts)
+
     required_columns = {"time", "open", "high", "low", "close"}
-    if not required_columns.issubset(df.columns):
-        return pd.DataFrame(columns=RATE_COLUMNS)
-    df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
-    return df
+    for candidate_symbol in attempts:
+        rates = mt5.copy_rates_from_pos(candidate_symbol, _tf_to_mt5(timeframe), 0, bars)
+        if rates is None or len(rates) == 0:
+            continue
+        df = pd.DataFrame(rates)
+        if not required_columns.issubset(df.columns):
+            continue
+        df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
+        _RATE_SYMBOL_CACHE[symbol] = candidate_symbol
+        return df
+    return pd.DataFrame(columns=RATE_COLUMNS)
 
 
 def _swings_from_df(df):

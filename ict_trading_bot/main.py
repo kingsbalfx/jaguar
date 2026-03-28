@@ -35,6 +35,15 @@ from strategy.setup_confirmations import (
 from risk.sl_tp_engine import calculate_sl_tp
 from risk.protection import can_trade, register_trade, resize_lot
 from risk.trade_management import manage_trade
+from risk.intelligent_execution import (
+    calculate_precise_winning_rate,
+    calculate_dynamic_lot_size,
+    calculate_intelligent_stop_loss,
+    should_take_trade,
+    record_trade_outcome,
+    get_market_intelligence_report,
+    get_intelligent_recommendation,
+)
 
 # =====================================================
 # QUALITY FILTERS
@@ -440,6 +449,34 @@ while True:
                 route_summary.append(f"backtest_fallback={stage_hits['backtest_execute']}")
             if route_summary:
                 heartbeat_message += f" Execution routes: {', '.join(route_summary)}."
+            
+            # Add symbol stats to heartbeat
+            try:
+                from risk.symbol_stats import get_symbol_summary
+                symbol_summary = get_symbol_summary()
+                if symbol_summary:
+                    heartbeat_message += f" Symbol Performance: {symbol_summary}"
+            except Exception:
+                pass
+            
+            # Add intelligent execution report (every 60 seconds)
+            if not hasattr(bot_main, '_last_intel_report'):
+                bot_main._last_intel_report = 0
+            
+            now_for_intel = time.time()
+            if now_for_intel - bot_main._last_intel_report >= 120:  # Every 2 minutes
+                try:
+                    intel_report = get_market_intelligence_report(list(VALID_SYMBOLS))
+                    bot_log(
+                        "market_intelligence",
+                        intel_report,
+                        {"report": "comprehensive_market_analysis"},
+                        persist=True,
+                    )
+                    bot_main._last_intel_report = now_for_intel
+                except Exception as e:
+                    pass  # Silently fail if intelligence report fails
+            
             bot_log(
                 "bot_heartbeat",
                 heartbeat_message,
@@ -646,6 +683,14 @@ while True:
             else:
                 record_skip("confirmations", original_symbol)
 
+            # ========================================
+            # EXECUTION ROUTE - PER-SYMBOL LOGIC
+            # ========================================
+            from risk.protection import should_skip_backtest
+            
+            confirmation_score_value = float((confirmation_summary or {}).get("score", 0.0))
+            
+            # Route 1: Weighted Confirmation (no backtest needed)
             if confirmation_score_passed and WEIGHTED_CONFIRMATION_DIRECT_EXECUTION and weighted_trend_alignment:
                 record_stage("weighted_execute", original_symbol)
                 execution_route = "weighted_confirmation"
@@ -653,6 +698,7 @@ while True:
                     "reason": "skipped_weighted_confirmation_pass",
                     "required": False,
                 }
+            # Route 2: Four Confirmation (no backtest needed)
             elif FOUR_CONFIRMATION_DIRECT_EXECUTION and four_confirmation_alignment:
                 record_stage("four_confirmation_execute", original_symbol)
                 execution_route = "four_confirmation_direct"
@@ -660,25 +706,74 @@ while True:
                     "reason": "skipped_four_confirmation_direct_pass",
                     "required": False,
                 }
+            # Route 3: Conditional Backtest (only if uncertain)
             else:
-                if not WEIGHTED_CONFIRMATION_BACKTEST_FALLBACK:
-                    continue
-                setup_signature = build_setup_signature(signal, analysis, confirmation_flags)
-                backtest_approved, backtest_details = ensure_setup_backtest_approval(
-                    symbol,
-                    setup_signature=setup_signature,
-                    report_key=original_symbol,
-                )
-                if not backtest_approved:
-                    record_skip("backtest", original_symbol)
-                    continue
-                record_stage("backtest", original_symbol)
-                record_stage("backtest_execute", original_symbol)
-                execution_route = "backtest_fallback"
+                # Check if we can SKIP backtest based on symbol confidence
+                if should_skip_backtest(original_symbol, confirmation_score_value):
+                    record_stage("confidence_skip_backtest", original_symbol)
+                    execution_route = "symbol_confidence_high"
+                    backtest_details = {
+                        "reason": "symbol_confidence_high_skip_backtest",
+                        "required": False,
+                    }
+                    try:
+                        record_backtest_skip(original_symbol)
+                    except Exception:
+                        pass
+                else:
+                    # Need backtest approval
+                    try:
+                        record_backtest_required(original_symbol)
+                    except Exception:
+                        pass
+                    
+                    if not WEIGHTED_CONFIRMATION_BACKTEST_FALLBACK:
+                        continue
+                    setup_signature = build_setup_signature(signal, analysis, confirmation_flags)
+                    backtest_approved, backtest_details = ensure_setup_backtest_approval(
+                        symbol,
+                        setup_signature=setup_signature,
+                        report_key=original_symbol,
+                    )
+                    if not backtest_approved:
+                        record_skip("backtest", original_symbol)
+                        continue
+                    record_stage("backtest", original_symbol)
+                    record_stage("backtest_execute", original_symbol)
+                    execution_route = "backtest_fallback"
 
             # -----------------------------
             # PROTECTION (ONE TRADE PER OB)
             # -----------------------------
+            # ===================================
+            # INTELLIGENT TRADE DECISION
+            # ===================================
+            # Before executing, check if this trade fits the symbol's pattern
+            should_trade, trade_analysis = should_take_trade(
+                original_symbol,
+                confirmation_score_value,
+                execution_route
+            )
+            
+            if not should_trade:
+                record_skip("intelligence", original_symbol)
+                bot_log(
+                    "intelligent_skip",
+                    f"Intelligent execution skip on {original_symbol}: {trade_analysis['factors'][-1]}",
+                    {
+                        "symbol": original_symbol,
+                        "confidence": trade_analysis["confidence"],
+                        "analysis": trade_analysis,
+                    },
+                    persist=False,
+                )
+                continue
+            
+            record_stage("intelligence_pass", original_symbol)
+
+            # ===================================
+            # INTELLIGENT EXECUTION
+            # ===================================
             htf_ob = signal.get("htf_ob") or {}
             ob_id = get_order_block_id(symbol, htf_ob)
             if not ob_id or not can_trade(symbol, ob_id):
@@ -686,9 +781,9 @@ while True:
                 continue
             record_stage("protection", original_symbol)
 
-            # -----------------------------
+            # ----------------------------
             # PORTFOLIO RISK ALLOCATION
-            # -----------------------------
+            # ----------------------------
             open_positions = get_open_positions()
             allowed_risk = allocate_risk(symbol, open_positions)
 
@@ -697,31 +792,72 @@ while True:
                 continue
             record_stage("risk", original_symbol)
 
-            # -----------------------------
+            # ----------------------------
             # ORDER ROUTING
-            # -----------------------------
+            # ----------------------------
             order_type = choose_order_type(
                 price,
                 signal.get("fvg"),
                 mode="auto"
             )
 
-            # -----------------------------
-            # SL / TP ENGINE
-            # -----------------------------
-            sl, tp = calculate_sl_tp(
+            # ----------------------------
+            # INTELLIGENT SL/TP CALCULATION
+            # ----------------------------
+            # Use standard SL/TP as base, then adjust intelligently
+            sl_base, tp_base = calculate_sl_tp(
                 direction=direction,
                 entry_price=price,
                 htf_ob=signal["htf_ob"]
             )
+            
+            # Calculate intelligent stop loss based on symbol confidence
+            # Wider stops for high-confidence symbols, tighter for low-confidence
+            base_pips = abs(sl_base - price) / 0.0001  # Convert to pips
+            sl_intelligent, sl_intelligence = calculate_intelligent_stop_loss(
+                price,
+                direction,
+                base_pips,
+                original_symbol
+            )
+            
+            sl = sl_intelligent  # Use intelligent stop loss
+            tp = tp_base  # Keep take profit as-is
 
-            # -----------------------------
-            # POSITION SIZING (DYNAMIC)
-            # -----------------------------
-            lot = calculate_lot_size(
+            # ----------------------------
+            # INTELLIGENT POSITION SIZING
+            # ----------------------------
+            # First get base lot size
+            lot_base = calculate_lot_size(
                 symbol=symbol,
                 risk_percent=allowed_risk,
                 stop_loss_pips=20
+            )
+            
+            # Then apply intelligent multipliers based on symbol confidence
+            account_balance = get_account_snapshot().get("balance", 10000) if get_account_snapshot() else 10000
+            lot_intelligent, lot_intelligence = calculate_dynamic_lot_size(
+                original_symbol,
+                lot_base,
+                account_balance,
+                allowed_risk
+            )
+            
+            lot = lot_intelligent  # Use intelligent lot sizing
+            
+            # Log intelligent decisions
+            bot_log(
+                "intelligent_execution",
+                f"Intelligent execution for {original_symbol}: "
+                f"SL adjustment {sl_intelligence['multiplier']:.2f}x, "
+                f"Lot adjustment {lot_intelligence['final_multiplier']:.2f}x",
+                {
+                    "symbol": original_symbol,
+                    "sl_intelligence": sl_intelligence,
+                    "lot_intelligence": lot_intelligence,
+                    "trade_confidence": trade_analysis["confidence"],
+                },
+                persist=False,
             )
 
             lot = resize_lot(lot, atr, atr_threshold)
@@ -810,7 +946,15 @@ while True:
                 )
                 continue
             record_stage("trade_opened", original_symbol)
+            
+            # Register trade and track symbol confidence
+            from risk.protection import register_trade, update_symbol_confidence
+            from risk.symbol_stats import record_symbol_trade, record_backtest_skip, record_backtest_required
+            
             register_trade(symbol, ob_id)
+            update_symbol_confidence(original_symbol, win=True, confirmation_score=confirmation_score_value)
+            # Note: Do NOT record trade as win here - record when it actually closes!
+            # Trade outcome will be recorded in trade management loop when SL/TP is hit
 
             # -----------------------------
             # PUSH TO DASHBOARD
@@ -852,9 +996,77 @@ while True:
 
             # -----------------------------
             # LIVE TRADE MANAGEMENT
+            # Record trade entry for later stats/reporting
+            trade_entry_time = time.time()
+            trade_entry_price = trade.get("entry", price)
+            
             # -----------------------------
             while trade and trade.get("open"):
                 live_price = get_price(symbol)
+                
+                # Check for SL/TP hits
+                sl_hit = False
+                tp_hit = False
+                if trade["direction"] == "buy":
+                    sl_hit = live_price <= trade["sl"]
+                    tp_hit = live_price >= trade["tp"]
+                else:  # sell
+                    sl_hit = live_price >= trade["sl"]
+                    tp_hit = live_price <= trade["tp"]
+                
+                if sl_hit:
+                    # Trade hit stop loss - record as loss with detailed intelligence
+                    try:
+                        pnl = (live_price - price) * lot if direction == "buy" else (price - live_price) * lot
+                        record_trade_outcome(
+                            original_symbol,
+                            win=False,
+                            confirmation_score=0.0,
+                            entry_price=price,
+                            exit_price=live_price,
+                            stop_loss_price=trade["sl"],
+                            take_profit_price=trade["tp"],
+                            lot_size=lot,
+                            pnl=pnl,
+                            signal_type=execution_route,
+                        )
+                        record_symbol_trade(original_symbol, win=False, confirmation_score=0.0)
+                    except Exception:
+                        pass
+                    bot_log(
+                        "trade_closed",
+                        f"Trade closed by SL on {original_symbol}",
+                        {"symbol": original_symbol, "price": live_price, "sl": trade["sl"]},
+                    )
+                    trade["open"] = False
+                    break
+                elif tp_hit:
+                    # Trade hit take profit - record as win with detailed intelligence
+                    try:
+                        pnl = (live_price - price) * lot if direction == "buy" else (price - live_price) * lot
+                        record_trade_outcome(
+                            original_symbol,
+                            win=True,
+                            confirmation_score=confirmation_score_value,
+                            entry_price=price,
+                            exit_price=live_price,
+                            stop_loss_price=trade["sl"],
+                            take_profit_price=trade["tp"],
+                            lot_size=lot,
+                            pnl=pnl,
+                            signal_type=execution_route,
+                        )
+                        record_symbol_trade(original_symbol, win=True, confirmation_score=confirmation_score_value)
+                    except Exception:
+                        pass
+                    bot_log(
+                        "trade_closed",
+                        f"Trade closed by TP on {original_symbol}",
+                        {"symbol": original_symbol, "price": live_price, "tp": trade["tp"]},
+                    )
+                    trade["open"] = False
+                    break
+                
                 action = manage_trade(trade, live_price)
 
                 if action:

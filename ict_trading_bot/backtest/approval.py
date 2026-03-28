@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from copy import deepcopy
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -10,6 +11,8 @@ from backtest.setup_occurrence import (
 )
 from backtest.strategy_runner import generate_latest_approval
 from utils.symbol_profile import build_symbol_profile_snapshot, get_backtest_thresholds, related_symbols
+
+_SETUP_REJECTION_CACHE: Dict[Tuple[str, str], Dict[str, object]] = {}
 
 
 def build_strategy_profile() -> Dict[str, object]:
@@ -48,6 +51,43 @@ def _resolve_report_path(report_path: str = None, report_key: str = None) -> str
         base = base.with_name(f"{base.stem}_{safe_key}{base.suffix}")
 
     return str(base)
+
+
+def _rejection_cooldown_seconds() -> int:
+    return max(0, int(os.getenv("SETUP_BACKTEST_REJECTION_COOLDOWN_SECONDS", "600")))
+
+
+def _cached_rejection_details(cache_key: Tuple[str, str]):
+    cooldown_seconds = _rejection_cooldown_seconds()
+    if cooldown_seconds <= 0:
+        return None
+
+    cached = _SETUP_REJECTION_CACHE.get(cache_key)
+    if not cached:
+        return None
+
+    expires_at = float(cached.get("expires_at", 0.0))
+    if time.time() >= expires_at:
+        _SETUP_REJECTION_CACHE.pop(cache_key, None)
+        return None
+
+    details = deepcopy(cached.get("details") or {})
+    details["reason"] = "recent_rejection_cached"
+    details["cached_rejection"] = True
+    details["cached_rejection_until"] = expires_at
+    details["cooldown_seconds"] = max(0, int(expires_at - time.time()))
+    return False, details
+
+
+def _store_rejection_cache(cache_key: Tuple[str, str], details: Dict[str, object]):
+    cooldown_seconds = _rejection_cooldown_seconds()
+    if cooldown_seconds <= 0:
+        return
+
+    _SETUP_REJECTION_CACHE[cache_key] = {
+        "expires_at": time.time() + cooldown_seconds,
+        "details": deepcopy(details),
+    }
 
 
 def evaluate_backtest_approval(report_path: str = None, force_required: bool = False) -> Tuple[bool, Dict[str, object]]:
@@ -193,6 +233,16 @@ def ensure_setup_backtest_approval(
     account_login = str(os.getenv("MT5_ACCOUNT_LOGIN") or "").strip()
     account_label = f" account={account_login}" if account_login else ""
     peer_count = len(related_symbols(symbol))
+    cache_key = (account_login or "<default>", resolved_report_key)
+
+    cached_result = _cached_rejection_details(cache_key)
+    if cached_result is not None:
+        approved, details = cached_result
+        details["symbol"] = symbol
+        details["report_key"] = resolved_report_key
+        details["setup_signature"] = setup_signature
+        details["setup_signature_hash"] = setup_hash
+        return approved, details
 
     if auto_generate:
         should_generate = not os.path.exists(report_path)
@@ -263,5 +313,8 @@ def ensure_setup_backtest_approval(
         failed_checks = details.get("failed_checks") or []
         if failed_checks:
             print(f"[BACKTEST] {symbol} rejection reasons: {', '.join(failed_checks)}")
+        _store_rejection_cache(cache_key, details)
+    else:
+        _SETUP_REJECTION_CACHE.pop(cache_key, None)
 
     return approved, details
