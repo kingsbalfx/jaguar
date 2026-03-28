@@ -1,6 +1,8 @@
 import os
 from typing import Dict, List
 
+from config.symbol_mappings import MAPPINGS as SYMBOL_MAPPINGS
+
 
 FX_CODES = {
     "AUD",
@@ -71,9 +73,17 @@ ASSET_CLASS_EXAMPLES = {
     "other": "SPX500",
 }
 
+CANONICAL_SYMBOL_ALIASES = {}
+for canonical_symbol in LIQUID_FOREX + LIQUID_METALS + LIQUID_CRYPTO:
+    normalized_canonical = canonical_symbol.upper()
+    CANONICAL_SYMBOL_ALIASES[normalized_canonical] = normalized_canonical
+    for alias in SYMBOL_MAPPINGS.get(normalized_canonical, []):
+        CANONICAL_SYMBOL_ALIASES[str(alias).strip().upper()] = normalized_canonical
+
 
 def normalize_symbol(symbol: str) -> str:
-    return str(symbol or "").strip().upper()
+    normalized = str(symbol or "").strip().upper()
+    return CANONICAL_SYMBOL_ALIASES.get(normalized, normalized)
 
 
 def infer_asset_class(symbol: str) -> str:
