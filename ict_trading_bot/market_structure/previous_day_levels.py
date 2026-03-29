@@ -1,15 +1,22 @@
 """
-PREVIOUS DAY SUPPORT/RESISTANCE DETECTION
-==========================================
-Uses 1HR (H1) timeframe to identify support/resistance from previous day's candle.
-This becomes the HTF reference level for entries.
+DAILY + 4HR BRIEF CONTEXT ANALYSIS
+===================================
+Analyzes Daily (24HR) and 4HR charts for:
+- Support/Resistance levels (S/R)
+- Fair Value Gaps (FVGs) - zones that need filling
+- Order Blocks (OBs) - from recent sweeps
+- Volume Balance - if volume is balanced or imbalanced
+- Price Action - rejection candles, reversals
+
+This is the BRIEF CONTEXT CHECK before trading on H1→M15→M5→M1.
 
 Key Features:
-- Gets previous trading day's HIGH and LOW
-- Calculates midpoint for range trading
-- Detects which level is broken (directional bias)
-- Provides entry reference zones
-- Adaptive to market session (prevents Asian range creep)
+- Gets Daily (24HR) OHLC + structure
+- Gets 4HR OHLC + recent swings
+- Identifies FVGs (gaps in price action)
+- Detects Order Blocks (from major moves)
+- Analyzes volume imbalance
+- Provides liquidity map for the day
 """
 
 import MetaTrader5 as mt5
@@ -300,9 +307,381 @@ def print_previous_day_report(symbol: str):
     print("\n" + "=" * 90 + "\n")
 
 
-if __name__ == "__main__":
-    # Example usage
+def detect_fvgs(symbol: str, timeframe: int = mt5.TIMEFRAME_D1, lookback: int = 50) -> Dict:
+    """
+    Detect Fair Value Gaps (FVGs) - zones where price has created gaps that need filling.
+    
+    FVG = Gap between candles where price may eventually return
+    
+    Returns:
+        {
+            "symbol": "GBPJPY",
+            "timeframe": "D1",
+            "fvgs": [
+                {
+                    "type": "bullish",  # or "bearish"
+                    "top": 145.800,     # Resistance of FVG (upper boundary)
+                    "bottom": 145.650,  # Support of FVG (lower boundary)
+                    "formed_after_candle": 10,  # Candle index
+                    "power": "high",    # based on gap size
+                }
+            ]
+        }
+    """
+    if not mt5.initialize():
+        return {"error": "MT5 not initialized", "symbol": symbol}
+    
+    try:
+        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, lookback)
+        
+        if rates is None or len(rates) < 3:
+            return {"error": "Not enough candles", "symbol": symbol}
+        
+        fvgs = []
+        
+        for i in range(1, len(rates) - 1):
+            prev_high = float(rates[i-1]['high'])
+            prev_low = float(rates[i-1]['low'])
+            curr_high = float(rates[i]['high'])
+            curr_low = float(rates[i]['low'])
+            next_high = float(rates[i+1]['high'])
+            next_low = float(rates[i+1]['low'])
+            
+            # BULLISH FVG: current candle low > previous candle high (gap up)
+            if curr_low > prev_high:
+                gap_size = curr_low - prev_high
+                if gap_size > 0:
+                    fvgs.append({
+                        "type": "bullish",
+                        "top": round(curr_low, 5),
+                        "bottom": round(prev_high, 5),
+                        "gap_size": round(gap_size, 5),
+                        "formed_at_candle": i,
+                        "power": "high" if gap_size > (max(rates['high']) - min(rates['low'])) * 0.01 else "normal"
+                    })
+            
+            # BEARISH FVG: current candle high < previous candle low (gap down)
+            elif curr_high < prev_low:
+                gap_size = prev_low - curr_high
+                if gap_size > 0:
+                    fvgs.append({
+                        "type": "bearish",
+                        "top": round(prev_low, 5),
+                        "bottom": round(curr_high, 5),
+                        "gap_size": round(gap_size, 5),
+                        "formed_at_candle": i,
+                        "power": "high" if gap_size > (max(rates['high']) - min(rates['low'])) * 0.01 else "normal"
+                    })
+        
+        return {
+            "symbol": symbol,
+            "timeframe": "D1" if timeframe == mt5.TIMEFRAME_D1 else "4H",
+            "fvgs": fvgs[:5],  # Return latest 5 FVGs
+            "total_fvgs": len(fvgs),
+            "analysis_timestamp": datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        return {"error": str(e), "symbol": symbol}
+    
+    finally:
+        mt5.shutdown()
+
+
+def detect_order_blocks(symbol: str, timeframe: int = mt5.TIMEFRAME_D1, lookback: int = 50) -> Dict:
+    """
+    Detect Order Blocks (OBs) - zones from recent strong moves that often act as support/resistance.
+    
+    OB = Price zone where a strong move originated from (often has trapped liquidity)
+    
+    Returns:
+        {
+            "symbol": "GBPJPY",
+            "timeframe": "D1",
+            "order_blocks": [
+                {
+                    "type": "bullish",  # or "bearish"
+                    "high": 145.850,    # Top of order block
+                    "low": 145.550,     # Bottom of order block
+                    "formed_after_candle": 15,
+                    "strength": "strong"  # based on candle size
+                }
+            ]
+        }
+    """
+    if not mt5.initialize():
+        return {"error": "MT5 not initialized", "symbol": symbol}
+    
+    try:
+        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, lookback)
+        
+        if rates is None or len(rates) < 3:
+            return {"error": "Not enough candles", "symbol": symbol}
+        
+        order_blocks = []
+        
+        for i in range(1, len(rates) - 1):
+            curr_close = float(rates[i]['close'])
+            curr_open = float(rates[i]['open'])
+            curr_high = float(rates[i]['high'])
+            curr_low = float(rates[i]['low'])
+            prev_close = float(rates[i-1]['close'])
+            
+            # BULLISH OB: Big candle moving up (body is substantial part of range)
+            if curr_close > curr_open and (curr_close - curr_open) > (curr_high - curr_low) * 0.6:
+                obstructed_zone = (curr_low, curr_high)
+                candle_size = curr_close - curr_open
+                
+                if candle_size > 0:
+                    order_blocks.append({
+                        "type": "bullish",
+                        "high": round(curr_high, 5),
+                        "low": round(curr_low, 5),
+                        "zone_size": round(candle_size, 5),
+                        "formed_at_candle": i,
+                        "strength": "strong" if candle_size > (max(rates['high']) - min(rates['low'])) * 0.01 else "normal"
+                    })
+            
+            # BEARISH OB: Big candle moving down (body is substantial part of range)
+            elif curr_open > curr_close and (curr_open - curr_close) > (curr_high - curr_low) * 0.6:
+                obstructed_zone = (curr_high, curr_low)
+                candle_size = curr_open - curr_close
+                
+                if candle_size > 0:
+                    order_blocks.append({
+                        "type": "bearish",
+                        "high": round(curr_high, 5),
+                        "low": round(curr_low, 5),
+                        "zone_size": round(candle_size, 5),
+                        "formed_at_candle": i,
+                        "strength": "strong" if candle_size > (max(rates['high']) - min(rates['low'])) * 0.01 else "normal"
+                    })
+        
+        return {
+            "symbol": symbol,
+            "timeframe": "D1" if timeframe == mt5.TIMEFRAME_D1 else "4H",
+            "order_blocks": order_blocks[:5],  # Return latest 5 OBs
+            "total_order_blocks": len(order_blocks),
+            "analysis_timestamp": datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        return {"error": str(e), "symbol": symbol}
+    
+    finally:
+        mt5.shutdown()
+
+
+def analyze_volume_balance(symbol: str, timeframe: int = mt5.TIMEFRAME_D1, lookback: int = 50) -> Dict:
+    """
+    Analyze volume balance - is volume pushing price in a direction strongly?
+    
+    Returns:
+        {
+            "symbol": "GBPJPY",
+            "balance": "bullish",  # or "bearish" or "balanced"
+            "avg_volume": 1000000,
+            "recent_volume": 1200000,
+            "volume_imbalance_ratio": 1.2,
+            "description": "Strong bullish volume - buyers in control"
+        }
+    """
+    if not mt5.initialize():
+        return {"error": "MT5 not initialized", "symbol": symbol}
+    
+    try:
+        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, lookback)
+        
+        if rates is None or len(rates) < 10:
+            return {"error": "Not enough candles", "symbol": symbol}
+        
+        # Get average volume
+        avg_volume = np.mean(rates['tick_volume'])
+        
+        # Get recent volume (last 3 candles average)
+        recent_volume = np.mean(rates['tick_volume'][-3:])
+        
+        # Get buy/sell volumes (simplified: based on close > open or close < open)
+        up_volume = 0
+        down_volume = 0
+        
+        for i in range(len(rates)):
+            if rates[i]['close'] > rates[i]['open']:
+                up_volume += rates[i]['tick_volume']
+            else:
+                down_volume += rates[i]['tick_volume']
+        
+        volume_ratio = up_volume / (down_volume + 1)  # Avoid division by zero
+        
+        # Determine balance
+        if volume_ratio > 1.3:
+            balance = "bullish"
+            description = f"Strong bullish volume - buyers in control (ratio: {volume_ratio:.2f})"
+        elif volume_ratio < 0.7:
+            balance = "bearish"
+            description = f"Strong bearish volume - sellers in control (ratio: {volume_ratio:.2f})"
+        else:
+            balance = "balanced"
+            description = f"Balanced volume - no clear direction (ratio: {volume_ratio:.2f})"
+        
+        return {
+            "symbol": symbol,
+            "timeframe": "D1" if timeframe == mt5.TIMEFRAME_D1 else "4H",
+            "balance": balance,
+            "avg_volume": round(avg_volume, 0),
+            "recent_volume": round(recent_volume, 0),
+            "volume_imbalance_ratio": round(volume_ratio, 2),
+            "description": description,
+            "analysis_timestamp": datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        return {"error": str(e), "symbol": symbol}
+    
+    finally:
+        mt5.shutdown()
+
+
+def analyze_price_action(symbol: str, timeframe: int = mt5.TIMEFRAME_D1, lookback: int = 20) -> Dict:
+    """
+    Analyze price action - rejection candles, reversals, momentum patterns
+    
+    Returns:
+        {
+            "symbol": "GBPJPY",
+            "recent_structure": "bullish",  # or "bearish" or "consolidating"
+            "rejection_candles_count": 2,
+            "strongest_candle": {"size": 0.850, "type": "bullish", "position": "recent"},
+            "price_action_quality": "strong"  # or "weak" or "consolidating"
+        }
+    """
+    if not mt5.initialize():
+        return {"error": "MT5 not initialized", "symbol": symbol}
+    
+    try:
+        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, lookback)
+        
+        if rates is None or len(rates) < 5:
+            return {"error": "Not enough candles", "symbol": symbol}
+        
+        rejection_candles = 0
+        bullish_candles = 0
+        bearish_candles = 0
+        candle_sizes = []
+        
+        for i in range(len(rates)):
+            high = float(rates[i]['high'])
+            low = float(rates[i]['low'])
+            close = float(rates[i]['close'])
+            open_p = float(rates[i]['open'])
+            
+            candle_size = high - low
+            candle_sizes.append(candle_size)
+            
+            # Rejection candle: long wick, small body
+            wick_size_top = high - max(close, open_p)
+            wick_size_bottom = min(close, open_p) - low
+            body_size = abs(close - open_p)
+            
+            if (wick_size_top > body_size * 2 or wick_size_bottom > body_size * 2) and body_size > 0:
+                rejection_candles += 1
+            
+            if close > open_p:
+                bullish_candles += 1
+            elif close < open_p:
+                bearish_candles += 1
+        
+        # Recent structure
+        if bullish_candles > bearish_candles * 1.5:
+            structure = "bullish"
+        elif bearish_candles > bullish_candles * 1.5:
+            structure = "bearish"
+        else:
+            structure = "consolidating"
+        
+        # Price action quality (based on largest candle)
+        largest_candle = max(candle_sizes)
+        avg_candle = np.mean(candle_sizes)
+        
+        if largest_candle > avg_candle * 2:
+            quality = "strong"
+        else:
+            quality = "weak"
+        
+        return {
+            "symbol": symbol,
+            "timeframe": "D1" if timeframe == mt5.TIMEFRAME_D1 else "4H",
+            "recent_structure": structure,
+            "bullish_candles": bullish_candles,
+            "bearish_candles": bearish_candles,
+            "rejection_candles_count": rejection_candles,
+            "largest_candle_size": round(largest_candle, 5),
+            "avg_candle_size": round(avg_candle, 5),
+            "price_action_quality": quality,
+            "analysis_timestamp": datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        return {"error": str(e), "symbol": symbol}
+    
+    finally:
+        mt5.shutdown()
+
+
+def print_daily_4hr_brief_report(symbol: str):
+    """
+    Print a comprehensive BRIEF CONTEXT report for Daily + 4HR.
+    This is what you check FIRST before diving into H1→M15→M5→M1.
+    """
+    print("\n" + "=" * 100)
+    print(f"[DAILY + 4HR BRIEF CONTEXT CHECK] {symbol}")
+    print("=" * 100)
+    
+    # Daily levels
+    daily_levels = get_previous_day_levels(symbol)
+    if "error" not in daily_levels:
+        print(f"\n📊 DAILY (24HR) STRUCTURE:")
+        print(f"   High: {daily_levels['high']:.5f} | Low: {daily_levels['low']:.5f} | Range: {daily_levels['range']:.5f}")
+        print(f"   Bias: {daily_levels['broken_description']}")
+    
+    # Daily FVGs
+    daily_fvgs = detect_fvgs(symbol, mt5.TIMEFRAME_D1, lookback=30)
+    if "fvgs" in daily_fvgs and daily_fvgs["fvgs"]:
+        print(f"\n📍 DAILY FVGs (Fair Value Gaps):")
+        for fvg in daily_fvgs["fvgs"][:3]:
+            print(f"   {fvg['type'].upper()}: {fvg['bottom']:.5f} - {fvg['top']:.5f} (Gap: {fvg['gap_size']:.5f})")
+    
+    # Daily Order Blocks
+    daily_obs = detect_order_blocks(symbol, mt5.TIMEFRAME_D1, lookback=30)
+    if "order_blocks" in daily_obs and daily_obs["order_blocks"]:
+        print(f"\n🔒 DAILY ORDER BLOCKS:")
+        for ob in daily_obs["order_blocks"][:3]:
+            print(f"   {ob['type'].upper()}: {ob['low']:.5f} - {ob['high']:.5f} (Size: {ob['zone_size']:.5f})")
+    
+    # Daily Volume Balance
+    daily_vol = analyze_volume_balance(symbol, mt5.TIMEFRAME_D1, lookback=30)
+    if "balance" in daily_vol:
+        print(f"\n📈 DAILY VOLUME BALANCE:")
+        print(f"   {daily_vol['description']}")
+    
+    # Daily Price Action
+    daily_pa = analyze_price_action(symbol, mt5.TIMEFRAME_D1, lookback=20)
+    if "recent_structure" in daily_pa:
+        print(f"\n⚡ DAILY PRICE ACTION:")
+        print(f"   Structure: {daily_pa['recent_structure'].upper()}")
+        print(f"   Quality: {daily_pa['price_action_quality'].upper()}")
+        print(f"   Rejection Candles: {daily_pa['rejection_candles_count']}")
+    
+    print("\n" + "-" * 100)
+    print(f"[CONTEXT DECISION]: Check if Daily shows clear bias & good structure")
+    print(f"   ✅ CONTINUE to 4HR if: Bias is clear + Volume is directional + Price Action is strong")
+    print(f"   ❌ SKIP if: No clear bias OR mixed signals OR consolidating")
+    print("\n" + "=" * 100 + "\n")
+
+
+
+    # Example usage - DAILY + 4HR BRIEF CHECK
     symbols = ["GBPJPY", "EURUSD", "XAGUSD", "DOGEUSD"]
     
     for symbol in symbols:
-        print_previous_day_report(symbol)
+        print_daily_4hr_brief_report(symbol)
