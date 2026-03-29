@@ -6,27 +6,34 @@ Updated: March 28, 2026
 STRUCTURAL HIERARCHY
 ====================
 
-HTF (H1):   Higher Timeframe - Uses PREVIOUS DAY candle for S/R
+HTF (H1):   BRIEF Context Check (like H4 used to be)
+            - Quick scan of: Trend? Liquidity? Volume imbalance? Structure?
             - Reference: Yesterday's HIGH and LOW
-            - Purpose: Identify breakout direction
-            - Entry: Above/below previous day extremes
+            - Purpose: Know the general bias BEFORE deep analysis
+            - Time: 2 minutes max per symbol
+            
+            DO NOT: Deep analysis, over-analyze, waste time
+            DO: Glance at structure, note trend direction, identify sweep zones
 
-MTF (M15):  Mid Timeframe
+MTF (M15):  SWING ANALYSIS - Where the work begins
             - Confirms trend on intermediate frame
-            - Swing structure analysis
+            - Swing structure analysis (highs/lows)
             - BOS/liquidity confirmation
+            - 80% of your analysis happens here
 
-LTF (M5):   Lower Timeframe
+LTF (M5):   ENTRY ZONE IDENTIFICATION
             - Precise entry zone identification
             - Real candle confirmation
             - Price action patterns
+            - Where you set up the trade
 
-EXECUTION (M1): Execution Timeframe
-            - Entry trigger confirmation
+EXECUTION (M1): EXECUTION ONLY
+            - Entry trigger confirmation (break candle)
             - Stop placement precision
             - Scale-in opportunities
+            - Where you take the position
 
-CONTEXT (H4): Optional Brief Review
+CONTEXT (H4): Optional - Skip unless needed
             - Macro context (optional)
             - Extended trend confirmation
             - Risk/reward validation
@@ -35,55 +42,73 @@ CONTEXT (H4): Optional Brief Review
 MULTI-TIMEFRAME FLOW
 ====================
 
-1. SCAN HTF (H1) - Previous Day Reference
-   ├─ Get previous trading day HIGH + LOW
-   ├─ Current price vs. S/R
-   ├─ Determine breakout direction (if any)
-   └─ Expected target zone
+1. QUICK SCAN HTF (H1) - 2 Minutes Max ⚡
+   ├─ What's the trend? Up/Down/Range?
+   ├─ Any liquidity sweep visible?
+   ├─ Volume imbalanced?
+   ├─ General structure (HH/HL, LL/LH)?
+   └─ Check previous day HIGH/LOW for breakout context
+   
+   THEN: If H1 looks good, dive into M15
+   SKIP: If H1 looks messy, wait for clarity
 
-2. CONFIRM MTF (M15) - 15-Minute Swing
-   ├─ Check swing high/low
-   ├─ Verify trend alignment
-   ├─ Liquidity event confirmation
-   └─ BOS/SMT validation
+2. DEEP ANALYSIS MTF (M15) - Where The Work Happens 💪
+   ├─ Swing high/low from H1 confirmation visible?
+   ├─ Verify trend alignment (HH/HL or LL/LH)
+   ├─ Find liquidity event (sweep, void, level)
+   ├─ BOS/SMT validation
+   └─ Locate breakout level
+   
+   THEN: If M15 confirms, move to M5
+   SKIP: If M15 disagrees with H1, wait for alignment
 
-3. ENTRY ZONE LTF (M5) - 5-Minute Entry
+3. ENTRY ZONE SETUP LTF (M5) - Get Ready 🎯
    ├─ Wait for price action setup
-   ├─ Rejection candles
-   ├─ Momentum confirmation
-   └─ FVG/OB verification
+   ├─ Find rejection candles
+   ├─ Locate FVG/OB
+   ├─ Identify momentum candles
+   └─ Note exact entry zone
+   
+   THEN: If M5 shows setup, watch M1
+   SKIP: If M5 shows reversal, abandon M15 setup
 
-4. EXECUTE M1 - 1-Minute Trigger
+4. EXECUTE M1 - Pull The Trigger 🚀
    ├─ Break above/below entry candle
    ├─ Momentum on entry bar
    ├─ Volume confirmation
    └─ Take position
+   ├─ SL: Below/above M5 reversal level
+   └─ TP: Previous day HIGH/LOW or M15 swing target
 
 
 ADVANTAGE: FASTER DECISIONS, LONGER WINNERS
 ============================================
 
-Why H1→M15→M5→M1?
+Why H1 (brief scan) → M15 (deep work) → M5 (entry) → M1 (execute)?
 
-✅ Previous day S/R (H1):
-   - Removes guesswork on direction
-   - Provides clear reference levels
-   - Market respects daily extremes
+✅ H1 Brief Context (like H4, but faster):
+   - 2-minute scan instead of wasting time on H4
+   - Know the bias before diving deeper
+   - Check liquidity, volume, structure
+   - Previous day S/R gives you the reference
 
-✅ M15 swing confirmation:
-   - Reduces chop complexity
-   - Larger moves = less noise
-   - Better for identifying sweeps
+✅ M15 DEEP ANALYSIS (80% of your work):
+   - Where you actually find the setup
+   - Swing structure is clear at this level
+   - Liquidity levels are obvious
+   - Breakout patterns show clearly
 
-✅ M5 entry precision:
+✅ M5 Entry Precision:
    - Real candle confirmations
    - Quick response to price action
    - Better risk/reward ratios
+   - FVG/OB clearly visible
 
-✅ M1 execution:
+✅ M1 Execution:
    - Precise entry triggers
-   - Faster fills
    - Minimal slippage
+   - Fast fills
+   - Quick feedback (20-40 min holds)
 
 
 CONFIGURATION
@@ -119,31 +144,35 @@ Key Functions:
 EXAMPLE: GBPJPY TRADE SETUP
 ============================
 
-Previous Day (H1): O:145.20 H:145.68 L:144.92 C:145.45
-Current: 145.50
-
-1. HTF SCAN (H1):
-   ✓ Price above midpoint (145.30) - Bullish bias
-   ✓ Resistance at 145.68 hasn't broken yet
-   ✓ If breaks R, target = 145.68 + (145.68-144.92) = 146.44
-   
-2. MTF CONFIRM (M15):
-   ✓ 15-min swing: L: 145.40 → H: 145.60 (20 pips)
+1. H1 BRIEF SCAN (2 minutes):
    ✓ Trend: Bullish (higher highs/lows)
-   ✓ Liquidity event at 145.50 (previous resistance)
-   
-3. LTF ENTRY (M5):
-   ✓ Price action at 145.50 (previous HL level)
-   ✓ Rejection candle forms
-   ✓ FVG above rejection candle
-   ✓ Target: Previous day HIGH at 145.68
-   
-4. M1 EXECUTE:
-   ✓ Break above 145.50 on M1
-   ✓ Momentum confirmed
+   ✓ Liquidity: 145.50 sweep visible
+   ✓ Structure: Above midpoint (145.30)
+   ✓ Previous day ref: R=145.68, S=144.92
+   → Verdict: "Looks bullish, check M15 for setup"
+
+2. M15 DEEP ANALYSIS (8-10 minutes):
+   ✓ Swing: L: 145.40 → H: 145.60 (20 pips)
+   ✓ Trend: Higher high just formed (145.60 > 145.55)
+   ✓ Liquidity event: Sweep at 145.50 (previous resistance)
+   ✓ BOS: Possible above 145.55-145.60
+   → Verdict: "M15 confirms bullish, setup is forming"
+
+3. M5 ENTRY SETUP (Wait for signal):
+   ✓ Price pulls back to 145.50 (liquidity level)
+   ✓ Rejection candle forms (wick down, body up)
+   ✓ FVG above rejection (145.52-145.54)
+   ✓ Momentum building
+   → Verdict: "Sweet zone hit, ready for entry signal"
+
+4. M1 EXECUTION (Quick trigger):
+   ✓ Break above 145.54 (rejection candle high)
+   ✓ Momentum confirmed on M1
    ✓ Take long position
-   ✓ SL: Below 145.45
-   ✓ TP: 145.68 (sweet zone target)
+   ✓ SL: Below 145.48 (M5 low)
+   ✓ TP: 145.68 (previous day resistance = target)
+   
+Result: Entry to exit in 15-30 minutes, 20 pip profit
 
 
 SETUP SCORING BONUS
@@ -161,44 +190,51 @@ in seconds rather than waiting for more confirmations.
 ADVANTAGE OVER OLD STRUCTURE (H4→H1→M15)
 =========================================
 
-OLD:     H4 (too slow) → H1 (medium) → M15 (entry)
-         - H4 too removed from current price action
-         - Miss early MTF moves while waiting for H4 confirmation
-         - Fewer trades/day but also missed opportunities
+OLD:     H4 (deep analysis, slow) → H1 (medium) → M15 (entry)
+         - Spend 10 min analyzing H4 structure
+         - Then 5 min on H1
+         - Then entry on M15
+         - Total: 15+ minutes per setup
+         - Miss early moves while analyzing H4
 
-NEW:     H1 (yesterday's ref) → M15 (sw confirmation) → M5 (entry) → M1 (execution)
-         - Previous day removes direction ambiguity
-         - M15 swings give real-time structure
-         - M5+M1 combo = fast entries with precise triggers
-         - 2-3x more trade opportunities
-         - Higher accuracy due to multi-level confirmation
+NEW:     H1 (quick scan, 2 min) → M15 (deep work) → M5 (entry) → M1 (execute)
+         - 2 minute quick scan on H1 (trend? liquidity? structure?)
+         - 8-10 min DEEP analysis on M15 (where setups really show up)
+         - 5 min waiting for M5 entry confirmation
+         - 1 min execution on M1
+         - Total: Still ~15 min, but NO wasted time on slow H4
+         - Catch moves faster because M15+M5 react quicker than H4
+         - Same time, better results, more opportunities
 
 
 WHAT'S OPTIMIZED
 ================
 
-1. Direction Clarity (H1 Previous Day)
+1. TIME ALLOCATION (No wasted time on slow timeframe)
+   OLD: 40% on H4 analysis (slow) + 40% on H1 + 20% on M15 entry
+        = Deep analysis on H4 takes too long
+   
+   NEW: 5% on H1 quick scan + 60% on M15 deep analysis + 25% M5 + 10% M1
+        = All deep work happens at M15 where structures show clearly
+        = H1 is just "trend? liquidity? structure?" - Quick!
+
+2. Analysis Speed (Less wasted time)
+   - H1: 2 minute glance (same as H4 was for you)
+   - M15: Where you spend your real thinking (8-10 min)
+   - M5: Wait for pattern (3-5 min)
+   - M1: Execute (1-2 min)
+   - RESULT: Same time commitment, BETTER results because M15+ reacts faster
+
+3. Direction Clarity (H1 Previous Day)
    - No guessing: "should I be long or short?"
    - Answer is in yesterday's HIGH and LOW
    - Breakout confirmations are objective
 
-2. Entry Speed (M15→M5→M1)
-   - Faster timeframe progression
-   - Quicker setup identification
-   - Real-time price action response
-   - Entry within minutes, not hours
-
-3. Win Rate Mechanics
+4. Win Rate Mechanics
    - Fewer false breakouts (M15 filters chop)
    - Better entry quality (M5 confirmation)
-   - Tighter stops (clear daily reference)
-   - Higher profit factor (fewer winners, but bigger)
-
-4. Psychological Wins
-   - Clear entry rules = reduced hesitation
-   - Daily S/R = objective targets = exits made easy
-   - Faster feedback = reduced anxiety
-   - More daily activity = keeps trader engaged
+   - Tighter stops (clear from M5 structure)
+   - Higher profit factor (tight wins, small losses)
 
 
 METRICS TO TRACK
