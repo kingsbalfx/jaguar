@@ -243,6 +243,7 @@ skip_stats = {}
 skip_examples = {}
 stage_hits = {}
 stage_examples = {}
+_bot_state = {}  # Module-level state for tracking timers
 
 
 def record_skip(reason, symbol):
@@ -460,11 +461,11 @@ while True:
                 pass
             
             # Add intelligent execution report (every 60 seconds)
-            if not hasattr(bot_main, '_last_intel_report'):
-                bot_main._last_intel_report = 0
+            if '_last_intel_report' not in _bot_state:
+                _bot_state['_last_intel_report'] = 0
             
             now_for_intel = time.time()
-            if now_for_intel - bot_main._last_intel_report >= 120:  # Every 2 minutes
+            if now_for_intel - _bot_state['_last_intel_report'] >= 120:  # Every 2 minutes
                 try:
                     intel_report = get_market_intelligence_report(list(VALID_SYMBOLS))
                     bot_log(
@@ -473,7 +474,7 @@ while True:
                         {"report": "comprehensive_market_analysis"},
                         persist=True,
                     )
-                    bot_main._last_intel_report = now_for_intel
+                    _bot_state['_last_intel_report'] = now_for_intel
                 except Exception as e:
                     pass  # Silently fail if intelligence report fails
             
