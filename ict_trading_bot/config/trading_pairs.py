@@ -69,25 +69,29 @@ class TradingPairs:
         "XPDUSD",  # Palladium vs USD
     ]
     
-    # ========== CRYPTOCURRENCIES (12) - CFD/Spot ==========
-    # Note: Not all brokers support all crypto. Check MT5 availability
+    # ========== CRYPTOCURRENCIES - HIGH-PERFORMERS ONLY ==========
+    # Note: Backtests show weak signals. Trading only proven performers:
+    # - AVAX (30% WR) ✅, LTC (21% WR) ✅, BTCUSD (23% WR) ⚠️
+    # - Temporarily disabled (improve entry criteria first):
+    #   DOGEUSD (7% WR), SOLUSD (6% WR), XRPUSD (0% WR), BNBUSD (10% WR)
     CRYPTO = [
-        "BTCUSD",  # Bitcoin vs USD
-        "ETHUSD",  # Ethereum vs USD
-        "DOGEUSD", # Dogecoin vs USD
-        "BNBUSD",  # Binance Coin vs USD
-        "SOLUSD",  # Solana vs USD
-        "XRPUSD",  # Ripple vs USD
-        "TRXUSD",  # Tron vs USD
-        "TONUSD",  # Toncoin vs USD
-        "ADAUSD",  # Cardano vs USD
-        "AVAXUSD", # Avalanche vs USD
-        "LTCUSD",  # Litecoin vs USD
-        "BCHUSD",  # Bitcoin Cash vs USD
-        "EOSUSD",  # EOS vs USD
-        "MATICUSD",  # Polygon vs USD
-        "LINKUSD",  # Chainlink vs USD
-        "UNIUSD",  # Uniswap vs USD
+        "BTCUSD",  # Bitcoin vs USD - 23% WR, keep watching
+        "ETHUSD",  # Ethereum vs USD - 8% WR, monitor with new settings
+        "AVAXUSD", # Avalanche vs USD - 30% WR ✅ BEST
+        "LTCUSD",  # Litecoin vs USD - 21% WR ✅ KEEP
+        "ADAUSD",  # Cardano vs USD - 18% WR, marginal
+        "TONUSD",  # Toncoin vs USD - 18% WR, marginal
+        "TRXUSD",  # Tron vs USD - 6% WR, monitor for improvement
+        "BCHUSD",  # Bitcoin Cash vs USD - test with new settings
+        # DISABLED (until win rate improves with new entry criteria):
+        # "DOGEUSD", # Was 7% WR - too weak
+        # "SOLUSD",  # Was 6% WR - too weak  
+        # "XRPUSD",  # Was 0% WR - never wins
+        # "BNBUSD",  # Was 10% WR - marginal
+        # "EOSUSD",  # Low performance
+        # "MATICUSD", # Low performance
+        # "LINKUSD", # Low performance
+        # "UNIUSD",  # Low performance
     ]
     
     # ========== INDICES (8) ==========
@@ -187,7 +191,17 @@ class BotConfig:
     
     # ========== TRADING CONFIGURATION ==========
     # Default trading pairs (can be overridden per user tier)
-    SYMBOLS = TradingPairs.MAJOR_FOREX
+    # Includes: Forex (24) + Metals (4) + Crypto (16) = 44 pairs
+    # Each asset class has different execution rules:
+    # - FOREX: Tight entries (0.08 buffer), 70% win rate required, 5.0 confirmation score
+    # - METALS: Medium volatility (0.10 buffer), 65% win rate required, 5.0 confirmation score
+    # - CRYPTO: High volatility (0.14 buffer), 60% win rate required, 4.0 confirmation score
+    SYMBOLS = (
+        TradingPairs.MAJOR_FOREX +
+        TradingPairs.MINOR_FOREX +
+        TradingPairs.PRECIOUS_METALS +
+        TradingPairs.CRYPTO
+    )
     
     # Risk management
     RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE", "1.0"))

@@ -1,0 +1,72 @@
+{
+  "generated_at": "2026-03-27T16:59:40.156269+00:00",
+  "profile": {
+    "htf_timeframe": "H4",
+    "mtf_timeframe": "H1",
+    "ltf_timeframe": "M15",
+    "min_extra_confirmations": 3,
+    "count_fundamentals_as_confirmation": false,
+    "default_rr_ratio": 3.0,
+    "min_rr_ratio": 2.0,
+    "relax_liquidity_rule": true,
+    "liquidity_tolerance_ratio": 0.0015,
+    "relax_fvg_requirement": true,
+    "entry_fib_buffer_ratio": 0.08,
+    "allow_ltf_trend_fallback": true,
+    "news_filter_strict": true,
+    "rule_quality_required": true
+  },
+  "symbol": "GBPJPY",
+  "setup_signature": {
+    "direction": "sell",
+    "trend": "bearish",
+    "timeframes": {
+      "HTF": "H4",
+      "MTF": "H1",
+      "LTF": "M15"
+    },
+    "htf_trend": "bearish",
+    "mtf_trend": "range",
+    "ltf_trend": "range",
+    "fib_zone": "premium",
+    "liquidity_event_confirmed": true,
+    "liquidity_sweep": false,
+    "mtf_swing": true,
+    "ltf_swing": true,
+    "bos_confirmed": true,
+    "price_action_confirmed": false,
+    "mtf_price_action_confirmed": false,
+    "ltf_price_action_confirmed": false,
+    "mtf_price_action_patterns": [],
+    "ltf_price_action_patterns": [],
+    "smt_confirmed": true,
+    "rule_quality": true,
+    "ml_quality": true,
+    "has_fvg": true,
+    "fvg_timeframe": "M15",
+    "has_order_block": true,
+    "order_block_timeframe": "H1",
+    "mtf_bos": true,
+    "ltf_bos": true,
+    "confirmations_met": [
+      "bos",
+      "liquidity_setup",
+      "ml",
+      "rule_quality",
+      "smt"
+    ],
+    "confirmation_count": 5
+  },
+  "setup_signature_hash": "EC0B7F3D28BB",
+  "occurrences": 0,
+  "candidate_setups": 26,
+  "occurrence_rate": 0.0,
+  "metrics": {
+    "trades": 0,
+    "win_rate": 0,
+    "profit_factor": 999,
+    "max_drawdown": 0,
+    "expectancy": 0
+  },
+  "trades_sample": []
+}

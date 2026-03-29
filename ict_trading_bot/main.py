@@ -1032,6 +1032,41 @@ while True:
                             signal_type=execution_route,
                         )
                         record_symbol_trade(original_symbol, win=False, confirmation_score=0.0)
+                        
+                        # RECORD STRATEGY MEMORY - what strategy was used, did it work?
+                        try:
+                            from risk.strategy_memory import record_strategy_execution
+                            from utils.symbol_profile import infer_asset_class
+                            
+                            setup_types = []
+                            if signal.get("setup_context", {}).get("liquidity", {}).get("confirmed"):
+                                setup_types.append("liquidity")
+                            if signal.get("setup_context", {}).get("bos", {}).get("confirmed"):
+                                setup_types.append("bos")
+                            if signal.get("setup_context", {}).get("price_action", {}).get("confirmed"):
+                                setup_types.append("price_action")
+                            
+                            session = get_trading_session()
+                            asset_class = infer_asset_class(original_symbol)
+                            bars_held = int((time.time() - trade_entry_time) / 60 / 5)  # Approx bars
+                            
+                            record_strategy_execution(
+                                symbol=original_symbol,
+                                setup_types=setup_types or ["unknown"],
+                                execution_route=execution_route or "unknown",
+                                confirmation_type=signal.get("confirmation_summary", {}).get("type", "unknown"),
+                                session=session,
+                                asset_class=asset_class,
+                                confirmation_score=confirmation_score_value,
+                                entry_price=price,
+                                sl=trade["sl"],
+                                tp=trade["tp"],
+                                win=False,
+                                pnl=pnl,
+                                bars_held=bars_held
+                            )
+                        except Exception as e:
+                            pass  # Don't fail main bot if strategy memory fails
                     except Exception:
                         pass
                     bot_log(
@@ -1058,6 +1093,41 @@ while True:
                             signal_type=execution_route,
                         )
                         record_symbol_trade(original_symbol, win=True, confirmation_score=confirmation_score_value)
+                        
+                        # RECORD STRATEGY MEMORY - what strategy was used, did it work?
+                        try:
+                            from risk.strategy_memory import record_strategy_execution
+                            from utils.symbol_profile import infer_asset_class
+                            
+                            setup_types = []
+                            if signal.get("setup_context", {}).get("liquidity", {}).get("confirmed"):
+                                setup_types.append("liquidity")
+                            if signal.get("setup_context", {}).get("bos", {}).get("confirmed"):
+                                setup_types.append("bos")
+                            if signal.get("setup_context", {}).get("price_action", {}).get("confirmed"):
+                                setup_types.append("price_action")
+                            
+                            session = get_trading_session()
+                            asset_class = infer_asset_class(original_symbol)
+                            bars_held = int((time.time() - trade_entry_time) / 60 / 5)  # Approx bars
+                            
+                            record_strategy_execution(
+                                symbol=original_symbol,
+                                setup_types=setup_types or ["unknown"],
+                                execution_route=execution_route or "unknown",
+                                confirmation_type=signal.get("confirmation_summary", {}).get("type", "unknown"),
+                                session=session,
+                                asset_class=asset_class,
+                                confirmation_score=confirmation_score_value,
+                                entry_price=price,
+                                sl=trade["sl"],
+                                tp=trade["tp"],
+                                win=True,
+                                pnl=pnl,
+                                bars_held=bars_held
+                            )
+                        except Exception as e:
+                            pass  # Don't fail main bot if strategy memory fails
                     except Exception:
                         pass
                     bot_log(

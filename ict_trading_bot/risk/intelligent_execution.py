@@ -4,19 +4,26 @@ Intelligent Execution System
 10,000% IQ smarter execution for winning AND losing scenarios.
 
 Analyzes:
-1. Symbol win/loss patterns
+1. Symbol win/loss patterns (per asset class)
 2. Confirmation score reliability
 3. Market conditions
 4. Dynamic risk based on confidence
 5. Loss prevention strategies
-6. Position sizing optimization
-7. Trade timing intelligence
+6. Position sizing optimization (0.5-1.0x for forex, 0.7-1.2x metals, 0.5-1.2x crypto)
+7. Trade timing intelligence (asset-class-specific thresholds)
+
+ASSET CLASS MULTIPLIERS (Updated March 29, 2026):
+- FOREX: 0.5-1.0x (conservative)
+- METALS: 0.7-1.2x (medium)
+- CRYPTO: 0.5-1.2x (reduced from 0.9-2.1x due to weak backtest signals)
+  └─ Will increase to 0.9-2.1x once win rate improves beyond 40%
 """
 import json
 import os
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Tuple, List
+from utils.symbol_profile import infer_asset_class
 
 INTELLIGENT_STATS_FILE = Path(__file__).resolve().parent.parent / "data" / "intelligent_execution_stats.json"
 
@@ -206,20 +213,38 @@ def calculate_dynamic_lot_size(
     Lower confidence = smaller position
     Losing streak = reduce size
     
+    DIFFERENT MULTIPLIER RANGES BY ASSET CLASS:
+    - FOREX: 0.5x to 1.0x (conservative, steady growth)
+    - METALS: 0.7x to 1.2x (medium, balanced)
+    - CRYPTO: 0.9x to 2.1x (aggressive, exploit volatility!)
+    
     Returns: (lot_size, {details})
     """
     intel = calculate_precise_winning_rate(symbol)
+    asset_class = infer_asset_class(symbol)
+    
+    # Asset class specific multiplier ranges
+    # UPDATED (March 29, 2026): Reduced crypto range due to weak backtest performance
+    multiplier_ranges = {
+        "forex": {"min": 0.5, "max": 1.0},
+        "metals": {"min": 0.7, "max": 1.2},
+        "crypto": {"min": 0.5, "max": 1.2},  # REDUCED: was 0.9-2.1x (backtests show 14% WR - too risky)
+        "other": {"min": 0.6, "max": 1.3},
+    }
+    
+    asset_range = multiplier_ranges.get(asset_class, multiplier_ranges["other"])
+    base_min, base_max = asset_range["min"], asset_range["max"]
     
     # Base multiplier from risk rating
     risk_multipliers = {
-        "LOW": 1.5,           # High confidence = trade bigger
-        "MEDIUM": 1.0,        # Normal position
-        "MEDIUM-HIGH": 0.7,   # Reduced
-        "HIGH": 0.4,          # Very small
-        "NEW": 0.6,           # Small for unproven symbols
+        "LOW": (base_max * 1.0),        # High confidence = at max for this asset class
+        "MEDIUM": ((base_min + base_max) / 2),  # Normal position = mid-range
+        "MEDIUM-HIGH": (base_min * 0.8),   # Reduced
+        "HIGH": (base_min * 0.5),        # Very small
+        "NEW": (base_min * 0.7),         # Small for unproven symbols
     }
     
-    base_multiplier = risk_multipliers.get(intel["risk_rating"], 1.0)
+    base_multiplier = risk_multipliers.get(intel["risk_rating"], (base_min + base_max) / 2)
     
     # Opportunity score multiplier (0.1 - 1.0)
     opportunity_multiplier = intel["opportunity_score"]
@@ -239,7 +264,8 @@ def calculate_dynamic_lot_size(
     
     # Final calculation
     final_multiplier = base_multiplier * opportunity_multiplier * streak_multiplier * expectancy_multiplier
-    final_multiplier = max(0.1, min(2.5, final_multiplier))  # Keep within 0.1x to 2.5x
+    # Apply asset class specific limits
+    final_multiplier = max(base_min, min(base_max, final_multiplier))
     
     final_lot = base_lot * final_multiplier
     
@@ -249,13 +275,15 @@ def calculate_dynamic_lot_size(
     
     return round(final_lot, 2), {
         "base_lot": base_lot,
+        "asset_class": asset_class,
+        "multiplier_range": f"{base_min}x - {base_max}x",
         "base_multiplier": round(base_multiplier, 2),
         "opportunity_multiplier": round(opportunity_multiplier, 2),
         "streak_multiplier": round(streak_multiplier, 2),
         "expectancy_multiplier": round(expectancy_multiplier, 2),
         "final_multiplier": round(final_multiplier, 2),
         "final_lot": round(final_lot, 2),
-        "reason": f"{intel['risk_rating']} risk + {intel['current_streak']} streak",
+        "reason": f"{asset_class.upper()} {intel['risk_rating']} + {intel['current_streak']} streak = {final_multiplier:.2f}x",
     }
 
 
@@ -327,23 +355,41 @@ def should_take_trade(
     Says YES to trades that have high probability.
     Says NO to trades that don't fit the symbol pattern.
     
+    ASSET-CLASS-SPECIFIC thresholds:
+    - FOREX: Need 65% final confidence
+    - METALS: Need 62% final confidence
+    - CRYPTO: Need 60% final confidence (easier - more volatile!)
+    
     Returns: (should_trade, {analysis})
     """
     intel = calculate_precise_winning_rate(symbol)
+    asset_class = infer_asset_class(symbol)
+    
+    # Asset class specific confidence thresholds
+    confidence_thresholds = {
+        "forex": 0.65,    # STRICT
+        "metals": 0.62,   # MEDIUM
+        "crypto": 0.60,   # RELAXED (easier to trade)
+        "other": 0.62,    # MEDIUM
+    }
+    
+    final_threshold = confidence_thresholds.get(asset_class, 0.62)
     
     analysis = {
         "symbol": symbol,
+        "asset_class": asset_class,
         "confirmation_score": confirmation_score,
         "signal_type": signal_type,
         "decision": False,
         "confidence": 0.0,
+        "threshold": final_threshold,
         "factors": [],
     }
     
     # Factor 1: New symbol (no history) - TRADE SMALL
     if intel["total_trades"] == 0:
         if confirmation_score >= 7.5:
-            analysis["factors"].append("New symbol + high confirmation = SMALL trade OK")
+            analysis["factors"].append(f"New {asset_class} + high confirmation = SMALL trade OK")
             analysis["decision"] = True
             analysis["confidence"] = 0.6
         else:
@@ -362,18 +408,18 @@ def should_take_trade(
     
     # Factor 3: Symbol has great history (> 65% win rate)
     elif intel["base_win_rate"] >= 0.65:
-        analysis["factors"].append(f"Strong win rate ({intel['base_win_rate']:.1%}) = ALWAYS TRADE")
+        analysis["factors"].append(f"Strong {asset_class} win rate ({intel['base_win_rate']:.1%}) = ALWAYS TRADE")
         analysis["decision"] = True
         analysis["confidence"] = 0.95
     
     # Factor 4: Symbol is in good range (45-65% win rate)
     elif intel["base_win_rate"] >= 0.45:
         if confirmation_score >= 7.2:
-            analysis["factors"].append(f"Good win rate ({intel['base_win_rate']:.1%}) + high confirmation = TRADE")
+            analysis["factors"].append(f"Good {asset_class} win rate ({intel['base_win_rate']:.1%}) + high confirmation = TRADE")
             analysis["decision"] = True
             analysis["confidence"] = 0.85
         elif confirmation_score >= 6.8:
-            analysis["factors"].append(f"Good win rate ({intel['base_win_rate']:.1%}) + medium confirmation = TRADE")
+            analysis["factors"].append(f"Good {asset_class} win rate ({intel['base_win_rate']:.1%}) + medium confirmation = TRADE")
             analysis["decision"] = True
             analysis["confidence"] = 0.70
         else:
@@ -385,8 +431,8 @@ def should_take_trade(
         analysis["factors"].append(f"⚠️ {intel['loss_streak']} loss streak = REDUCE confidence by 30%")
         analysis["confidence"] *= 0.7
         
-        # Skip trade if confidence drops below 0.6
-        if analysis["confidence"] < 0.6:
+        # Skip trade if confidence drops below threshold
+        if analysis["confidence"] < final_threshold:
             analysis["decision"] = False
             return False, analysis
     
@@ -395,12 +441,12 @@ def should_take_trade(
         analysis["factors"].append(f"✅ {intel['win_streak']} win streak = INCREASE confidence by 25%")
         analysis["confidence"] = min(0.99, analysis["confidence"] * 1.25)
     
-    # Factor 7: Signal type credibility
+    # Factor 7: Signal type credibility (asset-class adjusted)
     signal_credibility = {
         "weighted_confirmation": 0.95,
         "four_confirmation": 0.90,
         "symbol_confidence_high": 0.85,
-        "backtest_fallback": 0.75,
+        "backtest_fallback": 0.75 if asset_class == "forex" else 0.80,  # Backtest is more trustworthy for crypto
     }
     
     credibility = signal_credibility.get(signal_type, 0.70)
@@ -410,12 +456,12 @@ def should_take_trade(
     # Final threshold
     analysis["confidence"] = round(max(0.0, min(0.99, analysis["confidence"])), 2)
     
-    if analysis["confidence"] >= 0.65:
+    if analysis["confidence"] >= final_threshold:
         analysis["decision"] = True
-        analysis["factors"].append(f"✅ FINAL: Trade with {analysis['confidence']:.0%} confidence")
+        analysis["factors"].append(f"✅ FINAL: {asset_class.upper()} trade with {analysis['confidence']:.0%} confidence (threshold: {final_threshold:.0%})")
     else:
         analysis["decision"] = False
-        analysis["factors"].append(f"❌ FINAL: Skip - only {analysis['confidence']:.0%} confidence")
+        analysis["factors"].append(f"❌ FINAL: Skip - only {analysis['confidence']:.0%} confidence (need {final_threshold:.0%})")
     
     return analysis["decision"], analysis
 
