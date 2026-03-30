@@ -8,12 +8,14 @@
 
 ## WHAT YOU CLARIFIED
 
-> "I want to check chart trend, liquidity, volume imbalance, structure - but **BRIEF** like 4HRS.  
-> **Analysis and execution** happens in the NEW timeframe (M15→M5→M1)"
+> "H1 Brief scan should start from PREVIOUS DAY - look at the whole daily picture from left side like 4HRS.  
+> Then dive into M15→M5→M1 for analysis and execution"
 
 **Translation:**
-- **H1:** Quick context (2 minutes) - What's the general situation?
-- **M15→M5→M1:** Real work (13+ minutes) - Where you find the setup and execute
+- **H1 BRIEF:** Look at YESTERDAY'S daily candle (2 minutes) - What was the daily context?
+- **M15→M5→M1:** Real work (13+ minutes) - Where you find the setup and execute on today's moves
+
+**Key Point:** H1 brief = **PREVIOUS DAY context**, not analyzing current H1 candles
 
 ---
 
@@ -42,26 +44,56 @@ Total:        15 minutes (but better, M15 reacts faster than H4)
 
 ## PER-TIMEFRAME CLARITY
 
-### H1: BRIEF CONTEXT (2 minutes max)
+### H1: BRIEF CONTEXT = PREVIOUS DAY'S CANDLE (2 minutes max)
 
-**What to check:**
+**What to check** (from yesterday's daily H1 candle):
 ```
-✓ Trend: Is it up, down, or range?
-✓ Liquidity: Are there obvious sweep zones?
-✓ Volume: Any imbalance visible?
-✓ Structure: Higher highs/lows or lower highs/lows?
-✓ General bias: Bullish or bearish?
+✓ Previous day's HIGH: Where was resistance?
+✓ Previous day's LOW: Where was support?
+✓ Previous day's trend: Was it up, down, or consolidating?
+✓ Volume imbalance: Did she day have selling/buying pressure?
+✓ Structure: HH/HL (bullish) or LL/LH (bearish)?
+✓ Daily midpoint: What's the middle of yesterday's range?
 ```
+
+**This is exactly what the `previous_day_levels.py` module gives you:**
+- HIGH/LOW from yesterday's H1 candle
+- Support/resistance levels to watch for TODAY
+- Daily midpoint ("sweet zone") where best entries form
+- Broken levels to avoid
 
 **What NOT to do:**
 ```
-✗ Don't analyze individual candles
-✗ Don't look for FVG/order blocks
-✗ Don't study swing patterns deeply
-✗ Don't waste time here - it's just a glance
+✗ Don't analyze current/today's H1 candles
+✗ Don't look for small patterns on H1
+✗ Don't waste time - this is just getting daily context
+✗ It's a GLANCE at yesterday's structure, not detailed analysis
 ```
 
-**Output:** "Market is UP, liquidity at 145.50, sweeps visible → OK to analyze M15"
+**Output:** "Yesterday: HIGH 145.80, LOW 145.25, Midpoint 145.52 - Watch for bounce in M15"
+
+---
+
+**VISUAL TIMELINE:**
+
+```
+YESTERDAY (Use for H1 Brief context)
+|════════ H1 CANDLE ════════|
+HIGH: 145.80
+LOW: 145.25
+CLOSE: 145.65
+Volume: High selling pressure
+Structure: HH/HL visible
+↓ ↓ ↓ END OF DAY SNAPSHOT
+(THIS is your H1 brief context)
+
+TODAY (Your actual trading)
+|═══════════════════════════════════|
+09:00 - H1 BRIEF SCAN (2 min): "Yesterday ended at 145.65, support at 145.25, resistance at 145.80"
+09:02 - M15 DEEP ANALYSIS (8+ min): "M15 is showing what?"
+09:15 - M5 ENTRY WATCH: "Is price at yesterday's support?"
+09:20 - M1 EXECUTION: "Take the setup"
+```
 
 ---
 
@@ -126,65 +158,76 @@ Total:        15 minutes (but better, M15 reacts faster than H4)
 Think of it like this:
 
 ```
-H1 Brief Scan:    A quick weather report
-"Weather: Sunny, wind from North, temp 72°F"
-(2 minutes)
+Previous Day Context (H1):    Check yesterday's weather report
+"Yesterday: High 75°F, Low 62°F, Wind from North"
+(2 minutes - understand what happened yesterday)
 
-M15 Deep Work:    Detailed forecast analysis
-"Fronts moving in from NW, expect rain 3pm-6pm, best conditions 9am-12pm"
-(8-10 minutes)
+Today's Detailed Work (M15):  Forecast today's weather
+"Today: Fronts moving in from NW, best conditions 9am-12pm"
+(8-10 minutes - find today's opportunities)
 
-M5 Entry Setup:   Specific location forecast
-"Your area: cloud cover increasing, probability rain 73%, best window 11am zone"
-(2-3 minutes)
+M5 Entry Setup:              Identify specific timing
+"Your area: cloud cover increasing, best window 11am zone"
+(2-3 minutes - get ready to act)
 
-M1 Execution:     Act on forecast
-"Clouds moving in NOW. Take your position before rain hits."
+M1 Execution:                Act on the plan
+"It's 11am now. Conditions NOW match forecast. Go."
 (1 minute)
 ```
+
+**Key Difference from Old System:**
+- OLD: Started from scratch each day, no reference
+- NEW: Start with YESTERDAY'S context, then analyze TODAY
 
 ---
 
 ## EXAMPLES
 
-### Example 1: GBPJPY Entry
+### Example 1: GBPJPY Entry - START FROM PREVIOUS DAY
 
-**H1 Scan (2 min):**
+**H1 BRIEF SCAN (2 min) - From Previous Day's Candle:**
 ```
-Trend: ↑ (higher highs visible)
-Liquidity: Sweep at 145.50 likely
-Volume: Balanced
-Bias: BULLISH
-→ Continue to M15
+YESTERDAY'S H1 CANDLE:
+Open: 145.40
+High: 145.80  ← Resistance zone today
+Low: 145.25   ← Support zone today
+Close: 145.65
+Midpoint: 145.52 ("Sweet zone")
+
+Context: Structure was HH/HL = Bullish bias yesterday
+→ Continue to M15 with this context
 ```
 
-**M15 Analysis (8 min):**
+**M15 ANALYSIS (8 min) - Today's Price Action:**
 ```
-Swing: Made HH at 145.60, structure bullish
-OB: At 145.55 from earlier high
-Liquid zone: 145.50 (previous HL)
-Plan: Wait for M5 rejection at 145.50, then enter M1
+Current M15 structure:
+- Price at 145.60 (near yesterday's high 145.80)
+- Swing: Made HH at 145.60 today
+- OB: At 145.55 from earlier high
+- Liquid zone: 145.52 (yesterday's midpoint = "sweet zone")
+Plan: Wait for M5 rejection at 145.52 (yesterday's midpoint), then enter M1
 Target: 145.68 (H1 reference) or 145.75 (M15 swing)
 ```
 
-**M5 Entry (Wait for setup):**
+**M5 ENTRY (Wait for setup):**
 ```
-Price pulls to 145.50 (expected liquidity)
+Price pulls to 145.52 (yesterday's daily midpoint)
 Rejection candle forms (wick down, body up)
 ↓ ↓ ↓ 
 SETUP READY - Watch M1
 ```
 
-**M1 Execute (1 min):**
+**M1 EXECUTE (1 min):**
 ```
 Break above 145.54
 Momentum confirmed
 TAKE LONG
 SL: 145.48 (below M5 zone)
-TP: 145.68 (H1 daily resistance)
+TP: 145.68 (H1 daily resistance from yesterday)
 ```
 
 **Result:** 20 pips profit in 15-25 minutes
+**Key:** Yesterday's context (145.52 midpoint) helped you find the exact entry zone on M5
 
 ---
 
@@ -232,10 +275,10 @@ Bias: NEUTRAL/CONFLICTING
 
 | Timeframe | Minutes | Purpose |
 |-----------|---------|---------|
-| H1 | 2 | Context (trend/liquidity/volume/structure) |
-| M15 | 8-10 | Analysis (swing/OB/BOS/liquidity zones) |
-| M5 | 2-3 | Entry confirmation (wait for price action) |
-| M1 | 1 | Execution (take position) |
+| **H1 (Previous Day)** | 2 | Context from yesterday's candle (HIGH/LOW/Midpoint from daily H1) |
+| **M15** | 8-10 | Analysis (swing/OB/BOS/liquidity zones on TODAY) |
+| **M5** | 2-3 | Entry confirmation (wait for price action) |
+| **M1** | 1 | Execution (take position) |
 | **TOTAL** | **~15** | One complete setup |
 
 ---
@@ -283,7 +326,53 @@ All guides have been updated to clarify:
 
 ---
 
-## NEXT STEPS
+## HOW THIS WORKS IN CODE
+
+Your `previous_day_levels.py` module does EXACTLY this:
+
+```python
+# H1 Brief Scan = Getting Previous Day's Candle Data
+levels = get_previous_day_levels("GBPJPY")
+
+# Returns:
+# {
+#   'high': 145.80,      ← Yesterday's H1 HIGH
+#   'low': 145.25,       ← Yesterday's H1 LOW  
+#   'midpoint': 145.52,  ← Sweet zone (middle of range)
+#   'broken_level': 145.80,
+#   'recommendation': 'Best entry near midpoint'
+# }
+
+# This IS your H1 brief context - the whole daily picture from left side
+```
+
+**This module already has everything you need:**
+- ✅ Gets previous day's OHLC (Open, High, Low, Close)
+- ✅ Calculates support/resistance zones
+- ✅ Calculates midpoint ("sweet zone")
+- ✅ Identifies broken levels
+- ✅ Scores setups against daily levels
+- ✅ Prints formatted daily report
+
+**Usage in your trading workflow:**
+```python
+# STEP 1: H1 Brief Scan (2 minutes)
+levels = get_previous_day_levels("GBPJPY")
+print_previous_day_report("GBPJPY")
+# → You now have: Daily HIGH, LOW, Midpoint, Support/Resistance zones
+
+# STEP 2: M15 Deep Analysis (8+ minutes)
+# Look at M15 chart with knowledge of daily zones
+# Understand where price might bounce/break
+
+# STEP 3: M5 Entry Setup
+# Watch for price approaching yesterday's levels
+
+# STEP 4: M1 Execution
+# Take position when M1 confirms
+```
+
+---
 
 When you paper trade:
 

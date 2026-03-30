@@ -43,6 +43,12 @@ from risk.intelligent_execution import (
     record_trade_outcome,
     get_market_intelligence_report,
     get_intelligent_recommendation,
+    record_skip_detailed,
+    get_skip_pattern_analysis,
+    get_skip_statistics_report,
+    should_skip_symbol_entirely,
+    get_learned_threshold_adjustment,
+    learn_from_repeated_skips,
 )
 
 # =====================================================
@@ -247,10 +253,14 @@ _bot_state = {}  # Module-level state for tracking timers
 
 
 def record_skip(reason, symbol):
+    """Legacy wrapper - now calls persistent skip tracking."""
     skip_stats[reason] = skip_stats.get(reason, 0) + 1
     examples = skip_examples.setdefault(reason, [])
     if symbol not in examples and len(examples) < 5:
         examples.append(symbol)
+    
+    # ALSO save to persistent storage (survives network disruption!)
+    record_skip_detailed(reason, symbol, confidence=0.0, analysis=None)
 
 
 def record_stage(stage, symbol):
@@ -505,6 +515,21 @@ while True:
             original_symbol = next((k for k, v in RESOLVED_MAP.items() if v == symbol), symbol)
             record_stage("seen", original_symbol)
 
+            # ===================================
+            # SKIP ENTIRELY FILTER (LEARNED FROM SKIP PATTERNS)
+            # ===================================
+            # System learns which symbols repeatedly fail and avoids them
+            should_skip_entirely, skip_reason = should_skip_symbol_entirely(original_symbol)
+            if should_skip_entirely:
+                record_skip("skip_pattern_learned", original_symbol)
+                bot_log(
+                    "skip_learned_pattern",
+                    f"Learned to avoid {original_symbol}: {skip_reason}",
+                    {"symbol": original_symbol, "reason": skip_reason},
+                    persist=False,
+                )
+                continue
+
             # -----------------------------
             # FUNDAMENTALS / NEWS FILTER
             # -----------------------------
@@ -757,7 +782,12 @@ while True:
             )
             
             if not should_trade:
-                record_skip("intelligence", original_symbol)
+                record_skip_detailed(
+                    "intelligence",
+                    original_symbol,
+                    confidence=trade_analysis.get("confidence", 0.0),
+                    analysis=trade_analysis,
+                )
                 bot_log(
                     "intelligent_skip",
                     f"Intelligent execution skip on {original_symbol}: {trade_analysis['factors'][-1]}",

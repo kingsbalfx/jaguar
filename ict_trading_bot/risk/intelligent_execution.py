@@ -10,12 +10,41 @@ Analyzes:
 4. Dynamic risk based on confidence
 5. Loss prevention strategies
 6. Position sizing optimization (0.5-1.0x for forex, 0.7-1.2x metals, 0.5-1.2x crypto)
-7. Trade timing intelligence (asset-class-specific thresholds)
+7. Trade timing intelligence (asset-class-specific ADAPTIVE thresholds)
+8. **ADAPTIVE LEARNING SCHEDULE** - Thresholds adjust as symbols learn from history
 
-ASSET CLASS MULTIPLIERS (Updated March 29, 2026):
+ADAPTIVE CONFIDENCE THRESHOLDS (NEW - Auto-Learning):
+NEW SYMBOLS (0 trades):
+  - Forex: 75% (protected until proven)
+  - Metals: 75% (protected until proven)
+  - Crypto: 75% (protected until proven)
+
+EARLY LEARNING (1-4 trades):
+  - Forex: 72%
+  - Metals: 72%
+  - Crypto: 72%
+
+LEARNING PHASE (5-14 trades):
+  - Forex: 68%
+  - Metals: 68%
+  - Crypto: 68%
+
+PROVEN SYMBOLS (15-49 trades):
+  - Forex: 65% (base)
+  - Metals: 62% (base)
+  - Crypto: 60% (base)
+
+VETERAN SYMBOLS (50+ trades):
+  - Forex: 60% (base - 5%) - REWARD proven winners
+  - Metals: 57% (base - 5%)
+  - Crypto: 55% (base - 5%)
+
+RESULT: NEW symbols protected. PROVEN symbols execute more. No slowdown.
+
+ASSET CLASS MULTIPLIERS (Position Sizing):
 - FOREX: 0.5-1.0x (conservative)
 - METALS: 0.7-1.2x (medium)
-- CRYPTO: 0.5-1.2x (reduced from 0.9-2.1x due to weak backtest signals)
+- CRYPTO: 0.5-1.2x (flexible)
   └─ Will increase to 0.9-2.1x once win rate improves beyond 40%
 """
 import json
@@ -26,6 +55,7 @@ from typing import Dict, Tuple, List
 from utils.symbol_profile import infer_asset_class
 
 INTELLIGENT_STATS_FILE = Path(__file__).resolve().parent.parent / "data" / "intelligent_execution_stats.json"
+INTELLIGENT_SKIP_FILE = Path(__file__).resolve().parent.parent / "data" / "intelligent_skip_tracking.json"
 
 
 def load_intelligent_stats():
@@ -355,25 +385,40 @@ def should_take_trade(
     Says YES to trades that have high probability.
     Says NO to trades that don't fit the symbol pattern.
     
-    ASSET-CLASS-SPECIFIC thresholds:
-    - FOREX: Need 65% final confidence
-    - METALS: Need 62% final confidence
-    - CRYPTO: Need 60% final confidence (easier - more volatile!)
+    ADAPTIVE ASSET-CLASS THRESHOLDS (learns from history):
+    - FOREX: 75% (NEW) → 72% (LEARNING) → 65% (PROVEN) → 60% (VETERAN)
+    - METALS: 75% (NEW) → 72% (LEARNING) → 62% (PROVEN) → 57% (VETERAN)
+    - CRYPTO: 75% (NEW) → 72% (LEARNING) → 60% (PROVEN) → 55% (VETERAN)
+    
+    NEW symbols start HIGH (75%) and LOWER as they prove themselves.
+    PROVEN symbols (50+ trades) get LOWER thresholds to execute more.
     
     Returns: (should_trade, {analysis})
     """
     intel = calculate_precise_winning_rate(symbol)
     asset_class = infer_asset_class(symbol)
     
-    # Asset class specific confidence thresholds
-    confidence_thresholds = {
-        "forex": 0.65,    # STRICT
-        "metals": 0.62,   # MEDIUM
-        "crypto": 0.60,   # RELAXED (easier to trade)
-        "other": 0.62,    # MEDIUM
+    # DYNAMIC THRESHOLD - Adapts as symbol learns from history
+    total_trades = intel.get("total_trades", 0)
+    base_thresholds = {
+        "forex": 0.65,
+        "metals": 0.62,
+        "crypto": 0.60,
+        "other": 0.62,
     }
+    base_threshold = base_thresholds.get(asset_class, 0.62)
     
-    final_threshold = confidence_thresholds.get(asset_class, 0.62)
+    # Adaptive learning schedule
+    if total_trades == 0:
+        final_threshold = 0.75  # NEW: Very protective
+    elif total_trades < 5:
+        final_threshold = 0.72  # EARLY: Still cautious
+    elif total_trades < 15:
+        final_threshold = 0.68  # LEARNING: Building confidence
+    elif total_trades < 50:
+        final_threshold = base_threshold  # PROVEN: Normal operation
+    else:
+        final_threshold = max(0.55, base_threshold - 0.05)  # VETERAN: Reward proven symbols
     
     analysis = {
         "symbol": symbol,
@@ -388,8 +433,8 @@ def should_take_trade(
     
     # Factor 1: New symbol (no history) - TRADE SMALL
     if intel["total_trades"] == 0:
-        if confirmation_score >= 7.5:
-            analysis["factors"].append(f"New {asset_class} + high confirmation = SMALL trade OK")
+        if confirmation_score >= 6.5:
+            analysis["factors"].append(f"New {asset_class} + moderate confirmation = SMALL trade OK")
             analysis["decision"] = True
             analysis["confidence"] = 0.6
         else:
@@ -639,3 +684,477 @@ def get_intelligent_recommendation(symbol: str) -> str:
         return f"⚠️ RISKY - {intel['base_win_rate']:.0%} WR - Trade VERY SMALL (40%)"
     else:
         return f"❌ AVOID - {intel['base_win_rate']:.0%} WR - Skip or minimum size only"
+
+
+def load_intelligent_skip_stats():
+    """Load persistent skip tracking data from disk - SURVIVES NETWORK DISRUPTION."""
+    if INTELLIGENT_SKIP_FILE.exists():
+        try:
+            with open(INTELLIGENT_SKIP_FILE, 'r') as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_intelligent_skip_stats(skip_data):
+    """Save skip statistics to disk - PERSISTENT even if system crashes or network goes down."""
+    try:
+        INTELLIGENT_SKIP_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(INTELLIGENT_SKIP_FILE, 'w') as f:
+            json.dump(skip_data, f, indent=2)
+    except Exception as e:
+        print(f"[WARNING] Failed to save skip tracking: {e}")
+
+
+def record_skip_detailed(reason: str, symbol: str, confidence: float = 0.0, analysis: Dict = None):
+    """
+    Record SKIPPED trade with detailed data to PERSISTENT storage.
+    
+    This is CRITICAL for learning - system learns what trades to avoid!
+    Data survives network disruption, system restart, etc.
+    
+    Args:
+        reason: Why trade was skipped (intelligence, confirmation, backtest, etc)
+        symbol: Trading symbol
+        confidence: Entry confidence score (0.0-1.0) if known
+        analysis: Detailed analysis dict from decision function
+    """
+    skip_data = load_intelligent_skip_stats()
+    
+    # Initialize symbol entry if new
+    if symbol not in skip_data:
+        skip_data[symbol] = {
+            "symbol": symbol,
+            "total_skips": 0,
+            "skip_reasons": {},  # Reason -> count
+            "skip_samples": [],  # Last 50 skipped opportunities
+            "last_skip": None,
+            "skip_patterns": {},  # Reason -> list of confidence scores
+        }
+    
+    s = skip_data[symbol]
+    s["total_skips"] += 1
+    
+    # Track reason frequency
+    s["skip_reasons"][reason] = s["skip_reasons"].get(reason, 0) + 1
+    
+    # Track confidence pattern for this reason
+    if reason not in s["skip_patterns"]:
+        s["skip_patterns"][reason] = []
+    s["skip_patterns"][reason].append(confidence)
+    if len(s["skip_patterns"][reason]) > 100:  # Keep last 100 per reason
+        s["skip_patterns"][reason] = s["skip_patterns"][reason][-100:]
+    
+    # Record detailed skip sample
+    skip_record = {
+        "timestamp": datetime.now().isoformat(),
+        "symbol": symbol,
+        "reason": reason,
+        "confidence": confidence,
+        "analysis_summary": analysis.get("factors", [])[-3:] if analysis else [],  # Last 3 decision factors
+        "signal_type": analysis.get("signal_type", "unknown") if analysis else "unknown",
+    }
+    
+    s["skip_samples"].append(skip_record)
+    if len(s["skip_samples"]) > 50:  # Keep last 50 skips per symbol
+        s["skip_samples"] = s["skip_samples"][-50:]
+    
+    s["last_skip"] = datetime.now().isoformat()
+    
+    # PERSIST TO DISK IMMEDIATELY - Critical!
+    save_intelligent_skip_stats(skip_data)
+
+
+def get_skip_pattern_analysis(symbol: str) -> Dict:
+    """
+    Analyze why a symbol keeps getting skipped - helps identify false signals.
+    
+    Returns:
+        {
+            "symbol": "GBPUSD",
+            "total_skips": 47,
+            "most_common_skip_reason": "intelligence",  # Confidence too low
+            "confidence_pattern": {
+                "intelligence": [58%, 61%, 59%, ...]  # Consistently below threshold?
+            },
+            "recommendation": "Stop trying until confirmation improves"
+        }
+    """
+    skip_data = load_intelligent_skip_stats()
+    
+    if symbol not in skip_data:
+        return {
+            "symbol": symbol,
+            "total_skips": 0,
+            "most_common_skip_reason": "none",
+            "confidence_pattern": {},
+            "recommendation": "Not enough skip history yet",
+        }
+    
+    s = skip_data[symbol]
+    
+    if s["total_skips"] == 0:
+        return {
+            "symbol": symbol,
+            "total_skips": 0,
+            "most_common_skip_reason": "none",
+            "confidence_pattern": {},
+            "recommendation": "No skips recorded yet",
+        }
+    
+    # Find most common reason
+    most_common = max(s["skip_reasons"].items(), key=lambda x: x[1]) if s["skip_reasons"] else ("unknown", 0)
+    
+    # Calculate avg confidence per reason
+    confidence_by_reason = {}
+    for reason, scores in s["skip_patterns"].items():
+        if scores:
+            confidence_by_reason[reason] = {
+                "avg": sum(scores) / len(scores),
+                "min": min(scores),
+                "max": max(scores),
+                "count": len(scores),
+            }
+    
+    recommendation = f"Skipped {s['total_skips']} times (mainly: {most_common[0]})"
+    if most_common[1] >= 10:
+        recommendation += " - PATTERN DETECTED! Review this symbol's signals."
+    
+    return {
+        "symbol": symbol,
+        "total_skips": s["total_skips"],
+        "most_common_skip_reason": most_common[0],
+        "skip_reason_breakdown": s["skip_reasons"],
+        "confidence_patterns": confidence_by_reason,
+        "recent_skip_samples": s["skip_samples"][-3:] if s["skip_samples"] else [],
+        "recommendation": recommendation,
+    }
+
+
+def get_skip_statistics_report() -> str:
+    """
+    Generate comprehensive skip pattern report.
+    Shows which symbols are repeatedly skipped and why.
+    CRITICAL for identifying false signals and improving entry models.
+    """
+    skip_data = load_intelligent_skip_stats()
+    exec_data = load_intelligent_stats()
+    
+    if not skip_data:
+        return "[SKIP ANALYSIS] No skip data yet. System learning..."
+    
+    report = "\n" + "=" * 110 + "\n"
+    report += "[SKIP PATTERN ANALYSIS REPORT - LEARNING FROM FAILED ENTRY ATTEMPTS]\n"
+    report += "=" * 110 + "\n\n"
+    
+    # Build symbol list with skip counts
+    symbols_with_skips = []
+    for symbol, data in skip_data.items():
+        if data.get("total_skips", 0) > 0:
+            symbols_with_skips.append((symbol, data))
+    
+    symbols_with_skips.sort(key=lambda x: x[1].get("total_skips", 0), reverse=True)
+    
+    report += f"{'SYMBOL':<10} {'SKIPS':<8} {'EXECUTED':<10} {'TOP_REASON':<20} {'STATUS':<25}\n"
+    report += "-" * 110 + "\n"
+    
+    high_skip_symbols = []
+    
+    for symbol, skip_info in symbols_with_skips[:20]:  # Top 20 most skipped
+        total_skips = skip_info.get("total_skips", 0)
+        exec_count = 0
+        
+        if symbol in exec_data and exec_data[symbol].get("total_trades", 0) > 0:
+            exec_count = exec_data[symbol]["total_trades"]
+            win_rate = exec_data[symbol].get("win_rate", 0)
+            status = f"Trades: {exec_count} (WR: {win_rate:.0%})"
+        else:
+            status = "NOT YET TRADED"
+        
+        skip_reasons = skip_info.get("skip_reasons", {})
+        top_reason = max(skip_reasons.items(), key=lambda x: x[1])[0] if skip_reasons else "unknown"
+        
+        if total_skips >= 15:
+            high_skip_symbols.append({
+                "symbol": symbol,
+                "skips": total_skips,
+                "trades": exec_count,
+                "top_reason": top_reason,
+                "analysis": get_skip_pattern_analysis(symbol)
+            })
+            status_emoji = "⚠️ PATTERN"
+        elif total_skips >= 5:
+            status_emoji = "🟡 FREQUENT"
+        else:
+            status_emoji = "🟢 NORMAL"
+        
+        report += f"{symbol:<10} {total_skips:<8} {exec_count:<10} {top_reason:<20} {status_emoji} {status:<15}\n"
+    
+    # Critical insights
+    report += "\n" + "=" * 110 + "\n"
+    report += "[CRITICAL SKIP PATTERNS - SYMBOLS TO REVIEW]\n"
+    report += "-" * 110 + "\n"
+    
+    if high_skip_symbols:
+        for item in high_skip_symbols[:5]:
+            analysis = item["analysis"]
+            report += f"\n🔴 {item['symbol']}: Skipped {item['skips']} times, only {item['trades']} executed\n"
+            report += f"   Top Reason: {item['top_reason']}\n"
+            report += f"   Recommendation: {analysis.get('recommendation', 'Unknown')}\n"
+            
+            # Show confidence patterns
+            patterns = analysis.get("confidence_patterns", {})
+            if patterns:
+                report += f"   Confidence Patterns:\n"
+                for reason, stats in list(patterns.items())[:3]:
+                    report += f"      - {reason}: avg={stats['avg']:.1%}, range {stats['min']:.0%}-{stats['max']:.0%}\n"
+    else:
+        report += "No critical skip patterns detected.\n"
+    
+    # Learning insights
+    report += "\n" + "=" * 110 + "\n"
+    report += "[LEARNING INSIGHTS]\n"
+    total_skip_attempts = sum(d.get("total_skips", 0) for d in skip_data.values())
+    total_executed = sum(d.get("total_trades", 0) for d in exec_data.values())
+    
+    report += f"Total Skip Attempts (Avoided): {total_skip_attempts}\n"
+    report += f"Total Executed Trades: {total_executed}\n"
+    
+    if total_skip_attempts + total_executed > 0:
+        skip_rate = total_skip_attempts / (total_skip_attempts + total_executed)
+        report += f"System Caution Rate: {skip_rate:.1%} (System skips ~{skip_rate:.0%} of opportunities)\n"
+        report += f"Trading Rate: {1-skip_rate:.1%} (System executes high-confidence trades only)\n"
+    
+    report += "\n[WHAT THIS MEANS]\n"
+    report += "✓ Skipped trades are being SAVED and STUDIED for pattern learning\n"
+    report += "✓ Data is PERSISTED to disk (/data/intelligent_skip_tracking.json)\n"
+    report += "✓ If system crashes or network goes down, skip data STAYS INTACT\n"
+    report += "✓ System learns which symbols always fail and avoids them\n"
+    report += "✓ HIGH SKIP symbols show bad entry models for those symbols\n"
+    report += "\n" + "=" * 110 + "\n"
+    
+    return report
+
+
+def should_skip_symbol_entirely(symbol: str) -> Tuple[bool, str]:
+    """
+    Determine if a symbol should be SKIPPED ENTIRELY based on skip history.
+    
+    Uses pattern analysis: If symbol has too many skips relative to trades,
+    the entry model is probably broken for that symbol.
+    
+    Returns:
+        (should_skip: bool, reason: str)
+        - (True, "reason") if symbol should be avoided
+        - (False, "") if symbol is tradeable
+    
+    EXAMPLE:
+        - GBPUSD: 47 skips, 3 trades (94% skip rate) → SKIP
+        - EURUSD: 8 skips, 15 trades (35% skip rate) → TRADE
+    """
+    skip_data = load_intelligent_skip_stats()
+    exec_data = load_intelligent_stats()
+    
+    if symbol not in skip_data:
+        return False, ""  # No skip history = safe to trade
+    
+    total_skips = skip_data[symbol].get("total_skips", 0)
+    
+    if total_skips == 0:
+        return False, ""
+    
+    # Get execution data
+    exec_count = 0
+    if symbol in exec_data:
+        exec_count = exec_data[symbol].get("total_trades", 0)
+    
+    skip_rate = total_skips / (total_skips + exec_count) if (total_skips + exec_count) > 0 else 0.0
+    
+    # AGGRESSIVE SKIP PATTERN: 80%+ of attempts skipped
+    if skip_rate >= 0.80 and total_skips >= 20:
+        return True, f"VERY HIGH skip rate ({skip_rate:.0%}, {total_skips} attempts). Entry model broken for {symbol}."
+    
+    # MODERATE SKIP PATTERN: 70%+ of attempts skipped with many attempts
+    if skip_rate >= 0.70 and total_skips >= 15:
+        return True, f"HIGH skip rate ({skip_rate:.0%}, {total_skips} attempts). {symbol} signals are unreliable."
+    
+    # REPEATED FAILURES: Many skips but some trades with low win rate
+    if total_skips >= 20 and exec_count > 0:
+        win_rate = exec_data[symbol].get("win_rate", 0)
+        if win_rate < 0.30:  # Less than 30% win rate
+            return True, f"Low performance: only {win_rate:.0%} WR ({exec_count} trades), {total_skips} skips. Avoid until signals improve."
+    
+    return False, ""
+
+
+def get_learned_threshold_adjustment(symbol: str) -> float:
+    """
+    Calculate confidence threshold ADJUSTMENT based on skip patterns.
+    
+    When a symbol has many skips, it means the entry model is weak.
+    We can learn this and adjust threshold UP (require more confidence)
+    or DOWN (relax requirement if symbol eventually trades well).
+    
+    Returns:
+        threshold_modifier: float to ADD to final threshold
+        - 0.05 = add 5 percentage points to threshold (require 80% instead of 75%)
+        - -0.05 = subtract 5 percentage points (require 70% instead of 75%)
+    
+    EXAMPLE:
+        Symbol with 40 skips, 10 trades, 65% WR:
+        - Skip rate: 80%
+        - Win rate: 65% (good)
+        - Decision: Raise threshold +5% (require 80%, not 75%)
+                    because entry model is weak but results are good
+    """
+    skip_data = load_intelligent_skip_stats()
+    exec_data = load_intelligent_stats()
+    
+    if symbol not in skip_data:
+        return 0.0  # No skip history = no adjustment
+    
+    total_skips = skip_data[symbol].get("total_skips", 0)
+    
+    if total_skips < 5:
+        return 0.0  # Not enough skip history
+    
+    # Calculate skip rate
+    exec_count = 0
+    win_rate = 0.5
+    if symbol in exec_data:
+        exec_count = exec_data[symbol].get("total_trades", 0)
+        win_rate = exec_data[symbol].get("win_rate", 0)
+    
+    skip_rate = total_skips / (total_skips + exec_count) if (total_skips + exec_count) > 0 else 0.0
+    
+    adjustment = 0.0
+    
+    # HIGH skip rate + NO trades yet = RAISE threshold (be more cautious)
+    if skip_rate >= 0.75 and exec_count == 0:
+        adjustment = 0.10  # Raise threshold by 10% (75% → 85%)
+    # HIGH skip rate + POOR results = RAISE threshold (be more cautious)
+    elif skip_rate >= 0.70 and win_rate < 0.40:
+        adjustment = 0.08  # Raise threshold by 8%
+    # MODERATE skip rate + GOOD results = LOWER threshold slightly (reward it)
+    elif skip_rate >= 0.50 and win_rate >= 0.60 and exec_count >= 5:
+        adjustment = -0.03  # Lower threshold by 3% (symbol is improving)
+    # MANY skips but EXCELLENT results = SIGNIFICANTLY LOWER threshold
+    elif skip_rate >= 0.70 and win_rate >= 0.70 and exec_count >= 10:
+        adjustment = -0.05  # Lower threshold by 5% (it's a real gem)
+    
+    # Cap the adjustment
+    return max(-0.10, min(0.10, adjustment))
+
+
+def learn_from_repeated_skips(symbol: str) -> Dict:
+    """
+    Generate LEARNING RECOMMENDATIONS from skip patterns.
+    
+    When a symbol appears multiple times in skip records, the system
+    can extract lessons for improving entry models.
+    
+    Returns:
+        {
+            "symbol": "GBPUSD",
+            "skip_count": 47,
+            "learned_insights": [...],
+            "recommendations": [...],
+            "threshold_adjustment": 0.05,
+            "avoid_until": "win_rate reaches 45%" or None
+        }
+    """
+    skip_analysis = get_skip_pattern_analysis(symbol)
+    skip_data = load_intelligent_skip_stats()
+    exec_data = load_intelligent_stats()
+    
+    if symbol not in skip_data:
+        return {"symbol": symbol, "skip_count": 0, "learned_insights": [], "recommendations": []}
+    
+    total_skips = skip_data[symbol].get("total_skips", 0)
+    
+    if total_skips < 5:
+        return {
+            "symbol": symbol,
+            "skip_count": total_skips,
+            "learned_insights": ["Not enough skip history yet"],
+            "recommendations": ["Continue monitoring"]
+        }
+    
+    insights = []
+    recommendations = []
+    
+    # Analyze skip reasons
+    skip_reasons = skip_data[symbol].get("skip_reasons", {})
+    if skip_reasons:
+        top_reason = max(skip_reasons.items(), key=lambda x: x[1])[0]
+        top_count = skip_reasons[top_reason]
+        
+        if top_reason == "intelligence":
+            insights.append(f"Confidence is consistently too low ({top_count}/{total_skips} skips due to this)")
+            recommendations.append("Strengthen entry model: add more confirmation signals")
+            recommendations.append("Check if symbol requires different confirmation types")
+        
+        elif top_reason == "confirmation_score":
+            insights.append(f"Multi-confirmation requirements not met ({top_count}/{total_skips} skips)")
+            recommendations.append("Verify 4-confirmation logic is working for this symbol")
+            recommendations.append("May need topdown confirmation instead of weighted")
+        
+        elif top_reason == "backtest":
+            insights.append(f"Backtesting shows poor historical results ({top_count}/{total_skips} skips)")
+            recommendations.append("Review backtest approval for this symbol")
+            recommendations.append("Historical data may indicate symbol is unprofitable")
+        
+        else:
+            insights.append(f"Primary skip reason: {top_reason} ({top_count} occurrences)")
+    
+    # Analyze confidence patterns
+    confidence_patterns = skip_analysis.get("confidence_patterns", {})
+    for reason, stats in confidence_patterns.items():
+        if stats.get("count", 0) > 0:
+            avg_conf = stats.get("avg", 0)
+            if reason == "intelligence" and avg_conf < 0.65:
+                insights.append(f"Intelligence confidence for {symbol} stuck at {avg_conf:.0%}")
+                recommendations.append("Consider if symbol's market structure changed")
+    
+    # Check execution stats
+    exec_count = 0
+    win_rate = 0
+    if symbol in exec_data:
+        exec_count = exec_data[symbol].get("total_trades", 0)
+        win_rate = exec_data[symbol].get("win_rate", 0)
+    
+    skip_rate = total_skips / (total_skips + exec_count) if (total_skips + exec_count) > 0 else 0.0
+    
+    insights.append(f"Skip rate for {symbol}: {skip_rate:.0%} ({total_skips} skips vs {exec_count} executions)")
+    
+    # Generate recommendations based on pattern
+    if exec_count == 0:
+        recommendations.append("CRITICAL: Never successfully traded. Entry model may be broken.")
+        recommendations.append("Either fix entry signals OR consider removing symbol from watch list")
+    elif skip_rate > 0.70:
+        recommendations.append(f"HIGH CAUTION: {skip_rate:.0%} of signals are rejected. System is protective.")
+        if win_rate > 0.60:
+            recommendations.append("But actual trades are profitable! Might be over-protective.")
+        else:
+            recommendations.append("And win rate is low. Avoid this symbol until signals improve.")
+    
+    threshold_adjustment = get_learned_threshold_adjustment(symbol)
+    avoid_until = None
+    
+    if skip_rate >= 0.80 and exec_count < 5:
+        avoid_until = "System gets confidence in entry signals"
+    elif win_rate > 0 and win_rate < 0.40:
+        avoid_until = "win rate reaches 45%"
+    
+    return {
+        "symbol": symbol,
+        "skip_count": total_skips,
+        "execution_count": exec_count,
+        "skip_rate": skip_rate,
+        "win_rate": win_rate,
+        "learned_insights": insights,
+        "recommendations": recommendations,
+        "threshold_adjustment": threshold_adjustment,
+        "avoid_until": avoid_until,
+    }
