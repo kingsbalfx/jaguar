@@ -21,6 +21,12 @@ from execution.order_router import choose_order_type
 # =====================================================
 from strategy.pre_trade_analysis import analyze_market_top_down
 from strategy.entry_model import check_entry, explain_entry_failure
+from strategy.weighted_entry_validator import (
+    calculate_entry_confidence,
+    should_execute_immediately,
+    should_skip_signal,
+    format_confidence_report,
+)
 from strategy.smt_filter import smt_confirmed
 from strategy.setup_confirmations import (
     bos_setup,
@@ -518,17 +524,12 @@ while True:
             # ===================================
             # SKIP ENTIRELY FILTER (LEARNED FROM SKIP PATTERNS)
             # ===================================
-            # System learns which symbols repeatedly fail and avoids them
-            should_skip_entirely, skip_reason = should_skip_symbol_entirely(original_symbol)
-            if should_skip_entirely:
-                record_skip("skip_pattern_learned", original_symbol)
-                bot_log(
-                    "skip_learned_pattern",
-                    f"Learned to avoid {original_symbol}: {skip_reason}",
-                    {"symbol": original_symbol, "reason": skip_reason},
-                    persist=False,
-                )
-                continue
+            # DISABLED: Pattern learning blacklist removed in favor of weighted entry validation
+            # The new weighted entry system is more intelligent and doesn't require symbol blacklisting
+            # should_skip_entirely, skip_reason = should_skip_symbol_entirely(original_symbol)
+            # if should_skip_entirely:
+            #     record_skip("skip_pattern_learned", original_symbol)
+            #     continue
 
             # -----------------------------
             # FUNDAMENTALS / NEWS FILTER
@@ -628,37 +629,33 @@ while True:
                 "price_action": price_action_state,
             }
 
+            # ============================================================
+            # WEIGHTED ENTRY VALIDATION (Replaces Hard-Gate Filtering)
+            # ============================================================
+            # Instead of sequential binary checks, use weighted confidence scoring
+            # This allows strong confirmations to bypass weak filters
+            
+            # Log initial confirmations (informational only)
             smt_ok = smt_confirmed(signal, analysis["correlated"])
             if smt_ok:
-                record_stage("smt", original_symbol)
-            else:
-                record_skip("smt", original_symbol)
-
+                # record_stage("smt", original_symbol)
+                pass
+            
             rule_ok = rule_quality_filter(signal)
             if rule_ok:
-                record_stage("rule_quality", original_symbol)
-            else:
-                record_skip("rule_quality", original_symbol)
-                if RULE_QUALITY_REQUIRED:
-                    continue
-
-            # -----------------------------
+                # record_stage("rule_quality", original_symbol)
+                pass
+            
             # ML QUALITY FILTER
-            # -----------------------------
             features = build_signal_features(signal, price, analysis, atr)
-
             model = None  # load trained model
             ml_ok, probability = ml_quality_filter(features, model)
 
-            if ml_ok:
-                record_stage("ml", original_symbol)
-            else:
-                record_skip("ml", original_symbol)
-
+            # Build confirmation flags for weighted system
             confirmation_flags = {
-                "liquidity_setup": liquidity_state["confirmed"],
-                "bos": bos_state["confirmed"],
-                "price_action": price_action_state["confirmed"],
+                "liquidity_setup": liquidity_state,
+                "bos": bos_state,
+                "price_action": price_action_state,
                 "smt": smt_ok,
                 "rule_quality": rule_ok,
                 "ml": ml_ok,
@@ -666,107 +663,93 @@ while True:
             if COUNT_FUNDAMENTALS_AS_CONFIRMATION:
                 confirmation_flags["fundamentals"] = fundamentals_ok
 
-            extra_confirmations = sum(1 for passed in confirmation_flags.values() if passed)
+            # Calculate weighted entry confidence
+            confidence_data = calculate_entry_confidence(
+                signal=signal,
+                analysis=analysis,
+                trend=trend,
+                price=price,
+                confirmation_flags=confirmation_flags,
+            )
+            
+            execution_route = confidence_data.get("execution_route", "skip")
+            confidence_score_value = confidence_data.get("confidence", 0.0)
+            
+            # Log confidence data
+            record_stage("weighted_confidence", original_symbol)
+            confidence_report = format_confidence_report(confidence_data)
+            bot_log(
+                "weighted_entry_confidence",
+                f"[{original_symbol}] {confidence_report}",
+                {
+                    "symbol": original_symbol,
+                    "confidence": confidence_score_value,
+                    "execution_route": execution_route,
+                    "components": confidence_data.get("component_scores", {}),
+                },
+                persist=False,
+            )
+            
+            # Check if signal should be skipped
+            if should_skip_signal(execution_route):
+                record_skip("low_confidence", original_symbol)
+                bot_log(
+                    "skipped_low_confidence",
+                    f"[{original_symbol}] Skipped: confidence {confidence_score_value:.1f} < threshold",
+                    {"symbol": original_symbol, "confidence": confidence_score_value},
+                    persist=False,
+                )
+                continue
+            
+            # Record stage based on execution route
+            record_stage(f"exec_route_{execution_route}", original_symbol)
+            
             confirmation_summary = evaluate_confirmation_quality(
                 confirmation_flags,
                 symbol=original_symbol,
             )
-            signal["confirmation_summary"] = confirmation_summary
-            execution_route = None
-            confirmation_score_passed = bool(confirmation_summary["passed"])
-            if confirmation_score_passed:
-                record_stage("confirmation_score", original_symbol)
-            else:
-                record_skip("confirmation_score", original_symbol)
-
-            htf_trend = analysis.get("HTF", {}).get("trend")
-            mtf_trend = analysis.get("MTF", {}).get("trend")
-            weighted_trend_alignment = (
-                confirmation_score_passed
-                and signal.get("trend") in ("bullish", "bearish")
-                and htf_trend in ("bullish", "bearish")
-                and mtf_trend in ("bullish", "bearish")
-                and htf_trend == mtf_trend == signal.get("trend")
-            )
-            signal["weighted_direct_alignment"] = weighted_trend_alignment
-            if confirmation_score_passed:
-                if weighted_trend_alignment:
-                    record_stage("weighted_trend_alignment", original_symbol)
-                else:
-                    record_skip("weighted_trend_alignment", original_symbol)
-
-            four_confirmation_alignment = (
-                extra_confirmations >= FOUR_CONFIRMATION_DIRECT_MIN_COUNT
-                and signal.get("trend") in ("bullish", "bearish")
-                and htf_trend in ("bullish", "bearish")
-                and mtf_trend in ("bullish", "bearish")
-                and htf_trend == mtf_trend == signal.get("trend")
-            )
-            signal["four_confirmation_direct_alignment"] = four_confirmation_alignment
-
-            if extra_confirmations >= MIN_EXTRA_CONFIRMATIONS:
-                record_stage("confirmations", original_symbol)
-            else:
-                record_skip("confirmations", original_symbol)
-
-            # ========================================
-            # EXECUTION ROUTE - PER-SYMBOL LOGIC
-            # ========================================
-            from risk.protection import should_skip_backtest
+            signal["confirmation_summary"] = confidence_data
+            signal["weighted_confidence"] = confidence_score_value
+            signal["execution_route"] = execution_route
             
-            confirmation_score_value = float((confirmation_summary or {}).get("score", 0.0))
+            # ========================================
+            # EXECUTION ROUTE - WEIGHTED SYSTEM
+            # ========================================
+            # New weighted system determines backtest requirement
+            backtest_required = confidence_data.get("backtest_required", True)
             
-            # Route 1: Weighted Confirmation (no backtest needed)
-            if confirmation_score_passed and WEIGHTED_CONFIRMATION_DIRECT_EXECUTION and weighted_trend_alignment:
-                record_stage("weighted_execute", original_symbol)
-                execution_route = "weighted_confirmation"
+            if backtest_required:
+                # Need backtest approval for conservative/protected routes
+                try:
+                    record_backtest_required(original_symbol)
+                except Exception:
+                    pass
+                
+                if not WEIGHTED_CONFIRMATION_BACKTEST_FALLBACK:
+                    record_skip("backtest_required", original_symbol)
+                    continue
+                
+                setup_signature = build_setup_signature(signal, analysis, confirmation_flags)
+                backtest_approved, backtest_details = ensure_setup_backtest_approval(
+                    symbol,
+                    setup_signature=setup_signature,
+                    report_key=original_symbol,
+                )
+                if not backtest_approved:
+                    record_skip("backtest", original_symbol)
+                    continue
+                record_stage("backtest", original_symbol)
+                record_stage("backtest_approved", original_symbol)
+            else:
+                # Elite/Standard routes skip backtest
+                try:
+                    record_backtest_skip(original_symbol)
+                except Exception:
+                    pass
                 backtest_details = {
-                    "reason": "skipped_weighted_confirmation_pass",
+                    "reason": f"weighted_entry_{execution_route}_skip_backtest",
                     "required": False,
                 }
-            # Route 2: Four Confirmation (no backtest needed)
-            elif FOUR_CONFIRMATION_DIRECT_EXECUTION and four_confirmation_alignment:
-                record_stage("four_confirmation_execute", original_symbol)
-                execution_route = "four_confirmation_direct"
-                backtest_details = {
-                    "reason": "skipped_four_confirmation_direct_pass",
-                    "required": False,
-                }
-            # Route 3: Conditional Backtest (only if uncertain)
-            else:
-                # Check if we can SKIP backtest based on symbol confidence
-                if should_skip_backtest(original_symbol, confirmation_score_value):
-                    record_stage("confidence_skip_backtest", original_symbol)
-                    execution_route = "symbol_confidence_high"
-                    backtest_details = {
-                        "reason": "symbol_confidence_high_skip_backtest",
-                        "required": False,
-                    }
-                    try:
-                        record_backtest_skip(original_symbol)
-                    except Exception:
-                        pass
-                else:
-                    # Need backtest approval
-                    try:
-                        record_backtest_required(original_symbol)
-                    except Exception:
-                        pass
-                    
-                    if not WEIGHTED_CONFIRMATION_BACKTEST_FALLBACK:
-                        continue
-                    setup_signature = build_setup_signature(signal, analysis, confirmation_flags)
-                    backtest_approved, backtest_details = ensure_setup_backtest_approval(
-                        symbol,
-                        setup_signature=setup_signature,
-                        report_key=original_symbol,
-                    )
-                    if not backtest_approved:
-                        record_skip("backtest", original_symbol)
-                        continue
-                    record_stage("backtest", original_symbol)
-                    record_stage("backtest_execute", original_symbol)
-                    execution_route = "backtest_fallback"
 
             # -----------------------------
             # PROTECTION (ONE TRADE PER OB)

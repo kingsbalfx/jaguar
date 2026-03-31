@@ -142,22 +142,22 @@ def get_entry_profile(symbol: str = None) -> Dict[str, float]:
     asset_class = infer_asset_class(symbol)
     defaults = {
         "forex": {
-            "fib_buffer_ratio": 0.08,
+            "fib_buffer_ratio": 0.20,
             "atr_buffer_multiplier": 0.20,
             "recent_candles": 32,
         },
         "metals": {
-            "fib_buffer_ratio": 0.10,
+            "fib_buffer_ratio": 0.25,
             "atr_buffer_multiplier": 0.28,
             "recent_candles": 36,
         },
         "crypto": {
-            "fib_buffer_ratio": 0.14,
+            "fib_buffer_ratio": 0.30,
             "atr_buffer_multiplier": 0.45,
             "recent_candles": 40,
         },
         "other": {
-            "fib_buffer_ratio": 0.10,
+            "fib_buffer_ratio": 0.22,
             "atr_buffer_multiplier": 0.25,
             "recent_candles": 32,
         },

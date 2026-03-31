@@ -409,16 +409,17 @@ def should_take_trade(
     base_threshold = base_thresholds.get(asset_class, 0.62)
     
     # Adaptive learning schedule
+    # OPTION 1A: AGGRESSIVE thresholds to enable immediate trading and learning
     if total_trades == 0:
-        final_threshold = 0.75  # NEW: Very protective
+        final_threshold = 0.55  # NEW: Lowered from 75% to 55% for immediate trading (OPTION 1A)
     elif total_trades < 5:
-        final_threshold = 0.72  # EARLY: Still cautious
+        final_threshold = 0.60  # EARLY: Lowered from 72% to 60% (OPTION 1A)
     elif total_trades < 15:
-        final_threshold = 0.68  # LEARNING: Building confidence
+        final_threshold = 0.62  # LEARNING: Lowered from 68% to 62% (OPTION 1A)
     elif total_trades < 50:
-        final_threshold = base_threshold  # PROVEN: Normal operation
+        final_threshold = base_threshold - 0.05  # PROVEN: Reduce by 5% (OPTION 1A)
     else:
-        final_threshold = max(0.55, base_threshold - 0.05)  # VETERAN: Reward proven symbols
+        final_threshold = max(0.50, base_threshold - 0.10)  # VETERAN: Reduce by 10% (OPTION 1A)
     
     analysis = {
         "symbol": symbol,
@@ -1158,3 +1159,172 @@ def learn_from_repeated_skips(symbol: str) -> Dict:
         "threshold_adjustment": threshold_adjustment,
         "avoid_until": avoid_until,
     }
+
+
+# ============================================================================
+# OPTION 2: DIAGNOSTIC FUNCTIONS - Find confidence score bottleneck
+# ============================================================================
+
+def diagnose_confidence_bottleneck(symbol: str) -> Dict:
+    """
+    OPTION 2: Diagnostic function to find why confidence scores max at 57%.
+    
+    Analyzes recent skipped trades to identify the bottleneck in confidence scoring.
+    
+    Returns:
+        {
+            "symbol": str,
+            "max_observed": float,
+            "avg_observed": float,
+            "min_observed": float,
+            "required_threshold": float,
+            "gap": float,
+            "skip_count": int,
+            "skip_reason_breakdown": dict,
+            "full_analysis": list,
+            "recommendations": list
+        }
+    """
+    skip_data = load_intelligent_skip_stats()
+    recent_skips = skip_data.get(symbol, {}).get("skip_samples", [])[-10:]
+    
+    diagnosis = {
+        "symbol": symbol,
+        "full_analysis": [],
+        "max_observed": 0.0,
+        "avg_observed": 0.0,
+        "min_observed": 0.0,
+        "required_threshold": 0.75,
+        "gap": 0.0,
+        "skip_count": skip_data.get(symbol, {}).get("total_skips", 0),
+        "recommendations": []
+    }
+    
+    if not recent_skips:
+        diagnosis["recommendations"].append("No skip data yet for this symbol")
+        return diagnosis
+    
+    # Analyze recent skips
+    confidence_scores = []
+    skip_reasons_list = []
+    signal_types_list = []
+    
+    for idx, skip in enumerate(recent_skips, 1):
+        confidence = skip.get("confidence", 0)
+        reason = skip.get("reason", "unknown")
+        signal_type = skip.get("signal_type", "unknown")
+        factors = skip.get("analysis_summary", [])
+        
+        confidence_scores.append(confidence)
+        skip_reasons_list.append(reason)
+        signal_types_list.append(signal_type)
+        
+        analysis_entry = {
+            "attempt": idx,
+            "confidence": f"{confidence:.0%}",
+            "reason": reason,
+            "signal_type": signal_type,
+            "factors": factors[-2:] if factors else ["No factors"],
+        }
+        diagnosis["full_analysis"].append(analysis_entry)
+    
+    # Calculate metrics
+    max_observed = max(confidence_scores) if confidence_scores else 0.0
+    avg_observed = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0.0
+    min_observed = min(confidence_scores) if confidence_scores else 0.0
+    
+    diagnosis["max_observed"] = round(max_observed, 2)
+    diagnosis["avg_observed"] = round(avg_observed, 2)
+    diagnosis["min_observed"] = round(min_observed, 2)
+    diagnosis["gap"] = round(max(0, 0.75 - max_observed), 2)
+    
+    # Count skip reasons
+    reason_counts = {}
+    for reason in skip_reasons_list:
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+    diagnosis["skip_reason_breakdown"] = reason_counts
+    
+    # Generate recommendations
+    if max_observed < 0.50:
+        diagnosis["recommendations"].append("❌ CRITICAL: Max confidence < 50%")
+        diagnosis["recommendations"].append("   Entry model or signal generation is fundamentally broken")
+        diagnosis["recommendations"].append("   Check: weighted_confirmation and four_confirmation calculations")
+    elif max_observed < 0.60:
+        diagnosis["recommendations"].append("⚠️  SEVERE: Max confidence 50-60%")
+        top_reason = max(reason_counts, key=reason_counts.get) if reason_counts else "unknown"
+        diagnosis["recommendations"].append(f"   Top skip reason: {top_reason}")
+        diagnosis["recommendations"].append("   Likely: Entry requirements too strict OR signal generation weak")
+    elif max_observed < 0.70:
+        diagnosis["recommendations"].append("⚠️  MODERATE: Max confidence 60-70%")
+        diagnosis["recommendations"].append(f"   Gap: {int(diagnosis['gap'] * 100)} percentage points needed")
+        diagnosis["recommendations"].append("   Try: Relax one confirmation requirement by 5%")
+    elif max_observed < 0.75:
+        diagnosis["recommendations"].append("ℹ️  CLOSE: Max confidence 70-75%")
+        diagnosis["recommendations"].append(f"   Only {int(diagnosis['gap'] * 100)}% away from threshold")
+        diagnosis["recommendations"].append("   Try: Lower threshold by 5% OR strengthen entry one more signal")
+    else:
+        diagnosis["recommendations"].append("✅ GOOD: Max confidence >= 75%")
+        diagnosis["recommendations"].append("   Bug is upstream - high scores exist but not being used")
+    
+    return diagnosis
+
+
+def diagnose_all_symbols(symbols: List[str] = None) -> str:
+    """
+    OPTION 2: Diagnose confidence bottleneck for all symbols.
+    
+    Shows which symbols have the worst confidence scores and why.
+    Identifies the primary bottleneck (intelligence, confirmation_score, etc.)
+    """
+    skip_data = load_intelligent_skip_stats()
+    
+    if symbols is None:
+        symbols = list(skip_data.keys())[:10]  # Test first 10 symbols with skip data
+    
+    report = "\n" + "=" * 110 + "\n"
+    report += "[CONFIDENCE BOTTLENECK DIAGNOSIS - OPTION 2]\n"
+    report += "Finding why confidence scores max at ~57% instead of 75%+\n"
+    report += "=" * 110 + "\n\n"
+    
+    diagnoses = []
+    for symbol in symbols:
+        diagnosis = diagnose_confidence_bottleneck(symbol)
+        diagnoses.append(diagnosis)
+    
+    # Sort by worst confidence first
+    diagnoses.sort(key=lambda x: x["max_observed"])
+    
+    report += f"{'SYMBOL':<12} {'MAX':<8} {'AVG':<8} {'GAP':<8} {'SKIPS':<8} {'TOP REASON':<25}\n"
+    report += "-" * 110 + "\n"
+    
+    for d in diagnoses:
+        top_reason = max(d.get("skip_reason_breakdown", {}), key=d.get("skip_reason_breakdown", {}).get) if d.get("skip_reason_breakdown") else "unknown"
+        report += f"{d['symbol']:<12} {d['max_observed']:<8.0%} {d['avg_observed']:<8.0%} {d['gap']:<8.0%} {d['skip_count']:<8} {top_reason:<25}\n"
+    
+    report += "\n" + "=" * 110 + "\n"
+    report += "[WORST PERFORMERS - DETAILED ANALYSIS]\n"
+    report += "=" * 110 + "\n"
+    
+    for d in diagnoses[:3]:  # Show worst 3
+        report += f"\n🔴 {d['symbol']} (Max: {d['max_observed']:.0%}, Gap: {d['gap']:.0%})\n"
+        report += "-" * 80 + "\n"
+        for rec in d["recommendations"]:
+            report += f"  {rec}\n"
+        report += f"\n  Skip Reasons: {d['skip_reason_breakdown']}\n"
+        report += f"\n  Recent Attempts:\n"
+        for entry in d["full_analysis"][-3:]:
+            report += f"    Attempt {entry['attempt']}: {entry['confidence']} ({entry['reason']})\n"
+            for factor in entry["factors"]:
+                report += f"      - {factor}\n"
+    
+    report += "\n" + "=" * 110 + "\n"
+    report += "[INTERPRETATION]\n"
+    report += "-" * 110 + "\n"
+    report += "  intelligence: Confidence scores generated by model are too low\n"
+    report += "  confirmation_score: Multi-confirmation requirements not being met\n"
+    report += "  entry_fib_zone: Entry price zone / fibonacci level not aligning\n"
+    report += "  price_action: Price action confirmation not triggering\n"
+    report += "  rule_quality: Signal quality assessment too strict\n"
+    report += "\n" + "=" * 110 + "\n"
+    
+    return report

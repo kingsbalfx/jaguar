@@ -15,9 +15,9 @@ def rule_quality_filter(signal):
     if isinstance(fvg, dict) and fvg.get("timeframe") == "M15":
         score += 1
 
-    # 3️⃣ HTF Order Block
+    # 3️⃣ HTF Order Block (relax timeframe requirement)
     htf_ob = signal.get("htf_ob")
-    if isinstance(htf_ob, dict) and htf_ob.get("timeframe") in ["H1", "H4"]:
+    if isinstance(htf_ob, dict) and htf_ob.get("timeframe") in ["M15", "H1", "H4", "D1"]:
         score += 1
 
     # 4️⃣ DAILY TREND CONFIRMATION (MANDATORY) - skip if 'trend' or 'symbol' missing
@@ -29,4 +29,4 @@ def rule_quality_filter(signal):
     except Exception:
         pass
 
-    return score >= 3
+    return score >= 2
