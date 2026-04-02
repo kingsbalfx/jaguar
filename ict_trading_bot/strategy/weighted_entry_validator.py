@@ -121,7 +121,7 @@ def calculate_entry_confidence(
     # PATH 2: Intelligent Alternative - Weak Topdown/Trend But Strong Structure
     # If: topdown/trend weak BUT liquidity+BOS+FVG+OB+price_action all met
     if ((topdown_score < 60 or trend_alignment_score < 60) and 
-        _has_exceptional_structure(confirmation_flags)):
+        _has_exceptional_structure(confirmation_flags, setup_score)):
         alternative_path = {
             "type": "intelligent_structure_path",
             "topdown_score": topdown_score,
@@ -472,13 +472,16 @@ def _determine_execution_route(
         # Check for strong technical setup (price + BOS) alternative path
         has_price_action = price_action_score >= 70
         has_bos = confirmation_flags.get("bos", {}).get("confirmed", False)
-        has_strong_setup = has_price_action and has_bos
+        # Smartness: If structure is very strong, it justifies a protected entry even with weak PA
+        has_high_structure = setup_score >= 80
+        has_strong_setup = (has_price_action and has_bos) or has_high_structure
         
         if has_strong_setup and topdown_score >= 50:
+            reason = "High-conviction setup (price+BOS)" if has_price_action else "Strong structure override"
             return (
                 "protected",
                 True,
-                f"Protected confidence ({confidence:.1f}): High-conviction alternative (price + BOS confirmed)"
+                f"Protected confidence ({confidence:.1f}): {reason}. Backtest required."
             )
         else:
             return (
@@ -519,9 +522,9 @@ def _has_all_structure_elements(confirmation_flags: Dict) -> bool:
     return has_liquidity and has_bos and has_fvg and has_ob
 
 
-def _has_exceptional_structure(confirmation_flags: Dict) -> bool:
+def _has_exceptional_structure(confirmation_flags: Dict, setup_score: float = 0) -> bool:
     """
-    Check if structure is EXCEPTIONAL (3+ of 4 elements):
+    Check if structure is EXCEPTIONAL (3+ of 5 elements OR high setup score):
     - Liquidity setup confirmed
     - BOS confirmed
     - FVG confirmed
@@ -531,6 +534,10 @@ def _has_exceptional_structure(confirmation_flags: Dict) -> bool:
     Returns:
         True if 3+ confirmed
     """
+    # IQ Check: High score alone can signify exceptional structure
+    if setup_score >= 85:
+        return True
+
     confirmed_count = 0
     
     if confirmation_flags.get("liquidity_setup", {}).get("confirmed", False):
@@ -545,6 +552,43 @@ def _has_exceptional_structure(confirmation_flags: Dict) -> bool:
         confirmed_count += 1
     
     return confirmed_count >= 3
+
+
+def calculate_smart_risk_params(
+    account_balance: float,
+    confidence: float,
+    base_risk_percent: float = 1.0,
+    execution_route: str = "standard"
+) -> Dict:
+    """
+    IQ-based risk management: Adjusts lot sizing and risk based on account balance 
+    and signal confidence level.
+    """
+    # Scale risk multiplier based on the chosen execution route
+    route_multiplier = {
+        "elite": 1.5,
+        "standard": 1.0,
+        "intelligent_alternative": 1.2,
+        "conservative": 0.7,
+        "protected": 0.5,
+        "skip": 0.0
+    }.get(execution_route, 1.0)
+    
+    # Conviction scaling: Higher confidence = slightly more risk (0.8x to 1.2x)
+    conf_multiplier = 0.8 + ((confidence - 50) / 50.0) * 0.4
+    conf_multiplier = max(0.5, min(1.5, conf_multiplier))
+    
+    final_risk_percent = base_risk_percent * route_multiplier * conf_multiplier
+    final_risk_percent = min(3.0, final_risk_percent) # Safety cap at 3%
+    
+    risk_amount = account_balance * (final_risk_percent / 100.0)
+    
+    return {
+        "risk_percent": round(final_risk_percent, 2),
+        "risk_amount": round(risk_amount, 2),
+        "route_multiplier": route_multiplier,
+        "conf_multiplier": round(conf_multiplier, 2)
+    }
 
 
 def should_execute_immediately(execution_route: str) -> bool:

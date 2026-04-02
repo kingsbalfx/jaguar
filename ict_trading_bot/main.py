@@ -26,6 +26,7 @@ from strategy.weighted_entry_validator import (
     should_execute_immediately,
     should_skip_signal,
     format_confidence_report,
+    calculate_smart_risk_params,
 )
 from strategy.smt_filter import smt_confirmed
 from strategy.setup_confirmations import (
@@ -39,14 +40,14 @@ from strategy.setup_confirmations import (
 # RISK & TRADE MANAGEMENT
 # =====================================================
 from risk.sl_tp_engine import calculate_sl_tp
-from risk.protection import can_trade, register_trade, resize_lot
+from risk.protection import can_trade, register_trade
 from risk.trade_management import manage_trade
 from risk.intelligent_execution import (
     calculate_precise_winning_rate,
     calculate_dynamic_lot_size,
     calculate_intelligent_stop_loss,
-    should_take_trade,
     record_trade_outcome,
+    should_take_trade,
     get_market_intelligence_report,
     get_intelligent_recommendation,
     record_skip_detailed,
@@ -55,7 +56,9 @@ from risk.intelligent_execution import (
     should_skip_symbol_entirely,
     get_learned_threshold_adjustment,
     learn_from_repeated_skips,
+    load_intelligent_stats,
 )
+from risk.intelligent_sync import sync_intelligent_stats_to_supabase, sync_trade_outcome_to_supabase
 
 # =====================================================
 # QUALITY FILTERS
@@ -109,6 +112,16 @@ def bot_log(event, message, payload=None, persist=True):
             persist_log_to_supabase(event, {"message": message, **entry})
         except Exception:
             pass
+
+
+def get_trading_session():
+    """Determine current active session name."""
+    from utils.sessions import in_london_session, in_newyork_session
+    if in_london_session():
+        return "london"
+    if in_newyork_session():
+        return "newyork"
+    return "other"
 
 
 def publish_runtime_metrics(symbols=None):
@@ -258,7 +271,7 @@ stage_examples = {}
 _bot_state = {}  # Module-level state for tracking timers
 
 
-def record_skip(reason, symbol):
+def record_skip(reason, symbol, confidence=0.0, analysis=None):
     """Legacy wrapper - now calls persistent skip tracking."""
     skip_stats[reason] = skip_stats.get(reason, 0) + 1
     examples = skip_examples.setdefault(reason, [])
@@ -266,7 +279,7 @@ def record_skip(reason, symbol):
         examples.append(symbol)
     
     # ALSO save to persistent storage (survives network disruption!)
-    record_skip_detailed(reason, symbol, confidence=0.0, analysis=None)
+    record_skip_detailed(reason, symbol, confidence=confidence, analysis=analysis)
 
 
 def record_stage(stage, symbol):
@@ -338,6 +351,7 @@ def build_execution_context(
     confirmation_threshold,
     confirmation_summary=None,
     execution_route=None,
+    decision_bundle=None,
 ):
     timeframes = analysis.get("timeframes", {"HTF": "H4", "MTF": "H1", "LTF": "M15"})
     timeframe_trends = {
@@ -345,9 +359,9 @@ def build_execution_context(
         "MTF": analysis.get("MTF", {}).get("trend"),
         "LTF": analysis.get("LTF", {}).get("trend"),
     }
-    met_confirmations = [name for name, passed in confirmation_flags.items() if passed]
+    met_confirmations = [name for name, passed in confirmation_flags.items() if _confirmation_passed(passed)]
     setup_context = signal.get("setup_context") or {}
-    return {
+    context = {
         "topdown_trend": signal.get("trend"),
         "timeframes": timeframes,
         "timeframe_trends": timeframe_trends,
@@ -367,6 +381,214 @@ def build_execution_context(
         "bos": setup_context.get("bos"),
         "liquidity": setup_context.get("liquidity"),
         "price_action": setup_context.get("price_action"),
+    }
+    if decision_bundle:
+        context["decision_source"] = decision_bundle.get("decision_source")
+        context["engine_agreement"] = decision_bundle.get("engine_agreement")
+        context["analysis_pass"] = decision_bundle.get("analysis_pass")
+        context["weighted_pass"] = decision_bundle.get("weighted_pass")
+        context["intelligence_pass"] = decision_bundle.get("intelligence_pass")
+        context["weighted_intelligence_pass"] = decision_bundle.get("weighted_intelligence_pass")
+    return context
+
+
+def _confirmation_passed(flag):
+    if isinstance(flag, bool):
+        return flag
+    if isinstance(flag, dict):
+        return bool(flag.get("confirmed", flag.get("passed", False)))
+    return False
+
+
+def build_classic_trade_analysis(
+    symbol,
+    trend,
+    signal,
+    confirmation_flags,
+    confirmation_summary,
+):
+    """
+    Classic trade analysis engine.
+
+    This keeps the original top-down + entry + confirmation logic alive as a
+    separate decision family that can rescue trades when the weighted engine is
+    too strict, and vice versa.
+    """
+    met_flags = list((confirmation_summary or {}).get("met_flags") or [])
+    score = float((confirmation_summary or {}).get("score", 0.0))
+    min_score = float((confirmation_summary or {}).get("min_score", 0.0))
+    asset_class = (confirmation_summary or {}).get("asset_class", "other")
+    structure_hits = sum(
+        1
+        for name in ("liquidity_setup", "bos", "price_action")
+        if _confirmation_passed((confirmation_flags or {}).get(name))
+    )
+    topdown_ok = trend in ("bullish", "bearish")
+    signal_ok = isinstance(signal, dict) and bool(signal)
+    order_block_ok = bool((signal or {}).get("htf_ob"))
+    direction_ok = (signal or {}).get("direction") in ("buy", "sell")
+    score_ratio = min(1.0, score / max(min_score, 1.0)) if min_score > 0 else 0.0
+    structure_ratio = structure_hits / 3.0
+    confirmation_ratio = min(1.0, len(met_flags) / max(FOUR_CONFIRMATION_DIRECT_MIN_COUNT, 1))
+
+    result = {
+        "symbol": symbol,
+        "asset_class": asset_class,
+        "decision": False,
+        "confidence": 0.0,
+        "score": round(score, 2),
+        "threshold": round(min_score, 2),
+        "confirmation_count": len(met_flags),
+        "required_confirmations": MIN_EXTRA_CONFIRMATIONS,
+        "met_flags": met_flags,
+        "structure_hits": structure_hits,
+        "execution_route": "skip",
+        "backtest_required": True,
+        "factors": [],
+    }
+
+    if not topdown_ok:
+        result["factors"].append("Classic analysis rejected: topdown trend is not directional")
+        return result
+    if not signal_ok:
+        result["factors"].append("Classic analysis rejected: entry model did not produce a signal")
+        return result
+    if not order_block_ok:
+        result["factors"].append("Classic analysis rejected: HTF order block confirmation missing")
+        return result
+    if not direction_ok:
+        result["factors"].append("Classic analysis rejected: signal direction is incomplete")
+        return result
+
+    result["factors"].append(f"Classic score {score:.1f}/{min_score:.1f} across {len(met_flags)} confirmations")
+    result["factors"].append(f"Structure confirmations: {structure_hits}/3")
+
+    if score < min_score:
+        result["factors"].append("Classic analysis rejected: weighted confirmation score is below the asset-class minimum")
+        return result
+
+    if len(met_flags) < MIN_EXTRA_CONFIRMATIONS:
+        result["factors"].append(
+            f"Classic analysis rejected: only {len(met_flags)} confirmations, need {MIN_EXTRA_CONFIRMATIONS}"
+        )
+        return result
+
+    if structure_hits < 2:
+        result["factors"].append("Classic analysis rejected: not enough structure agreement (need at least 2 of 3)")
+        return result
+
+    confidence = min(
+        0.99,
+        0.45 + (score_ratio * 0.20) + (structure_ratio * 0.20) + (confirmation_ratio * 0.15),
+    )
+
+    direct_ready = (
+        FOUR_CONFIRMATION_DIRECT_EXECUTION
+        and len(met_flags) >= FOUR_CONFIRMATION_DIRECT_MIN_COUNT
+        and structure_hits >= 2
+    )
+
+    if direct_ready:
+        confidence = max(confidence, 0.82)
+        result["decision"] = True
+        result["confidence"] = round(confidence, 2)
+        result["execution_route"] = "standard"
+        result["backtest_required"] = False
+        result["factors"].append("Classic analysis approved: direct execution via multi-confirmation agreement")
+        return result
+
+    confidence = max(confidence, 0.68)
+    result["decision"] = True
+    result["confidence"] = round(confidence, 2)
+    result["execution_route"] = "conservative"
+    result["backtest_required"] = True
+    result["factors"].append("Classic analysis approved: execute with backtest validation")
+    return result
+
+
+def build_hybrid_trade_decision(
+    symbol,
+    confidence_data,
+    confirmation_score_value,
+    signal,
+    trend,
+    confirmation_flags,
+    confirmation_summary,
+):
+    weighted_route = confidence_data.get("execution_route", "skip")
+    weighted_pass = not should_skip_signal(weighted_route)
+    intelligence_pass, intelligence_analysis = should_take_trade(
+        symbol,
+        confirmation_score_value,
+        weighted_route,
+    )
+    classic_analysis = build_classic_trade_analysis(
+        symbol=symbol,
+        trend=trend,
+        signal=signal,
+        confirmation_flags=confirmation_flags,
+        confirmation_summary=confirmation_summary,
+    )
+
+    weighted_intelligence_pass = weighted_pass and intelligence_pass
+    analysis_pass = classic_analysis["decision"]
+
+    if weighted_intelligence_pass and analysis_pass:
+        decision_source = "analysis_and_weighted_intelligence"
+        engine_agreement = "both_passed"
+        effective_execution_route = weighted_route
+        backtest_required = bool(
+            confidence_data.get("backtest_required", True) and classic_analysis.get("backtest_required", True)
+        )
+        execute = True
+        skip_reason = None
+    elif weighted_intelligence_pass:
+        decision_source = "weighted_intelligence_only"
+        engine_agreement = "weighted_intelligence_rescue"
+        effective_execution_route = weighted_route
+        backtest_required = bool(confidence_data.get("backtest_required", True))
+        execute = True
+        skip_reason = None
+    elif analysis_pass:
+        decision_source = "analysis_only"
+        engine_agreement = "analysis_rescue"
+        effective_execution_route = classic_analysis.get("execution_route", "conservative")
+        backtest_required = bool(classic_analysis.get("backtest_required", True))
+        execute = True
+        skip_reason = None
+    else:
+        decision_source = "none"
+        engine_agreement = "both_failed"
+        effective_execution_route = "skip"
+        backtest_required = False
+        execute = False
+        skip_reason = "hybrid_reject"
+
+    reasons = []
+    if weighted_intelligence_pass:
+        reasons.append("weighted+intelligence approved")
+    else:
+        reasons.append("weighted+intelligence rejected")
+    if analysis_pass:
+        reasons.append("classic analysis approved")
+    else:
+        reasons.append("classic analysis rejected")
+
+    return {
+        "execute": execute,
+        "skip_reason": skip_reason,
+        "decision_source": decision_source,
+        "engine_agreement": engine_agreement,
+        "effective_execution_route": effective_execution_route,
+        "backtest_required": backtest_required,
+        "weighted_route": weighted_route,
+        "weighted_pass": weighted_pass,
+        "intelligence_pass": intelligence_pass,
+        "weighted_intelligence_pass": weighted_intelligence_pass,
+        "analysis_pass": analysis_pass,
+        "classic_analysis": classic_analysis,
+        "intelligence_analysis": intelligence_analysis,
+        "reasons": reasons,
     }
 
 
@@ -458,15 +680,25 @@ while True:
                 if stage_summary:
                     heartbeat_message += f" Passed stages: {stage_summary}."
             route_summary = []
-            if stage_hits.get("weighted_execute"):
-                route_summary.append(f"weighted_confirmation={stage_hits['weighted_execute']}")
-            if stage_hits.get("four_confirmation_execute"):
-                route_summary.append(f"four_confirmation_direct={stage_hits['four_confirmation_execute']}")
-            if stage_hits.get("backtest_execute"):
-                route_summary.append(f"backtest_fallback={stage_hits['backtest_execute']}")
+            if stage_hits.get("weighted_intelligence_pass"):
+                route_summary.append(f"weighted_intelligence={stage_hits['weighted_intelligence_pass']}")
+            if stage_hits.get("analysis_pass"):
+                route_summary.append(f"classic_analysis={stage_hits['analysis_pass']}")
+            if stage_hits.get("dual_engine_agreement"):
+                route_summary.append(f"dual_agreement={stage_hits['dual_engine_agreement']}")
+            if stage_hits.get("analysis_rescue"):
+                route_summary.append(f"analysis_rescue={stage_hits['analysis_rescue']}")
+            if stage_hits.get("weighted_intelligence_rescue"):
+                route_summary.append(f"weighted_rescue={stage_hits['weighted_intelligence_rescue']}")
             if route_summary:
                 heartbeat_message += f" Execution routes: {', '.join(route_summary)}."
             
+            # Sync local intelligence to Supabase periodically
+            try:
+                sync_intelligent_stats_to_supabase(load_intelligent_stats())
+            except Exception:
+                pass
+
             # Add symbol stats to heartbeat
             try:
                 from risk.symbol_stats import get_symbol_summary
@@ -673,7 +905,7 @@ while True:
             )
             
             execution_route = confidence_data.get("execution_route", "skip")
-            confidence_score_value = confidence_data.get("confidence", 0.0)
+            confirmation_score_value = float(confidence_data.get("confidence", 0.0))
             
             # Log confidence data
             record_stage("weighted_confidence", original_symbol)
@@ -683,40 +915,107 @@ while True:
                 f"[{original_symbol}] {confidence_report}",
                 {
                     "symbol": original_symbol,
-                    "confidence": confidence_score_value,
+                    "confidence": confirmation_score_value,
                     "execution_route": execution_route,
                     "components": confidence_data.get("component_scores", {}),
                 },
                 persist=False,
             )
-            
-            # Check if signal should be skipped
-            if should_skip_signal(execution_route):
-                record_skip("low_confidence", original_symbol)
-                bot_log(
-                    "skipped_low_confidence",
-                    f"[{original_symbol}] Skipped: confidence {confidence_score_value:.1f} < threshold",
-                    {"symbol": original_symbol, "confidence": confidence_score_value},
-                    persist=False,
-                )
-                continue
-            
-            # Record stage based on execution route
-            record_stage(f"exec_route_{execution_route}", original_symbol)
-            
+
             confirmation_summary = evaluate_confirmation_quality(
                 confirmation_flags,
                 symbol=original_symbol,
             )
-            signal["confirmation_summary"] = confidence_data
-            signal["weighted_confidence"] = confidence_score_value
-            signal["execution_route"] = execution_route
+            hybrid_decision = build_hybrid_trade_decision(
+                symbol=original_symbol,
+                confidence_data=confidence_data,
+                confirmation_score_value=confirmation_score_value,
+                signal=signal,
+                trend=trend,
+                confirmation_flags=confirmation_flags,
+                confirmation_summary=confirmation_summary,
+            )
+
+            if hybrid_decision["weighted_intelligence_pass"]:
+                record_stage("weighted_intelligence_pass", original_symbol)
+                record_stage(f"exec_route_{execution_route}", original_symbol)
+            if hybrid_decision["analysis_pass"]:
+                record_stage("analysis_pass", original_symbol)
+            if hybrid_decision["engine_agreement"] == "analysis_rescue":
+                record_stage("analysis_rescue", original_symbol)
+            elif hybrid_decision["engine_agreement"] == "weighted_intelligence_rescue":
+                record_stage("weighted_intelligence_rescue", original_symbol)
+            elif hybrid_decision["engine_agreement"] == "both_passed":
+                record_stage("dual_engine_agreement", original_symbol)
+
+            signal["confirmation_summary"] = {
+                **confirmation_summary,
+                "type": hybrid_decision["decision_source"],
+            }
+            signal["weighted_confidence"] = confirmation_score_value
+            signal["weighted_confidence_details"] = confidence_data
+            signal["hybrid_decision"] = hybrid_decision
+            signal["execution_route"] = hybrid_decision["effective_execution_route"]
+
+            bot_log(
+                "hybrid_trade_decision",
+                (
+                    f"[{original_symbol}] Hybrid decision: {hybrid_decision['engine_agreement']}. "
+                    f"Weighted route={execution_route}, intelligence={hybrid_decision['intelligence_pass']}, "
+                    f"classic={hybrid_decision['analysis_pass']}."
+                ),
+                {
+                    "symbol": original_symbol,
+                    "weighted_route": execution_route,
+                    "weighted_pass": hybrid_decision["weighted_pass"],
+                    "intelligence_pass": hybrid_decision["intelligence_pass"],
+                    "analysis_pass": hybrid_decision["analysis_pass"],
+                    "decision_source": hybrid_decision["decision_source"],
+                    "effective_execution_route": hybrid_decision["effective_execution_route"],
+                    "backtest_required": hybrid_decision["backtest_required"],
+                    "classic_analysis": hybrid_decision["classic_analysis"],
+                    "intelligence_analysis": hybrid_decision["intelligence_analysis"],
+                },
+                persist=False,
+            )
+
+            if not hybrid_decision["execute"]:
+                record_skip(
+                    hybrid_decision["skip_reason"] or "hybrid_reject",
+                    original_symbol,
+                    confidence=round(confirmation_score_value / 100.0, 2),
+                    analysis=hybrid_decision,
+                )
+                bot_log(
+                    "hybrid_trade_reject",
+                    (
+                        f"[{original_symbol}] Rejected by both engines. "
+                        f"Weighted route={execution_route}, intelligence={hybrid_decision['intelligence_pass']}, "
+                        f"classic={hybrid_decision['analysis_pass']}."
+                    ),
+                    {
+                        "symbol": original_symbol,
+                        "weighted_route": execution_route,
+                        "intelligence_pass": hybrid_decision["intelligence_pass"],
+                        "analysis_pass": hybrid_decision["analysis_pass"],
+                        "classic_analysis": hybrid_decision["classic_analysis"],
+                        "intelligence_analysis": hybrid_decision["intelligence_analysis"],
+                    },
+                    persist=False,
+                )
+                continue
+
+            execution_route = hybrid_decision["effective_execution_route"]
             
             # ========================================
-            # EXECUTION ROUTE - WEIGHTED SYSTEM
+            # WHOLE EXECUTION PLAN
             # ========================================
-            # New weighted system determines backtest requirement
-            backtest_required = confidence_data.get("backtest_required", True)
+            # 1. Score the setup with the weighted validator.
+            # 2. Ask the intelligence engine whether the weighted route is still healthy.
+            # 3. Run classic trade analysis as an independent fallback engine.
+            # 4. Execute if either engine family passes; skip only if both fail.
+            # 5. Record which engine approved the trade so learning can evolve toward a full autonomous wizard.
+            backtest_required = hybrid_decision["backtest_required"]
             
             if backtest_required:
                 # Need backtest approval for conservative/protected routes
@@ -726,7 +1025,12 @@ while True:
                     pass
                 
                 if not WEIGHTED_CONFIRMATION_BACKTEST_FALLBACK:
-                    record_skip("backtest_required", original_symbol)
+                    record_skip(
+                        "backtest_required",
+                        original_symbol,
+                        confidence=round(confirmation_score_value / 100.0, 2),
+                        analysis=confidence_data,
+                    )
                     continue
                 
                 setup_signature = build_setup_signature(signal, analysis, confirmation_flags)
@@ -736,7 +1040,12 @@ while True:
                     report_key=original_symbol,
                 )
                 if not backtest_approved:
-                    record_skip("backtest", original_symbol)
+                    record_skip(
+                        "backtest",
+                        original_symbol,
+                        confidence=round(confirmation_score_value / 100.0, 2),
+                        analysis=confidence_data,
+                    )
                     continue
                 record_stage("backtest", original_symbol)
                 record_stage("backtest_approved", original_symbol)
@@ -751,47 +1060,18 @@ while True:
                     "required": False,
                 }
 
-            # -----------------------------
-            # PROTECTION (ONE TRADE PER OB)
-            # -----------------------------
-            # ===================================
-            # INTELLIGENT TRADE DECISION
-            # ===================================
-            # Before executing, check if this trade fits the symbol's pattern
-            should_trade, trade_analysis = should_take_trade(
-                original_symbol,
-                confirmation_score_value,
-                execution_route
-            )
-            
-            if not should_trade:
-                record_skip_detailed(
-                    "intelligence",
-                    original_symbol,
-                    confidence=trade_analysis.get("confidence", 0.0),
-                    analysis=trade_analysis,
-                )
-                bot_log(
-                    "intelligent_skip",
-                    f"Intelligent execution skip on {original_symbol}: {trade_analysis['factors'][-1]}",
-                    {
-                        "symbol": original_symbol,
-                        "confidence": trade_analysis["confidence"],
-                        "analysis": trade_analysis,
-                    },
-                    persist=False,
-                )
-                continue
-            
-            record_stage("intelligence_pass", original_symbol)
-
             # ===================================
             # INTELLIGENT EXECUTION
             # ===================================
             htf_ob = signal.get("htf_ob") or {}
             ob_id = get_order_block_id(symbol, htf_ob)
             if not ob_id or not can_trade(symbol, ob_id):
-                record_skip("protection", original_symbol)
+                record_skip(
+                    "protection",
+                    original_symbol,
+                    confidence=round(confirmation_score_value / 100.0, 2),
+                    analysis=confidence_data,
+                )
                 continue
             record_stage("protection", original_symbol)
 
@@ -801,8 +1081,24 @@ while True:
             open_positions = get_open_positions()
             allowed_risk = allocate_risk(symbol, open_positions)
 
+            # Implement IQ Sizing based on Account balance and Execution Route
+            account_info = get_account_snapshot()
+            account_balance = account_info.get("balance", 10000) if account_info else 10000
+            smart_risk = calculate_smart_risk_params(
+                account_balance=account_balance,
+                confidence=confirmation_score_value,
+                base_risk_percent=allowed_risk,
+                execution_route=execution_route
+            )
+            allowed_risk = smart_risk["risk_percent"]
+
             if allowed_risk <= 0:
-                record_skip("risk", original_symbol)
+                record_skip(
+                    "risk",
+                    original_symbol,
+                    confidence=round(confirmation_score_value / 100.0, 2),
+                    analysis=confidence_data,
+                )
                 continue
             record_stage("risk", original_symbol)
 
@@ -842,14 +1138,14 @@ while True:
             # INTELLIGENT POSITION SIZING
             # ----------------------------
             # First get base lot size
+            sl_pips = abs(price - sl) / (0.01 if "JPY" in symbol else 0.0001)
             lot_base = calculate_lot_size(
                 symbol=symbol,
                 risk_percent=allowed_risk,
-                stop_loss_pips=20
+                stop_loss_pips=max(5, sl_pips)
             )
             
             # Then apply intelligent multipliers based on symbol confidence
-            account_balance = get_account_snapshot().get("balance", 10000) if get_account_snapshot() else 10000
             lot_intelligent, lot_intelligence = calculate_dynamic_lot_size(
                 original_symbol,
                 lot_base,
@@ -869,23 +1165,26 @@ while True:
                     "symbol": original_symbol,
                     "sl_intelligence": sl_intelligence,
                     "lot_intelligence": lot_intelligence,
-                    "trade_confidence": trade_analysis["confidence"],
+                    "trade_confidence": round(confirmation_score_value / 100.0, 2),
+                    "weighted_trade_confidence": confirmation_score_value,
+                    "execution_route": execution_route,
                 },
                 persist=False,
             )
 
-            lot = resize_lot(lot, atr, atr_threshold)
+            lot = max(0.01, round(lot, 2))
 
             # -----------------------------
             # PERSIST SIGNAL TO SUPABASE (no webhook)
             # -----------------------------
+            current_bot_id = os.getenv("BOT_ID") or os.getenv("BOT_INSTANCE_ID") or f"mt5_bot_{get_account_snapshot().get('login', 'unknown')}"
             try:
                 persist_signal_to_supabase({
-                    "bot_id": os.getenv("BOT_ID") or os.getenv("BOT_INSTANCE_ID") or "windows_mt5_bot",
+                    "bot_id": current_bot_id,
                     "symbol": original_symbol,
                     "direction": direction,
-                    "entry": price,
-                    "sl": sl,
+                    "entry_price": price,
+                    "stop_loss": sl,
                     "tp": tp,
                     "lot": lot,
                     "ml_probability": probability,
@@ -897,6 +1196,7 @@ while True:
                         MIN_EXTRA_CONFIRMATIONS,
                         confirmation_summary=confirmation_summary,
                         execution_route=execution_route,
+                        decision_bundle=hybrid_decision,
                     ),
                     "status": "pending",
                 })
@@ -910,6 +1210,7 @@ while True:
                 MIN_EXTRA_CONFIRMATIONS,
                 confirmation_summary=confirmation_summary,
                 execution_route=execution_route,
+                decision_bundle=hybrid_decision,
             )
             execution_context["backtest"] = backtest_details
             bot_log(
@@ -961,14 +1262,13 @@ while True:
                 continue
             record_stage("trade_opened", original_symbol)
             
-            # Register trade and track symbol confidence
+            # Register trade and track symbol IQ
             from risk.protection import register_trade, update_symbol_confidence
             from risk.symbol_stats import record_symbol_trade, record_backtest_skip, record_backtest_required
             
             register_trade(symbol, ob_id)
-            update_symbol_confidence(original_symbol, win=True, confirmation_score=confirmation_score_value)
-            # Note: Do NOT record trade as win here - record when it actually closes!
-            # Trade outcome will be recorded in trade management loop when SL/TP is hit
+            # Do not record trade outcomes on open.
+            # Trade outcome and confirmation quality are recorded on SL/TP close.
 
             # -----------------------------
             # PUSH TO DASHBOARD
@@ -1031,11 +1331,12 @@ while True:
                 if sl_hit:
                     # Trade hit stop loss - record as loss with detailed intelligence
                     try:
-                        pnl = (live_price - price) * lot if direction == "buy" else (price - live_price) * lot
+                        pnl = round((live_price - price) * lot if direction == "buy" else (price - live_price) * lot, 2)
+                        update_symbol_confidence(original_symbol, win=False, confirmation_score=confirmation_score_value)
                         record_trade_outcome(
                             original_symbol,
                             win=False,
-                            confirmation_score=0.0,
+                            confirmation_score=confirmation_score_value,
                             entry_price=price,
                             exit_price=live_price,
                             stop_loss_price=trade["sl"],
@@ -1043,8 +1344,24 @@ while True:
                             lot_size=lot,
                             pnl=pnl,
                             signal_type=execution_route,
+                            decision_source=hybrid_decision["decision_source"],
+                            analysis_score=hybrid_decision["classic_analysis"].get("score", 0.0),
+                            analysis_confidence=hybrid_decision["classic_analysis"].get("confidence", 0.0),
+                            analysis_pass=hybrid_decision["analysis_pass"],
+                            weighted_pass=hybrid_decision["weighted_pass"],
+                            intelligence_pass=hybrid_decision["intelligence_pass"],
+                            engine_agreement=hybrid_decision["engine_agreement"],
                         )
-                        record_symbol_trade(original_symbol, win=False, confirmation_score=0.0)
+                        record_symbol_trade(original_symbol, win=False, confirmation_score=confirmation_score_value)
+                        sync_trade_outcome_to_supabase(
+                            symbol=original_symbol,
+                            win=False,
+                            confirmation_score=confirmation_score_value,
+                            entry_price=price,
+                            exit_price=live_price,
+                            pnl=pnl,
+                            execution_route=execution_route
+                        )
                         
                         # RECORD STRATEGY MEMORY - what strategy was used, did it work?
                         try:
@@ -1092,7 +1409,8 @@ while True:
                 elif tp_hit:
                     # Trade hit take profit - record as win with detailed intelligence
                     try:
-                        pnl = (live_price - price) * lot if direction == "buy" else (price - live_price) * lot
+                        pnl = round((live_price - price) * lot if direction == "buy" else (price - live_price) * lot, 2)
+                        update_symbol_confidence(original_symbol, win=True, confirmation_score=confirmation_score_value)
                         record_trade_outcome(
                             original_symbol,
                             win=True,
@@ -1104,8 +1422,24 @@ while True:
                             lot_size=lot,
                             pnl=pnl,
                             signal_type=execution_route,
+                            decision_source=hybrid_decision["decision_source"],
+                            analysis_score=hybrid_decision["classic_analysis"].get("score", 0.0),
+                            analysis_confidence=hybrid_decision["classic_analysis"].get("confidence", 0.0),
+                            analysis_pass=hybrid_decision["analysis_pass"],
+                            weighted_pass=hybrid_decision["weighted_pass"],
+                            intelligence_pass=hybrid_decision["intelligence_pass"],
+                            engine_agreement=hybrid_decision["engine_agreement"],
                         )
                         record_symbol_trade(original_symbol, win=True, confirmation_score=confirmation_score_value)
+                        sync_trade_outcome_to_supabase(
+                            symbol=original_symbol,
+                            win=True,
+                            confirmation_score=confirmation_score_value,
+                            entry_price=price,
+                            exit_price=live_price,
+                            pnl=pnl,
+                            execution_route=execution_route
+                        )
                         
                         # RECORD STRATEGY MEMORY - what strategy was used, did it work?
                         try:

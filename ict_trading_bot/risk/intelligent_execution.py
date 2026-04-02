@@ -52,7 +52,8 @@ import os
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Tuple, List
-from utils.symbol_profile import infer_asset_class
+from utils.persistent_json import load_json_file, save_json_file
+from utils.symbol_profile import canonical_symbol, infer_asset_class
 
 INTELLIGENT_STATS_FILE = Path(__file__).resolve().parent.parent / "data" / "intelligent_execution_stats.json"
 INTELLIGENT_SKIP_FILE = Path(__file__).resolve().parent.parent / "data" / "intelligent_skip_tracking.json"
@@ -60,23 +61,110 @@ INTELLIGENT_SKIP_FILE = Path(__file__).resolve().parent.parent / "data" / "intel
 
 def load_intelligent_stats():
     """Load comprehensive execution intelligence from disk."""
-    if INTELLIGENT_STATS_FILE.exists():
-        try:
-            with open(INTELLIGENT_STATS_FILE, 'r') as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
+    return load_json_file(INTELLIGENT_STATS_FILE, {})
 
 
 def save_intelligent_stats(stats):
     """Save comprehensive execution statistics to disk."""
     try:
-        INTELLIGENT_STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(INTELLIGENT_STATS_FILE, 'w') as f:
-            json.dump(stats, f, indent=2)
+        save_json_file(INTELLIGENT_STATS_FILE, stats)
     except Exception as e:
         print(f"[WARNING] Failed to save intelligent stats: {e}")
+
+
+def _symbol_key(symbol: str) -> str:
+    return canonical_symbol(symbol)
+
+
+def _build_intelligent_stats_bucket(symbol_key: str) -> Dict:
+    return {
+        "symbol": symbol_key,
+        "asset_class": infer_asset_class(symbol_key),
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "confidence_scores": [],
+        "avg_confidence": 0.0,
+        "recent_outcomes": [],
+        "recent_trades": [],
+        "pnl_total": 0.0,
+        "pnl_avg": 0.0,
+        "decision_source_stats": {},
+        "analysis_score_history": [],
+        "weighted_score_history": [],
+        "last_updated": None,
+    }
+
+
+def _build_skip_bucket(symbol_key: str) -> Dict:
+    return {
+        "symbol": symbol_key,
+        "asset_class": infer_asset_class(symbol_key),
+        "total_skips": 0,
+        "skip_reasons": {},
+        "skip_samples": [],
+        "last_skip": None,
+        "skip_patterns": {},
+    }
+
+
+def _normalize_confirmation_score(score: float) -> Dict[str, float]:
+    """
+    Normalize confidence scores across legacy (0-10) and weighted (0-100) systems.
+    """
+    try:
+        raw = float(score)
+    except Exception:
+        raw = 0.0
+
+    if raw <= 0:
+        return {
+            "raw": 0.0,
+            "legacy_points": 0.0,
+            "weighted_score": 0.0,
+            "ratio": 0.0,
+            "scale": "legacy_10",
+        }
+
+    if raw <= 10.0:
+        legacy_points = max(0.0, min(raw, 10.0))
+        weighted_score = legacy_points * 10.0
+        return {
+            "raw": raw,
+            "legacy_points": legacy_points,
+            "weighted_score": weighted_score,
+            "ratio": legacy_points / 10.0,
+            "scale": "legacy_10",
+        }
+
+    weighted_score = max(0.0, min(raw, 100.0))
+    return {
+        "raw": raw,
+        "legacy_points": weighted_score / 10.0,
+        "weighted_score": weighted_score,
+        "ratio": weighted_score / 100.0,
+        "scale": "weighted_100",
+    }
+
+
+def _normalize_confirmation_series(scores: List[float]) -> List[float]:
+    """Normalize stored confirmation scores onto the legacy 0-10 scale."""
+    return [_normalize_confirmation_score(score)["legacy_points"] for score in scores]
+
+
+def _get_weighted_route_threshold(signal_type: str):
+    """Thresholds already encoded by the weighted entry validator."""
+    return {
+        "elite": 0.85,
+        "standard": 0.70,
+        "conservative": 0.60,
+        "protected": 0.50,
+        "intelligent_alternative": 0.55,
+        "intelligent_backtest_required": 0.60,
+        "weighted_confirmation": 0.70,
+        "backtest_fallback": 0.60,
+    }.get(signal_type)
 
 
 def calculate_precise_winning_rate(symbol: str) -> Dict:
@@ -103,10 +191,13 @@ def calculate_precise_winning_rate(symbol: str) -> Dict:
         }
     """
     stats = load_intelligent_stats()
-    
-    if symbol not in stats:
+    symbol_key = _symbol_key(symbol)
+    asset_class = infer_asset_class(symbol_key)
+
+    if symbol_key not in stats:
         return {
-            "symbol": symbol,
+            "symbol": symbol_key,
+            "asset_class": asset_class,
             "win_count": 0,
             "loss_count": 0,
             "total_trades": 0,
@@ -123,14 +214,15 @@ def calculate_precise_winning_rate(symbol: str) -> Dict:
             "opportunity_score": 0.5,
         }
     
-    s = stats[symbol]
+    s = stats[symbol_key]
     total = s.get("total_trades", 0)
     wins = s.get("wins", 0)
     losses = s.get("losses", 0)
     
     if total == 0:
         return {
-            "symbol": symbol,
+            "symbol": symbol_key,
+            "asset_class": asset_class,
             "win_count": 0,
             "loss_count": 0,
             "total_trades": 0,
@@ -150,7 +242,11 @@ def calculate_precise_winning_rate(symbol: str) -> Dict:
     # Base metrics
     base_win_rate = wins / total
     profit_factor = wins / losses if losses > 0 else wins
-    avg_confidence = s.get("avg_confidence", 0.0)
+    confidence_scores = _normalize_confirmation_series(s.get("confidence_scores", []))
+    if confidence_scores:
+        avg_confidence = sum(confidence_scores) / len(confidence_scores)
+    else:
+        avg_confidence = _normalize_confirmation_score(s.get("avg_confidence", 0.0))["legacy_points"]
     
     # Confidence-adjusted win rate: Higher confirmation = higher expected win rate
     confidence_adjustment = 1.0 + (avg_confidence - 7.0) * 0.05 if avg_confidence >= 7.0 else 1.0 - (7.0 - avg_confidence) * 0.08
@@ -179,7 +275,6 @@ def calculate_precise_winning_rate(symbol: str) -> Dict:
                 break
     
     # Prediction accuracy: How reliable confirmation scores are for this symbol
-    confidence_scores = s.get("confidence_scores", [])
     prediction_accuracy = 0.5
     
     if len(confidence_scores) >= 5:
@@ -212,7 +307,8 @@ def calculate_precise_winning_rate(symbol: str) -> Dict:
     opportunity_score = min(0.99, max(0.1, opportunity_score))
     
     return {
-        "symbol": symbol,
+        "symbol": symbol_key,
+        "asset_class": asset_class,
         "win_count": wins,
         "loss_count": losses,
         "total_trades": total,
@@ -395,6 +491,145 @@ def should_take_trade(
     
     Returns: (should_trade, {analysis})
     """
+    normalized_score = _normalize_confirmation_score(confirmation_score)
+    intel = calculate_precise_winning_rate(symbol)
+    asset_class = infer_asset_class(symbol)
+    legacy_score = normalized_score["legacy_points"]
+    weighted_score = normalized_score["weighted_score"]
+    confidence_ratio = normalized_score["ratio"]
+
+    total_trades = intel.get("total_trades", 0)
+    base_thresholds = {
+        "forex": 0.65,
+        "metals": 0.62,
+        "crypto": 0.60,
+        "other": 0.62,
+    }
+    base_threshold = base_thresholds.get(asset_class, 0.62)
+
+    if total_trades == 0:
+        historical_threshold = 0.70
+    elif total_trades < 5:
+        historical_threshold = 0.68
+    elif total_trades < 15:
+        historical_threshold = 0.62
+    elif total_trades < 50:
+        historical_threshold = base_threshold - 0.05
+    else:
+        historical_threshold = max(0.50, base_threshold - 0.10)
+
+    route_threshold = _get_weighted_route_threshold(signal_type)
+    final_threshold = min(historical_threshold, route_threshold) if route_threshold is not None else historical_threshold
+
+    analysis = {
+        "symbol": symbol,
+        "asset_class": asset_class,
+        "confirmation_score": legacy_score,
+        "weighted_confirmation_score": weighted_score,
+        "confirmation_scale": normalized_score["scale"],
+        "signal_type": signal_type,
+        "decision": False,
+        "confidence": 0.0,
+        "threshold": final_threshold,
+        "factors": [],
+    }
+
+    if route_threshold is not None:
+        analysis["confidence"] = confidence_ratio
+        analysis["factors"].append(
+            f"Weighted route '{signal_type}' approved at {weighted_score:.1f}/100"
+        )
+        if route_threshold < historical_threshold:
+            analysis["factors"].append(
+                f"Route threshold {route_threshold:.0%} overrides stricter history gate {historical_threshold:.0%}"
+            )
+    elif total_trades == 0:
+        if legacy_score >= 6.5:
+            analysis["factors"].append(f"New {asset_class} + moderate confirmation = SMALL trade OK")
+            analysis["confidence"] = 0.60
+        else:
+            analysis["factors"].append("New symbol + low confirmation = SKIP")
+            return False, analysis
+    elif intel["base_win_rate"] < 0.40:
+        if legacy_score < 6.5:
+            analysis["factors"].append(f"Poor win rate ({intel['base_win_rate']:.1%}) + low confirmation = SKIP")
+            return False, analysis
+        analysis["factors"].append(f"Poor win rate ({intel['base_win_rate']:.1%}) but HIGH confirmation = TRY")
+        analysis["confidence"] = 0.55
+    elif intel["base_win_rate"] >= 0.65:
+        analysis["factors"].append(f"Strong {asset_class} win rate ({intel['base_win_rate']:.1%}) = ALWAYS TRADE")
+        analysis["confidence"] = 0.95
+    elif intel["base_win_rate"] >= 0.45:
+        if legacy_score >= 7.2:
+            analysis["factors"].append(f"Good {asset_class} win rate ({intel['base_win_rate']:.1%}) + high confirmation = TRADE")
+            analysis["confidence"] = 0.85
+        elif legacy_score >= 6.8:
+            analysis["factors"].append(f"Good {asset_class} win rate ({intel['base_win_rate']:.1%}) + medium confirmation = TRADE")
+            analysis["confidence"] = 0.70
+        else:
+            analysis["factors"].append("Good win rate but LOW confirmation = SKIP")
+            return False, analysis
+
+    if route_threshold is not None:
+        if intel["base_win_rate"] >= 0.65:
+            analysis["factors"].append(f"Strong {asset_class} history ({intel['base_win_rate']:.1%}) boosts confidence")
+            analysis["confidence"] = min(0.99, analysis["confidence"] + 0.08)
+        elif intel["base_win_rate"] >= 0.45:
+            analysis["factors"].append(f"Healthy {asset_class} history ({intel['base_win_rate']:.1%}) supports the setup")
+            analysis["confidence"] = min(0.99, analysis["confidence"] + 0.04)
+        elif total_trades > 0 and intel["base_win_rate"] < 0.40:
+            analysis["factors"].append(f"Weak {asset_class} history ({intel['base_win_rate']:.1%}) trims confidence")
+            analysis["confidence"] *= 0.85
+
+    signal_credibility = {
+        "elite": 0.98,
+        "standard": 0.94,
+        "weighted_confirmation": 0.92,
+        "intelligent_alternative": 0.90,
+        "intelligent_backtest_required": 0.88,
+        "conservative": 0.84,
+        "protected": 0.78,
+        "four_confirmation": 0.90,
+        "symbol_confidence_high": 0.85,
+        "backtest_fallback": 0.75 if asset_class == "forex" else 0.80,
+    }
+    credibility = signal_credibility.get(signal_type, 0.70)
+    analysis["factors"].append(f"Signal type '{signal_type}' credibility: {credibility:.0%}")
+    if route_threshold is not None:
+        analysis["confidence"] = min(0.99, (analysis["confidence"] * 0.85) + (credibility * 0.15))
+    else:
+        analysis["confidence"] *= credibility
+
+    if intel["current_streak"] == "loss" and intel["loss_streak"] >= 3:
+        analysis["factors"].append(
+            f"Loss streak {intel['loss_streak']} = reduce confidence by 30%"
+        )
+        analysis["confidence"] *= 0.7
+        if analysis["confidence"] < final_threshold:
+            analysis["decision"] = False
+            return False, analysis
+
+    if intel["current_streak"] == "win" and intel["win_streak"] >= 2:
+        analysis["factors"].append(
+            f"Win streak {intel['win_streak']} = increase confidence by 25%"
+        )
+        analysis["confidence"] = min(0.99, analysis["confidence"] * 1.25)
+
+    analysis["confidence"] = round(max(0.0, min(0.99, analysis["confidence"])), 2)
+
+    if analysis["confidence"] >= final_threshold:
+        analysis["decision"] = True
+        analysis["factors"].append(
+            f"FINAL: {asset_class.upper()} trade with {analysis['confidence']:.0%} confidence (threshold: {final_threshold:.0%})"
+        )
+    else:
+        analysis["decision"] = False
+        analysis["factors"].append(
+            f"FINAL: Skip - only {analysis['confidence']:.0%} confidence (need {final_threshold:.0%})"
+        )
+
+    return analysis["decision"], analysis
+
     intel = calculate_precise_winning_rate(symbol)
     asset_class = infer_asset_class(symbol)
     
@@ -409,11 +644,11 @@ def should_take_trade(
     base_threshold = base_thresholds.get(asset_class, 0.62)
     
     # Adaptive learning schedule
-    # OPTION 1A: AGGRESSIVE thresholds to enable immediate trading and learning
+    # PROTECTIVE thresholds: Require higher conviction until symbol is proven
     if total_trades == 0:
-        final_threshold = 0.55  # NEW: Lowered from 75% to 55% for immediate trading (OPTION 1A)
+        final_threshold = 0.70  # Increased from 55% to 70% to prevent "trash" trades
     elif total_trades < 5:
-        final_threshold = 0.60  # EARLY: Lowered from 72% to 60% (OPTION 1A)
+        final_threshold = 0.68  # Increased from 60% to 68%
     elif total_trades < 15:
         final_threshold = 0.62  # LEARNING: Lowered from 68% to 62% (OPTION 1A)
     elif total_trades < 50:
@@ -489,10 +724,13 @@ def should_take_trade(
     
     # Factor 7: Signal type credibility (asset-class adjusted)
     signal_credibility = {
+        "elite": 1.0,
+        "standard": 0.95,
         "weighted_confirmation": 0.95,
+        "intelligent_alternative": 0.92,
         "four_confirmation": 0.90,
         "symbol_confidence_high": 0.85,
-        "backtest_fallback": 0.75 if asset_class == "forex" else 0.80,  # Backtest is more trustworthy for crypto
+        "backtest_fallback": 0.75 if asset_class == "forex" else 0.80,
     }
     
     credibility = signal_credibility.get(signal_type, 0.70)
@@ -523,30 +761,27 @@ def record_trade_outcome(
     lot_size: float = 0.0,
     pnl: float = 0.0,
     signal_type: str = "unknown",
+    decision_source: str = "unknown",
+    analysis_score: float = 0.0,
+    analysis_confidence: float = 0.0,
+    analysis_pass: bool = False,
+    weighted_pass: bool = False,
+    intelligence_pass: bool = False,
+    engine_agreement: str = "unknown",
 ):
     """
     Record detailed trade outcome for intelligent learning.
     Tracks: entry, exit, result, confirmation reliability, etc.
     """
     stats = load_intelligent_stats()
-    
-    if symbol not in stats:
-        stats[symbol] = {
-            "symbol": symbol,
-            "total_trades": 0,
-            "wins": 0,
-            "losses": 0,
-            "win_rate": 0.0,
-            "confidence_scores": [],
-            "avg_confidence": 0.0,
-            "recent_outcomes": [],
-            "recent_trades": [],
-            "pnl_total": 0.0,
-            "pnl_avg": 0.0,
-            "last_updated": None,
-        }
-    
-    s = stats[symbol]
+    symbol_key = _symbol_key(symbol)
+
+    if symbol_key not in stats:
+        stats[symbol_key] = _build_intelligent_stats_bucket(symbol_key)
+
+    s = stats[symbol_key]
+    s["symbol"] = symbol_key
+    s["asset_class"] = infer_asset_class(symbol_key)
     s["total_trades"] += 1
     
     if win:
@@ -555,7 +790,27 @@ def record_trade_outcome(
         s["losses"] += 1
     
     s["win_rate"] = s["wins"] / s["total_trades"] if s["total_trades"] > 0 else 0.0
-    s["confidence_scores"].append(confirmation_score)
+    normalized_score = _normalize_confirmation_score(confirmation_score)
+    s["confidence_scores"] = _normalize_confirmation_series(s.get("confidence_scores", []))
+    s["confidence_scores"].append(normalized_score["legacy_points"])
+    s["weighted_score_history"] = [
+        _normalize_confirmation_score(score)["weighted_score"]
+        for score in s.get("weighted_score_history", [])
+    ]
+    s["weighted_score_history"].append(normalized_score["weighted_score"])
+    if len(s["weighted_score_history"]) > 100:
+        s["weighted_score_history"] = s["weighted_score_history"][-100:]
+    try:
+        analysis_score_value = float(analysis_score)
+    except Exception:
+        analysis_score_value = 0.0
+    s["analysis_score_history"] = [
+        max(0.0, min(float(score), 100.0))
+        for score in s.get("analysis_score_history", [])
+    ]
+    s["analysis_score_history"].append(max(0.0, min(analysis_score_value, 100.0)))
+    if len(s["analysis_score_history"]) > 100:
+        s["analysis_score_history"] = s["analysis_score_history"][-100:]
     
     # Keep last 50 scores
     if len(s["confidence_scores"]) > 50:
@@ -567,13 +822,26 @@ def record_trade_outcome(
     s["recent_outcomes"].append(win)
     if len(s["recent_outcomes"]) > 30:
         s["recent_outcomes"] = s["recent_outcomes"][-30:]
+
+    decision_source_stats = s.setdefault("decision_source_stats", {})
+    source_bucket = decision_source_stats.setdefault(
+        decision_source,
+        {"trades": 0, "wins": 0, "losses": 0},
+    )
+    source_bucket["trades"] += 1
+    if win:
+        source_bucket["wins"] += 1
+    else:
+        source_bucket["losses"] += 1
     
     # Record detailed trade
     trade_detail = {
         "timestamp": datetime.now().isoformat(),
-        "symbol": symbol,
+        "symbol": symbol_key,
+        "asset_class": infer_asset_class(symbol_key),
         "win": win,
-        "confirmation_score": confirmation_score,
+        "confirmation_score": normalized_score["legacy_points"],
+        "weighted_confidence": normalized_score["weighted_score"],
         "entry": entry_price,
         "exit": exit_price,
         "sl": stop_loss_price,
@@ -581,6 +849,13 @@ def record_trade_outcome(
         "lot": lot_size,
         "pnl": pnl,
         "signal_type": signal_type,
+        "decision_source": decision_source,
+        "analysis_score": max(0.0, min(analysis_score_value, 100.0)),
+        "analysis_confidence": round(max(0.0, min(float(analysis_confidence or 0.0), 0.99)), 2),
+        "analysis_pass": bool(analysis_pass),
+        "weighted_pass": bool(weighted_pass),
+        "intelligence_pass": bool(intelligence_pass),
+        "engine_agreement": engine_agreement,
     }
     
     s["recent_trades"].append(trade_detail)
@@ -689,21 +964,13 @@ def get_intelligent_recommendation(symbol: str) -> str:
 
 def load_intelligent_skip_stats():
     """Load persistent skip tracking data from disk - SURVIVES NETWORK DISRUPTION."""
-    if INTELLIGENT_SKIP_FILE.exists():
-        try:
-            with open(INTELLIGENT_SKIP_FILE, 'r') as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
+    return load_json_file(INTELLIGENT_SKIP_FILE, {})
 
 
 def save_intelligent_skip_stats(skip_data):
     """Save skip statistics to disk - PERSISTENT even if system crashes or network goes down."""
     try:
-        INTELLIGENT_SKIP_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(INTELLIGENT_SKIP_FILE, 'w') as f:
-            json.dump(skip_data, f, indent=2)
+        save_json_file(INTELLIGENT_SKIP_FILE, skip_data)
     except Exception as e:
         print(f"[WARNING] Failed to save skip tracking: {e}")
 
@@ -722,19 +989,14 @@ def record_skip_detailed(reason: str, symbol: str, confidence: float = 0.0, anal
         analysis: Detailed analysis dict from decision function
     """
     skip_data = load_intelligent_skip_stats()
+    symbol_key = _symbol_key(symbol)
     
-    # Initialize symbol entry if new
-    if symbol not in skip_data:
-        skip_data[symbol] = {
-            "symbol": symbol,
-            "total_skips": 0,
-            "skip_reasons": {},  # Reason -> count
-            "skip_samples": [],  # Last 50 skipped opportunities
-            "last_skip": None,
-            "skip_patterns": {},  # Reason -> list of confidence scores
-        }
+    if symbol_key not in skip_data:
+        skip_data[symbol_key] = _build_skip_bucket(symbol_key)
     
-    s = skip_data[symbol]
+    s = skip_data[symbol_key]
+    s["symbol"] = symbol_key
+    s["asset_class"] = infer_asset_class(symbol_key)
     s["total_skips"] += 1
     
     # Track reason frequency
@@ -750,7 +1012,8 @@ def record_skip_detailed(reason: str, symbol: str, confidence: float = 0.0, anal
     # Record detailed skip sample
     skip_record = {
         "timestamp": datetime.now().isoformat(),
-        "symbol": symbol,
+        "symbol": symbol_key,
+        "asset_class": infer_asset_class(symbol_key),
         "reason": reason,
         "confidence": confidence,
         "analysis_summary": analysis.get("factors", [])[-3:] if analysis else [],  # Last 3 decision factors
@@ -783,21 +1046,22 @@ def get_skip_pattern_analysis(symbol: str) -> Dict:
         }
     """
     skip_data = load_intelligent_skip_stats()
+    symbol_key = _symbol_key(symbol)
     
-    if symbol not in skip_data:
+    if symbol_key not in skip_data:
         return {
-            "symbol": symbol,
+            "symbol": symbol_key,
             "total_skips": 0,
             "most_common_skip_reason": "none",
             "confidence_pattern": {},
             "recommendation": "Not enough skip history yet",
         }
     
-    s = skip_data[symbol]
+    s = skip_data[symbol_key]
     
     if s["total_skips"] == 0:
         return {
-            "symbol": symbol,
+            "symbol": symbol_key,
             "total_skips": 0,
             "most_common_skip_reason": "none",
             "confidence_pattern": {},
@@ -823,7 +1087,7 @@ def get_skip_pattern_analysis(symbol: str) -> Dict:
         recommendation += " - PATTERN DETECTED! Review this symbol's signals."
     
     return {
-        "symbol": symbol,
+        "symbol": symbol_key,
         "total_skips": s["total_skips"],
         "most_common_skip_reason": most_common[0],
         "skip_reason_breakdown": s["skip_reasons"],
@@ -865,10 +1129,11 @@ def get_skip_statistics_report() -> str:
     for symbol, skip_info in symbols_with_skips[:20]:  # Top 20 most skipped
         total_skips = skip_info.get("total_skips", 0)
         exec_count = 0
-        
-        if symbol in exec_data and exec_data[symbol].get("total_trades", 0) > 0:
-            exec_count = exec_data[symbol]["total_trades"]
-            win_rate = exec_data[symbol].get("win_rate", 0)
+
+        symbol_key = _symbol_key(symbol)
+        if symbol_key in exec_data and exec_data[symbol_key].get("total_trades", 0) > 0:
+            exec_count = exec_data[symbol_key]["total_trades"]
+            win_rate = exec_data[symbol_key].get("win_rate", 0)
             status = f"Trades: {exec_count} (WR: {win_rate:.0%})"
         else:
             status = "NOT YET TRADED"
@@ -956,19 +1221,20 @@ def should_skip_symbol_entirely(symbol: str) -> Tuple[bool, str]:
     """
     skip_data = load_intelligent_skip_stats()
     exec_data = load_intelligent_stats()
+    symbol_key = _symbol_key(symbol)
     
-    if symbol not in skip_data:
+    if symbol_key not in skip_data:
         return False, ""  # No skip history = safe to trade
     
-    total_skips = skip_data[symbol].get("total_skips", 0)
+    total_skips = skip_data[symbol_key].get("total_skips", 0)
     
     if total_skips == 0:
         return False, ""
     
     # Get execution data
     exec_count = 0
-    if symbol in exec_data:
-        exec_count = exec_data[symbol].get("total_trades", 0)
+    if symbol_key in exec_data:
+        exec_count = exec_data[symbol_key].get("total_trades", 0)
     
     skip_rate = total_skips / (total_skips + exec_count) if (total_skips + exec_count) > 0 else 0.0
     
@@ -982,7 +1248,7 @@ def should_skip_symbol_entirely(symbol: str) -> Tuple[bool, str]:
     
     # REPEATED FAILURES: Many skips but some trades with low win rate
     if total_skips >= 20 and exec_count > 0:
-        win_rate = exec_data[symbol].get("win_rate", 0)
+        win_rate = exec_data[symbol_key].get("win_rate", 0)
         if win_rate < 0.30:  # Less than 30% win rate
             return True, f"Low performance: only {win_rate:.0%} WR ({exec_count} trades), {total_skips} skips. Avoid until signals improve."
     
@@ -1011,11 +1277,12 @@ def get_learned_threshold_adjustment(symbol: str) -> float:
     """
     skip_data = load_intelligent_skip_stats()
     exec_data = load_intelligent_stats()
+    symbol_key = _symbol_key(symbol)
     
-    if symbol not in skip_data:
+    if symbol_key not in skip_data:
         return 0.0  # No skip history = no adjustment
     
-    total_skips = skip_data[symbol].get("total_skips", 0)
+    total_skips = skip_data[symbol_key].get("total_skips", 0)
     
     if total_skips < 5:
         return 0.0  # Not enough skip history
@@ -1023,9 +1290,9 @@ def get_learned_threshold_adjustment(symbol: str) -> float:
     # Calculate skip rate
     exec_count = 0
     win_rate = 0.5
-    if symbol in exec_data:
-        exec_count = exec_data[symbol].get("total_trades", 0)
-        win_rate = exec_data[symbol].get("win_rate", 0)
+    if symbol_key in exec_data:
+        exec_count = exec_data[symbol_key].get("total_trades", 0)
+        win_rate = exec_data[symbol_key].get("win_rate", 0)
     
     skip_rate = total_skips / (total_skips + exec_count) if (total_skips + exec_count) > 0 else 0.0
     
@@ -1068,15 +1335,16 @@ def learn_from_repeated_skips(symbol: str) -> Dict:
     skip_analysis = get_skip_pattern_analysis(symbol)
     skip_data = load_intelligent_skip_stats()
     exec_data = load_intelligent_stats()
+    symbol_key = _symbol_key(symbol)
     
-    if symbol not in skip_data:
-        return {"symbol": symbol, "skip_count": 0, "learned_insights": [], "recommendations": []}
+    if symbol_key not in skip_data:
+        return {"symbol": symbol_key, "skip_count": 0, "learned_insights": [], "recommendations": []}
     
-    total_skips = skip_data[symbol].get("total_skips", 0)
+    total_skips = skip_data[symbol_key].get("total_skips", 0)
     
     if total_skips < 5:
         return {
-            "symbol": symbol,
+            "symbol": symbol_key,
             "skip_count": total_skips,
             "learned_insights": ["Not enough skip history yet"],
             "recommendations": ["Continue monitoring"]
@@ -1086,7 +1354,7 @@ def learn_from_repeated_skips(symbol: str) -> Dict:
     recommendations = []
     
     # Analyze skip reasons
-    skip_reasons = skip_data[symbol].get("skip_reasons", {})
+    skip_reasons = skip_data[symbol_key].get("skip_reasons", {})
     if skip_reasons:
         top_reason = max(skip_reasons.items(), key=lambda x: x[1])[0]
         top_count = skip_reasons[top_reason]
@@ -1115,19 +1383,19 @@ def learn_from_repeated_skips(symbol: str) -> Dict:
         if stats.get("count", 0) > 0:
             avg_conf = stats.get("avg", 0)
             if reason == "intelligence" and avg_conf < 0.65:
-                insights.append(f"Intelligence confidence for {symbol} stuck at {avg_conf:.0%}")
+                insights.append(f"Intelligence confidence for {symbol_key} stuck at {avg_conf:.0%}")
                 recommendations.append("Consider if symbol's market structure changed")
     
     # Check execution stats
     exec_count = 0
     win_rate = 0
-    if symbol in exec_data:
-        exec_count = exec_data[symbol].get("total_trades", 0)
-        win_rate = exec_data[symbol].get("win_rate", 0)
+    if symbol_key in exec_data:
+        exec_count = exec_data[symbol_key].get("total_trades", 0)
+        win_rate = exec_data[symbol_key].get("win_rate", 0)
     
     skip_rate = total_skips / (total_skips + exec_count) if (total_skips + exec_count) > 0 else 0.0
     
-    insights.append(f"Skip rate for {symbol}: {skip_rate:.0%} ({total_skips} skips vs {exec_count} executions)")
+    insights.append(f"Skip rate for {symbol_key}: {skip_rate:.0%} ({total_skips} skips vs {exec_count} executions)")
     
     # Generate recommendations based on pattern
     if exec_count == 0:
@@ -1149,7 +1417,7 @@ def learn_from_repeated_skips(symbol: str) -> Dict:
         avoid_until = "win rate reaches 45%"
     
     return {
-        "symbol": symbol,
+        "symbol": symbol_key,
         "skip_count": total_skips,
         "execution_count": exec_count,
         "skip_rate": skip_rate,

@@ -1,0 +1,1067 @@
+{
+  "ADAUSD": {
+    "symbol": "ADAUSD",
+    "total_skips": 3,
+    "skip_reasons": {
+      "price_action": 3
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-02T17:26:41.162472",
+        "symbol": "ADAUSD",
+        "reason": "price_action",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:13.328712",
+        "symbol": "ADAUSD",
+        "reason": "price_action",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:28.056322",
+        "symbol": "ADAUSD",
+        "reason": "price_action",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-02T17:27:28.056349",
+    "skip_patterns": {
+      "price_action": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "USDCAD": {
+    "symbol": "USDCAD",
+    "total_skips": 10,
+    "skip_reasons": {
+      "entry_fib_zone": 10
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-02T17:26:41.734390",
+        "symbol": "USDCAD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:26:45.184233",
+        "symbol": "USDCAD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:00.916166",
+        "symbol": "USDCAD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:04.387467",
+        "symbol": "USDCAD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:20.656493",
+        "symbol": "USDCAD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:22.758404",
+        "symbol": "USDCAD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:55.942905",
+        "symbol": "USDCAD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:58.755870",
+        "symbol": "USDCAD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:39.321736",
+        "symbol": "USDCAD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:39.506196",
+        "symbol": "USDCAD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-02T17:28:39.506212",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "AUDUSD": {
+    "symbol": "AUDUSD",
+    "total_skips": 11,
+    "skip_reasons": {
+      "entry_order_block": 11
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-02T17:26:41.866413",
+        "symbol": "AUDUSD",
+        "reason": "entry_order_block",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:26:57.379115",
+        "symbol": "AUDUSD",
+        "reason": "entry_order_block",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:00.720409",
+        "symbol": "AUDUSD",
+        "reason": "entry_order_block",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:16.202474",
+        "symbol": "AUDUSD",
+        "reason": "entry_order_block",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:18.348714",
+        "symbol": "AUDUSD",
+        "reason": "entry_order_block",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:48.170829",
+        "symbol": "AUDUSD",
+        "reason": "entry_order_block",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:49.445747",
+        "symbol": "AUDUSD",
+        "reason": "entry_order_block",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:29.508469",
+        "symbol": "AUDUSD",
+        "reason": "entry_order_block",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:30.197081",
+        "symbol": "AUDUSD",
+        "reason": "entry_order_block",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:29:02.066387",
+        "symbol": "AUDUSD",
+        "reason": "entry_order_block",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:29:02.887627",
+        "symbol": "AUDUSD",
+        "reason": "entry_order_block",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-02T17:29:02.887646",
+    "skip_patterns": {
+      "entry_order_block": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "USDCHF": {
+    "symbol": "USDCHF",
+    "total_skips": 3,
+    "skip_reasons": {
+      "price_action": 3
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-02T17:26:43.665170",
+        "symbol": "USDCHF",
+        "reason": "price_action",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:26:46.445546",
+        "symbol": "USDCHF",
+        "reason": "price_action",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:06.044456",
+        "symbol": "USDCHF",
+        "reason": "price_action",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-02T17:27:06.044475",
+    "skip_patterns": {
+      "price_action": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "NZDUSD": {
+    "symbol": "NZDUSD",
+    "total_skips": 19,
+    "skip_reasons": {
+      "bos": 8,
+      "low_confidence": 8,
+      "price_action": 3
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-02T17:26:43.873507",
+        "symbol": "NZDUSD",
+        "reason": "bos",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:26:43.920073",
+        "symbol": "NZDUSD",
+        "reason": "low_confidence",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:26:59.077239",
+        "symbol": "NZDUSD",
+        "reason": "bos",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:26:59.084618",
+        "symbol": "NZDUSD",
+        "reason": "low_confidence",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:02.760651",
+        "symbol": "NZDUSD",
+        "reason": "bos",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:02.768097",
+        "symbol": "NZDUSD",
+        "reason": "low_confidence",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:18.109025",
+        "symbol": "NZDUSD",
+        "reason": "bos",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:18.136038",
+        "symbol": "NZDUSD",
+        "reason": "low_confidence",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:20.356960",
+        "symbol": "NZDUSD",
+        "reason": "bos",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:20.366100",
+        "symbol": "NZDUSD",
+        "reason": "low_confidence",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:51.938750",
+        "symbol": "NZDUSD",
+        "reason": "bos",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:51.946439",
+        "symbol": "NZDUSD",
+        "reason": "price_action",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:51.956531",
+        "symbol": "NZDUSD",
+        "reason": "low_confidence",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:52.685718",
+        "symbol": "NZDUSD",
+        "reason": "bos",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:52.697366",
+        "symbol": "NZDUSD",
+        "reason": "price_action",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:52.851446",
+        "symbol": "NZDUSD",
+        "reason": "low_confidence",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:33.490755",
+        "symbol": "NZDUSD",
+        "reason": "bos",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:33.506278",
+        "symbol": "NZDUSD",
+        "reason": "price_action",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:33.788446",
+        "symbol": "NZDUSD",
+        "reason": "low_confidence",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-02T17:28:33.788466",
+    "skip_patterns": {
+      "bos": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "low_confidence": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "price_action": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "BTCUSD": {
+    "symbol": "BTCUSD",
+    "total_skips": 5,
+    "skip_reasons": {
+      "entry_fib_zone": 5
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-02T17:26:48.114432",
+        "symbol": "BTCUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:05.970982",
+        "symbol": "BTCUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:21.034837",
+        "symbol": "BTCUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:05.237551",
+        "symbol": "BTCUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:39.158968",
+        "symbol": "BTCUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-02T17:28:39.158989",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "EURUSD": {
+    "symbol": "EURUSD",
+    "total_skips": 10,
+    "skip_reasons": {
+      "entry_fib_zone": 10
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-02T17:26:51.277228",
+        "symbol": "EURUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:26:54.433320",
+        "symbol": "EURUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:10.979299",
+        "symbol": "EURUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:13.626299",
+        "symbol": "EURUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:32.877628",
+        "symbol": "EURUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:35.769502",
+        "symbol": "EURUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:11.534860",
+        "symbol": "EURUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:13.580636",
+        "symbol": "EURUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:54.003978",
+        "symbol": "EURUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:54.074948",
+        "symbol": "EURUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-02T17:28:54.074964",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "ETHUSD": {
+    "symbol": "ETHUSD",
+    "total_skips": 6,
+    "skip_reasons": {
+      "topdown": 6
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-02T17:26:51.490248",
+        "symbol": "ETHUSD",
+        "reason": "topdown",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:07.341299",
+        "symbol": "ETHUSD",
+        "reason": "topdown",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:23.374210",
+        "symbol": "ETHUSD",
+        "reason": "topdown",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:43.212789",
+        "symbol": "ETHUSD",
+        "reason": "topdown",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:09.420631",
+        "symbol": "ETHUSD",
+        "reason": "topdown",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:44.419435",
+        "symbol": "ETHUSD",
+        "reason": "topdown",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-02T17:28:44.419456",
+    "skip_patterns": {
+      "topdown": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "GBPUSD": {
+    "symbol": "GBPUSD",
+    "total_skips": 10,
+    "skip_reasons": {
+      "entry_fib_zone": 10
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-02T17:26:52.902516",
+        "symbol": "GBPUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:26:56.827320",
+        "symbol": "GBPUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:13.245217",
+        "symbol": "GBPUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:14.969151",
+        "symbol": "GBPUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:38.311070",
+        "symbol": "GBPUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:40.123399",
+        "symbol": "GBPUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:17.855130",
+        "symbol": "GBPUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:19.466713",
+        "symbol": "GBPUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:56.690216",
+        "symbol": "GBPUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:56.886752",
+        "symbol": "GBPUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-02T17:28:56.886772",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "AVAXUSD": {
+    "symbol": "AVAXUSD",
+    "total_skips": 6,
+    "skip_reasons": {
+      "entry_fib_zone": 6
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-02T17:26:53.101422",
+        "symbol": "AVAXUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:08.429873",
+        "symbol": "AVAXUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:25.759870",
+        "symbol": "AVAXUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:47.376756",
+        "symbol": "AVAXUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:14.538380",
+        "symbol": "AVAXUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:48.240504",
+        "symbol": "AVAXUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-02T17:28:48.240528",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "USDJPY": {
+    "symbol": "USDJPY",
+    "total_skips": 10,
+    "skip_reasons": {
+      "entry_fib_zone": 10
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-02T17:26:55.024135",
+        "symbol": "USDJPY",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:26:58.974389",
+        "symbol": "USDJPY",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:14.596047",
+        "symbol": "USDJPY",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:16.603191",
+        "symbol": "USDJPY",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:44.276830",
+        "symbol": "USDJPY",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:46.165958",
+        "symbol": "USDJPY",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:25.296364",
+        "symbol": "USDJPY",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:26.375465",
+        "symbol": "USDJPY",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:59.150796",
+        "symbol": "USDJPY",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:59.530909",
+        "symbol": "USDJPY",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-02T17:28:59.530927",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "LTCUSD": {
+    "symbol": "LTCUSD",
+    "total_skips": 6,
+    "skip_reasons": {
+      "entry_fib_zone": 6
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-02T17:26:55.195124",
+        "symbol": "LTCUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:10.867773",
+        "symbol": "LTCUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:26.921422",
+        "symbol": "LTCUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:27:50.662014",
+        "symbol": "LTCUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:20.452037",
+        "symbol": "LTCUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-02T17:28:52.346736",
+        "symbol": "LTCUSD",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-02T17:28:52.346755",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  }
+}

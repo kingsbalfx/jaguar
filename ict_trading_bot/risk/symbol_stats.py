@@ -2,33 +2,59 @@
 Per-symbol confidence tracking for conditional backtesting.
 Maintains historical performance stats for each trading pair.
 """
-import json
-import os
 from datetime import datetime
 from pathlib import Path
+from utils.persistent_json import load_json_file, save_json_file
+from utils.symbol_profile import canonical_symbol, infer_asset_class
 
 STATS_FILE = Path(__file__).resolve().parent.parent / "data" / "symbol_stats.json"
 
 
 def load_symbol_stats():
     """Load per-symbol statistics from disk."""
-    if STATS_FILE.exists():
-        try:
-            with open(STATS_FILE, 'r') as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
+    return load_json_file(STATS_FILE, {})
 
 
 def save_symbol_stats(stats):
     """Save per-symbol statistics to disk."""
     try:
-        STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(STATS_FILE, 'w') as f:
-            json.dump(stats, f, indent=2)
+        save_json_file(STATS_FILE, stats)
     except Exception as e:
         print(f"[WARNING] Failed to save symbol stats: {e}")
+
+
+def _symbol_key(symbol):
+    return canonical_symbol(symbol)
+
+
+def _build_symbol_stats(symbol_key):
+    return {
+        "symbol": symbol_key,
+        "asset_class": infer_asset_class(symbol_key),
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "confidence_scores": [],
+        "avg_confidence": 0.0,
+        "last_updated": None,
+        "backtests_skipped": 0,
+        "backtests_required": 0,
+    }
+
+
+def _normalize_confirmation_score(score):
+    """Normalize legacy 0-10 and weighted 0-100 confirmation scores to 0-10."""
+    try:
+        value = float(score)
+    except Exception:
+        return 0.0
+
+    if value <= 0:
+        return 0.0
+    if value <= 10.0:
+        return max(0.0, min(value, 10.0))
+    return max(0.0, min(value, 100.0)) / 10.0
 
 
 def record_symbol_trade(symbol, win=True, confirmation_score=0.0):
@@ -41,22 +67,14 @@ def record_symbol_trade(symbol, win=True, confirmation_score=0.0):
         confirmation_score: Confirmation score (0-10) at trade entry
     """
     stats = load_symbol_stats()
-    
-    if symbol not in stats:
-        stats[symbol] = {
-            "symbol": symbol,
-            "total_trades": 0,
-            "wins": 0,
-            "losses": 0,
-            "win_rate": 0.0,
-            "confidence_scores": [],
-            "avg_confidence": 0.0,
-            "last_updated": None,
-            "backtests_skipped": 0,
-            "backtests_required": 0,
-        }
-    
-    sym_stats = stats[symbol]
+    symbol_key = _symbol_key(symbol)
+
+    if symbol_key not in stats:
+        stats[symbol_key] = _build_symbol_stats(symbol_key)
+
+    sym_stats = stats[symbol_key]
+    sym_stats["symbol"] = symbol_key
+    sym_stats["asset_class"] = infer_asset_class(symbol_key)
     sym_stats["total_trades"] += 1
     
     if win:
@@ -65,7 +83,11 @@ def record_symbol_trade(symbol, win=True, confirmation_score=0.0):
         sym_stats["losses"] += 1
     
     sym_stats["win_rate"] = sym_stats["wins"] / sym_stats["total_trades"] if sym_stats["total_trades"] > 0 else 0.0
-    sym_stats["confidence_scores"].append(confirmation_score)
+    normalized_score = _normalize_confirmation_score(confirmation_score)
+    sym_stats["confidence_scores"] = [
+        _normalize_confirmation_score(score) for score in sym_stats.get("confidence_scores", [])
+    ]
+    sym_stats["confidence_scores"].append(normalized_score)
     
     # Keep only last 50 scores for recent average
     if len(sym_stats["confidence_scores"]) > 50:
@@ -81,17 +103,21 @@ def record_symbol_trade(symbol, win=True, confirmation_score=0.0):
 def record_backtest_skip(symbol):
     """Record that we skipped backtest for this symbol."""
     stats = load_symbol_stats()
-    if symbol in stats:
-        stats[symbol]["backtests_skipped"] = stats[symbol].get("backtests_skipped", 0) + 1
-        save_symbol_stats(stats)
+    symbol_key = _symbol_key(symbol)
+    if symbol_key not in stats:
+        stats[symbol_key] = _build_symbol_stats(symbol_key)
+    stats[symbol_key]["backtests_skipped"] = stats[symbol_key].get("backtests_skipped", 0) + 1
+    save_symbol_stats(stats)
 
 
 def record_backtest_required(symbol):
     """Record that we required backtest for this symbol."""
     stats = load_symbol_stats()
-    if symbol in stats:
-        stats[symbol]["backtests_required"] = stats[symbol].get("backtests_required", 0) + 1
-        save_symbol_stats(stats)
+    symbol_key = _symbol_key(symbol)
+    if symbol_key not in stats:
+        stats[symbol_key] = _build_symbol_stats(symbol_key)
+    stats[symbol_key]["backtests_required"] = stats[symbol_key].get("backtests_required", 0) + 1
+    save_symbol_stats(stats)
 
 
 def get_symbol_summary(compact=True):
@@ -141,9 +167,10 @@ def reset_symbol_stats(symbol=None):
     stats = load_symbol_stats()
     
     if symbol:
-        if symbol in stats:
-            stats.pop(symbol)
-            print(f"[SYMBOL STATS] Reset stats for {symbol}")
+        symbol_key = _symbol_key(symbol)
+        if symbol_key in stats:
+            stats.pop(symbol_key)
+            print(f"[SYMBOL STATS] Reset stats for {symbol_key}")
     else:
         stats.clear()
         print("[SYMBOL STATS] Reset all stats")
