@@ -18,6 +18,10 @@ from datetime import datetime
 from threading import Thread
 from pathlib import Path
 
+# Shared Bot Identifier: Use this to group records even if the MT5 account changes.
+# You can set this in your .env file as PERSISTENT_BOT_ID
+PERSISTENT_BOT_ID = os.getenv("PERSISTENT_BOT_ID", "jaguar_shared_intelligence")
+
 logger = logging.getLogger(__name__)
 
 
@@ -77,6 +81,7 @@ def sync_intelligent_stats_to_supabase(stats: dict, async_mode=True):
                     "recent_trades": data.get("recent_trades", []),
                     "market_condition": data.get("market_condition", "unknown"),
                     "volatility_index": data.get("volatility_index", 0.0),
+                    "bot_identity": PERSISTENT_BOT_ID,
                     "last_updated": data.get("last_updated", datetime.utcnow().isoformat()),
                 }
                 
@@ -137,6 +142,7 @@ def sync_trade_outcome_to_supabase(
             "exit_price": exit_price,
             "pnl": pnl,
             "execution_route": execution_route,
+            "bot_identity": PERSISTENT_BOT_ID,
         }
         
         client.table("intelligence_trades").insert(record).execute()
@@ -156,7 +162,7 @@ def load_intelligent_stats_from_supabase(symbols: list = None):
         return {}
     
     try:
-        query = client.table("intelligence_stats").select("*")
+        query = client.table("intelligence_stats").select("*").eq("bot_identity", PERSISTENT_BOT_ID)
         if symbols:
             # Load specific symbols
             query = query.in_("symbol", symbols)

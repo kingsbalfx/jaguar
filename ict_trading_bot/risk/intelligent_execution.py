@@ -61,7 +61,20 @@ INTELLIGENT_SKIP_FILE = Path(__file__).resolve().parent.parent / "data" / "intel
 
 def load_intelligent_stats():
     """Load comprehensive execution intelligence from disk."""
-    return load_json_file(INTELLIGENT_STATS_FILE, {})
+    stats = load_json_file(INTELLIGENT_STATS_FILE, {})
+    
+    # If local stats are empty, attempt to restore from Supabase to ensure continuity
+    # This prevents the record from 'refreshing' if the local data folder is cleared
+    if not stats:
+        try:
+            from risk.intelligent_sync import load_intelligent_stats_from_supabase
+            cloud_stats = load_intelligent_stats_from_supabase()
+            if cloud_stats:
+                stats = cloud_stats
+                save_intelligent_stats(stats) # Cache recovered data locally
+        except Exception:
+            pass
+    return stats
 
 
 def save_intelligent_stats(stats):
@@ -93,6 +106,7 @@ def _build_intelligent_stats_bucket(symbol_key: str) -> Dict:
         "decision_source_stats": {},
         "analysis_score_history": [],
         "weighted_score_history": [],
+        "first_trade_at": None,
         "last_updated": None,
     }
 
@@ -784,6 +798,10 @@ def record_trade_outcome(
     s["asset_class"] = infer_asset_class(symbol_key)
     s["total_trades"] += 1
     
+    # Capture the start of the record for this symbol if it's new
+    if s.get("first_trade_at") is None:
+        s["first_trade_at"] = datetime.now().isoformat()
+
     if win:
         s["wins"] += 1
     else:
