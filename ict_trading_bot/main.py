@@ -70,6 +70,7 @@ from risk.profitability_guard import (
     evaluate_profitability_guard,
     normalize_rr_after_sl_adjustment,
 )
+from risk.strategy_memory import get_strategy_adaptation
 
 # =====================================================
 # QUALITY FILTERS
@@ -138,6 +139,25 @@ def get_trading_session():
     if in_newyork_session():
         return "newyork"
     return "other"
+
+
+def extract_setup_types(signal):
+    """Normalize the live signal into strategy-memory setup tags."""
+    setup_types = []
+    setup_context = (signal or {}).get("setup_context", {})
+
+    if setup_context.get("liquidity", {}).get("confirmed"):
+        setup_types.append("liquidity")
+    if setup_context.get("bos", {}).get("confirmed"):
+        setup_types.append("bos")
+    if setup_context.get("price_action", {}).get("confirmed"):
+        setup_types.append("price_action")
+    if (signal or {}).get("fvg"):
+        setup_types.append("fvg")
+    if (signal or {}).get("htf_ob"):
+        setup_types.append("order_block")
+
+    return setup_types or ["unknown"]
 
 
 LAST_ACCOUNT_SNAPSHOT_SYNC = 0
@@ -1329,17 +1349,55 @@ while True:
             )
 
             lot = lot_intelligent  # Use intelligent lot sizing
+            session = get_trading_session()
+            setup_types = extract_setup_types(signal)
+            strategy_adaptation = get_strategy_adaptation(
+                original_symbol,
+                setup_types=setup_types,
+                execution_route=execution_route or "unknown",
+                session=session,
+            )
+
+            if not strategy_adaptation.get("allow_trade", True):
+                record_skip(
+                    "strategy_memory",
+                    original_symbol,
+                    confidence=round(confirmation_score_value / 100.0, 2),
+                    analysis={
+                        "factors": [strategy_adaptation.get("reason", "Strategy memory blocked trade")],
+                        "signal_type": execution_route or "unknown",
+                    },
+                )
+                bot_log(
+                    "strategy_memory_block",
+                    (
+                        f"[{original_symbol}] Blocked by strategy memory: "
+                        f"{strategy_adaptation.get('reason')}"
+                    ),
+                    {
+                        "symbol": original_symbol,
+                        "execution_route": execution_route,
+                        "setup_types": setup_types,
+                        "strategy_adaptation": strategy_adaptation,
+                    },
+                )
+                continue
+
+            lot *= float(strategy_adaptation.get("lot_multiplier", 1.0) or 1.0)
 
             # Log intelligent decisions
             bot_log(
                 "intelligent_execution",
                 f"Intelligent execution for {original_symbol}: "
                 f"SL adjustment {sl_intelligence['multiplier']:.2f}x, "
-                f"Lot adjustment {lot_intelligence['final_multiplier']:.2f}x",
+                f"Lot adjustment {lot_intelligence['final_multiplier']:.2f}x, "
+                f"Memory adjustment {strategy_adaptation.get('lot_multiplier', 1.0):.2f}x",
                 {
                     "symbol": original_symbol,
                     "sl_intelligence": sl_intelligence,
                     "lot_intelligence": lot_intelligence,
+                    "strategy_adaptation": strategy_adaptation,
+                    "setup_types": setup_types,
                     "rr_adjustment": rr_adjustment,
                     "profitability_guard": profitability_guard,
                     "trade_confidence": round(confirmation_score_value / 100.0, 2),
@@ -1595,21 +1653,14 @@ while True:
                             from risk.strategy_memory import record_strategy_execution
                             from utils.symbol_profile import infer_asset_class
 
-                            setup_types = []
-                            if signal.get("setup_context", {}).get("liquidity", {}).get("confirmed"):
-                                setup_types.append("liquidity")
-                            if signal.get("setup_context", {}).get("bos", {}).get("confirmed"):
-                                setup_types.append("bos")
-                            if signal.get("setup_context", {}).get("price_action", {}).get("confirmed"):
-                                setup_types.append("price_action")
-
+                            setup_types = extract_setup_types(signal)
                             session = get_trading_session()
                             asset_class = infer_asset_class(original_symbol)
                             bars_held = int((time.time() - trade_entry_time) / 60 / 5)  # Approx bars
 
                             record_strategy_execution(
                                 symbol=original_symbol,
-                                setup_types=setup_types or ["unknown"],
+                                setup_types=setup_types,
                                 execution_route=execution_route or "unknown",
                                 confirmation_type=signal.get("confirmation_summary", {}).get("type", "unknown"),
                                 session=session,
@@ -1673,21 +1724,14 @@ while True:
                             from risk.strategy_memory import record_strategy_execution
                             from utils.symbol_profile import infer_asset_class
 
-                            setup_types = []
-                            if signal.get("setup_context", {}).get("liquidity", {}).get("confirmed"):
-                                setup_types.append("liquidity")
-                            if signal.get("setup_context", {}).get("bos", {}).get("confirmed"):
-                                setup_types.append("bos")
-                            if signal.get("setup_context", {}).get("price_action", {}).get("confirmed"):
-                                setup_types.append("price_action")
-
+                            setup_types = extract_setup_types(signal)
                             session = get_trading_session()
                             asset_class = infer_asset_class(original_symbol)
                             bars_held = int((time.time() - trade_entry_time) / 60 / 5)  # Approx bars
 
                             record_strategy_execution(
                                 symbol=original_symbol,
-                                setup_types=setup_types or ["unknown"],
+                                setup_types=setup_types,
                                 execution_route=execution_route or "unknown",
                                 confirmation_type=signal.get("confirmation_summary", {}).get("type", "unknown"),
                                 session=session,

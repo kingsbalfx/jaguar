@@ -52,7 +52,7 @@ import os
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Tuple, List
-from utils.persistent_json import load_json_file, save_json_file
+from utils.persistent_json import load_json_file, save_json_file, update_json_file
 from utils.symbol_profile import canonical_symbol, infer_asset_class
 
 INTELLIGENT_STATS_FILE = Path(__file__).resolve().parent.parent / "data" / "intelligent_execution_stats.json"
@@ -682,104 +682,107 @@ def record_trade_outcome(
     Record detailed trade outcome for intelligent learning.
     Tracks: entry, exit, result, confirmation reliability, etc.
     """
-    stats = load_intelligent_stats()
     symbol_key = _symbol_key(symbol)
-
-    if symbol_key not in stats:
-        stats[symbol_key] = _build_intelligent_stats_bucket(symbol_key)
-
-    s = stats[symbol_key]
-    s["symbol"] = symbol_key
-    s["asset_class"] = infer_asset_class(symbol_key)
-    s["total_trades"] += 1
-    
-    # Capture the start of the record for this symbol if it's new
-    if s.get("first_trade_at") is None:
-        s["first_trade_at"] = datetime.now().isoformat()
-
-    if win:
-        s["wins"] += 1
-    else:
-        s["losses"] += 1
-    
-    s["win_rate"] = s["wins"] / s["total_trades"] if s["total_trades"] > 0 else 0.0
+    asset_class = infer_asset_class(symbol_key)
+    timestamp = datetime.now().isoformat()
     normalized_score = _normalize_confirmation_score(confirmation_score)
-    s["confidence_scores"] = _normalize_confirmation_series(s.get("confidence_scores", []))
-    s["confidence_scores"].append(normalized_score["legacy_points"])
-    s["weighted_score_history"] = [
-        _normalize_confirmation_score(score)["weighted_score"]
-        for score in s.get("weighted_score_history", [])
-    ]
-    s["weighted_score_history"].append(normalized_score["weighted_score"])
-    if len(s["weighted_score_history"]) > 100:
-        s["weighted_score_history"] = s["weighted_score_history"][-100:]
     try:
         analysis_score_value = float(analysis_score)
     except Exception:
         analysis_score_value = 0.0
-    s["analysis_score_history"] = [
-        max(0.0, min(float(score), 100.0))
-        for score in s.get("analysis_score_history", [])
-    ]
-    s["analysis_score_history"].append(max(0.0, min(analysis_score_value, 100.0)))
-    if len(s["analysis_score_history"]) > 100:
-        s["analysis_score_history"] = s["analysis_score_history"][-100:]
-    
-    # Keep last 50 scores
-    if len(s["confidence_scores"]) > 50:
-        s["confidence_scores"] = s["confidence_scores"][-50:]
-    
-    s["avg_confidence"] = sum(s["confidence_scores"]) / len(s["confidence_scores"]) if s["confidence_scores"] else 0.0
-    
-    # Track recent outcomes (last 30)
-    s["recent_outcomes"].append(win)
-    if len(s["recent_outcomes"]) > 30:
-        s["recent_outcomes"] = s["recent_outcomes"][-30:]
+    analysis_confidence_value = round(max(0.0, min(float(analysis_confidence or 0.0), 0.99)), 2)
 
-    decision_source_stats = s.setdefault("decision_source_stats", {})
-    source_bucket = decision_source_stats.setdefault(
-        decision_source,
-        {"trades": 0, "wins": 0, "losses": 0},
-    )
-    source_bucket["trades"] += 1
-    if win:
-        source_bucket["wins"] += 1
-    else:
-        source_bucket["losses"] += 1
-    
-    # Record detailed trade
-    trade_detail = {
-        "timestamp": datetime.now().isoformat(),
-        "symbol": symbol_key,
-        "asset_class": infer_asset_class(symbol_key),
-        "win": win,
-        "confirmation_score": normalized_score["legacy_points"],
-        "weighted_confidence": normalized_score["weighted_score"],
-        "entry": entry_price,
-        "exit": exit_price,
-        "sl": stop_loss_price,
-        "tp": take_profit_price,
-        "lot": lot_size,
-        "pnl": pnl,
-        "signal_type": signal_type,
-        "decision_source": decision_source,
-        "analysis_score": max(0.0, min(analysis_score_value, 100.0)),
-        "analysis_confidence": round(max(0.0, min(float(analysis_confidence or 0.0), 0.99)), 2),
-        "analysis_pass": bool(analysis_pass),
-        "weighted_pass": bool(weighted_pass),
-        "intelligence_pass": bool(intelligence_pass),
-        "engine_agreement": engine_agreement,
-    }
-    
-    s["recent_trades"].append(trade_detail)
-    if len(s["recent_trades"]) > 100:
-        s["recent_trades"] = s["recent_trades"][-100:]
-    
-    s["pnl_total"] += pnl
-    s["pnl_avg"] = s["pnl_total"] / s["total_trades"] if s["total_trades"] > 0 else 0.0
-    s["last_updated"] = datetime.now().isoformat()
-    
-    save_intelligent_stats(stats)
+    def updater(stats):
+        if not isinstance(stats, dict):
+            stats = {}
+
+        if symbol_key not in stats:
+            stats[symbol_key] = _build_intelligent_stats_bucket(symbol_key)
+
+        s = stats[symbol_key]
+        s["symbol"] = symbol_key
+        s["asset_class"] = asset_class
+        s["total_trades"] += 1
+
+        if s.get("first_trade_at") is None:
+            s["first_trade_at"] = timestamp
+
+        if win:
+            s["wins"] += 1
+        else:
+            s["losses"] += 1
+
+        s["win_rate"] = s["wins"] / s["total_trades"] if s["total_trades"] > 0 else 0.0
+        s["confidence_scores"] = _normalize_confirmation_series(s.get("confidence_scores", []))
+        s["confidence_scores"].append(normalized_score["legacy_points"])
+        s["weighted_score_history"] = [
+            _normalize_confirmation_score(score)["weighted_score"]
+            for score in s.get("weighted_score_history", [])
+        ]
+        s["weighted_score_history"].append(normalized_score["weighted_score"])
+        if len(s["weighted_score_history"]) > 100:
+            s["weighted_score_history"] = s["weighted_score_history"][-100:]
+
+        s["analysis_score_history"] = [
+            max(0.0, min(float(score), 100.0))
+            for score in s.get("analysis_score_history", [])
+        ]
+        s["analysis_score_history"].append(max(0.0, min(analysis_score_value, 100.0)))
+        if len(s["analysis_score_history"]) > 100:
+            s["analysis_score_history"] = s["analysis_score_history"][-100:]
+
+        if len(s["confidence_scores"]) > 50:
+            s["confidence_scores"] = s["confidence_scores"][-50:]
+
+        s["avg_confidence"] = sum(s["confidence_scores"]) / len(s["confidence_scores"]) if s["confidence_scores"] else 0.0
+        s["recent_outcomes"].append(win)
+        if len(s["recent_outcomes"]) > 30:
+            s["recent_outcomes"] = s["recent_outcomes"][-30:]
+
+        decision_source_stats = s.setdefault("decision_source_stats", {})
+        source_bucket = decision_source_stats.setdefault(
+            decision_source,
+            {"trades": 0, "wins": 0, "losses": 0},
+        )
+        source_bucket["trades"] += 1
+        if win:
+            source_bucket["wins"] += 1
+        else:
+            source_bucket["losses"] += 1
+
+        trade_detail = {
+            "timestamp": timestamp,
+            "symbol": symbol_key,
+            "asset_class": asset_class,
+            "win": win,
+            "confirmation_score": normalized_score["legacy_points"],
+            "weighted_confidence": normalized_score["weighted_score"],
+            "entry": entry_price,
+            "exit": exit_price,
+            "sl": stop_loss_price,
+            "tp": take_profit_price,
+            "lot": lot_size,
+            "pnl": pnl,
+            "signal_type": signal_type,
+            "decision_source": decision_source,
+            "analysis_score": max(0.0, min(analysis_score_value, 100.0)),
+            "analysis_confidence": analysis_confidence_value,
+            "analysis_pass": bool(analysis_pass),
+            "weighted_pass": bool(weighted_pass),
+            "intelligence_pass": bool(intelligence_pass),
+            "engine_agreement": engine_agreement,
+        }
+
+        s["recent_trades"].append(trade_detail)
+        if len(s["recent_trades"]) > 100:
+            s["recent_trades"] = s["recent_trades"][-100:]
+
+        s["pnl_total"] += pnl
+        s["pnl_avg"] = s["pnl_total"] / s["total_trades"] if s["total_trades"] > 0 else 0.0
+        s["last_updated"] = timestamp
+        return stats
+
+    update_json_file(INTELLIGENT_STATS_FILE, updater, default={})
 
 
 def get_market_intelligence_report(symbols: List[str] = None) -> str:
@@ -901,46 +904,47 @@ def record_skip_detailed(reason: str, symbol: str, confidence: float = 0.0, anal
         confidence: Entry confidence score (0.0-1.0) if known
         analysis: Detailed analysis dict from decision function
     """
-    skip_data = load_intelligent_skip_stats()
     symbol_key = _symbol_key(symbol)
-    
-    if symbol_key not in skip_data:
-        skip_data[symbol_key] = _build_skip_bucket(symbol_key)
-    
-    s = skip_data[symbol_key]
-    s["symbol"] = symbol_key
-    s["asset_class"] = infer_asset_class(symbol_key)
-    s["total_skips"] += 1
-    
-    # Track reason frequency
-    s["skip_reasons"][reason] = s["skip_reasons"].get(reason, 0) + 1
-    
-    # Track confidence pattern for this reason
-    if reason not in s["skip_patterns"]:
-        s["skip_patterns"][reason] = []
-    s["skip_patterns"][reason].append(confidence)
-    if len(s["skip_patterns"][reason]) > 100:  # Keep last 100 per reason
-        s["skip_patterns"][reason] = s["skip_patterns"][reason][-100:]
-    
-    # Record detailed skip sample
-    skip_record = {
-        "timestamp": datetime.now().isoformat(),
-        "symbol": symbol_key,
-        "asset_class": infer_asset_class(symbol_key),
-        "reason": reason,
-        "confidence": confidence,
-        "analysis_summary": analysis.get("factors", [])[-3:] if analysis else [],  # Last 3 decision factors
-        "signal_type": analysis.get("signal_type", "unknown") if analysis else "unknown",
-    }
-    
-    s["skip_samples"].append(skip_record)
-    if len(s["skip_samples"]) > 50:  # Keep last 50 skips per symbol
-        s["skip_samples"] = s["skip_samples"][-50:]
-    
-    s["last_skip"] = datetime.now().isoformat()
-    
-    # PERSIST TO DISK IMMEDIATELY - Critical!
-    save_intelligent_skip_stats(skip_data)
+    asset_class = infer_asset_class(symbol_key)
+    timestamp = datetime.now().isoformat()
+
+    def updater(skip_data):
+        if not isinstance(skip_data, dict):
+            skip_data = {}
+
+        if symbol_key not in skip_data:
+            skip_data[symbol_key] = _build_skip_bucket(symbol_key)
+
+        s = skip_data[symbol_key]
+        s["symbol"] = symbol_key
+        s["asset_class"] = asset_class
+        s["total_skips"] += 1
+        s["skip_reasons"][reason] = s["skip_reasons"].get(reason, 0) + 1
+
+        if reason not in s["skip_patterns"]:
+            s["skip_patterns"][reason] = []
+        s["skip_patterns"][reason].append(confidence)
+        if len(s["skip_patterns"][reason]) > 100:
+            s["skip_patterns"][reason] = s["skip_patterns"][reason][-100:]
+
+        skip_record = {
+            "timestamp": timestamp,
+            "symbol": symbol_key,
+            "asset_class": asset_class,
+            "reason": reason,
+            "confidence": confidence,
+            "analysis_summary": analysis.get("factors", [])[-3:] if analysis else [],
+            "signal_type": analysis.get("signal_type", "unknown") if analysis else "unknown",
+        }
+
+        s["skip_samples"].append(skip_record)
+        if len(s["skip_samples"]) > 50:
+            s["skip_samples"] = s["skip_samples"][-50:]
+
+        s["last_skip"] = timestamp
+        return skip_data
+
+    update_json_file(INTELLIGENT_SKIP_FILE, updater, default={})
 
 
 def get_skip_pattern_analysis(symbol: str) -> Dict:

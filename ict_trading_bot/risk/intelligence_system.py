@@ -40,14 +40,13 @@ PHILOSOPHY:
 - Risk-aware: Refuse bad risk-reward ratios
 - Transparent: Show reasoning for every decision
 """
-import json
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple, List
 
 import MetaTrader5 as mt5
-from utils.persistent_json import save_json_file
+from utils.persistent_json import load_json_file, update_json_file
 from risk.news_filter import check_for_high_impact_news
 
 logger = logging.getLogger(__name__)
@@ -71,33 +70,30 @@ def _symbol_key(symbol: str) -> str:
 
 def load_cis_history() -> Dict:
     """Load historical CIS decisions and performance metrics."""
-    if CIS_DECISIONS_FILE.exists():
-        try:
-            with open(CIS_DECISIONS_FILE, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.warning(f"Failed to load CIS history: {e}")
-    return {}
+    history = load_json_file(CIS_DECISIONS_FILE, {})
+    return history if isinstance(history, dict) else {}
 
 
 def save_cis_decision(symbol: str, decision: Dict):
     """Save a CIS decision to history for tracking performance."""
     try:
-        history = load_cis_history()
         key = _symbol_key(symbol)
+        timestamp = datetime.utcnow().isoformat()
 
-        if key not in history:
-            history[key] = {"trades": []}
+        def updater(history):
+            if not isinstance(history, dict):
+                history = {}
 
-        history[key]["trades"].append({
-            "timestamp": datetime.utcnow().isoformat(),
-            **decision
-        })
+            bucket = history.setdefault(key, {"trades": []})
+            trades = bucket.setdefault("trades", [])
+            trades.append({
+                "timestamp": timestamp,
+                **decision,
+            })
+            bucket["trades"] = trades[-500:]
+            return history
 
-        # Keep only last 500 decisions per pair
-        history[key]["trades"] = history[key]["trades"][-500:]
-
-        save_json_file(CIS_DECISIONS_FILE, history)
+        update_json_file(CIS_DECISIONS_FILE, updater, default={})
     except Exception as e:
         logger.warning(f"Failed to save CIS decision: {e}")
 

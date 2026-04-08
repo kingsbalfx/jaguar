@@ -43,13 +43,42 @@ def calculate_lot_size(
     return round(lot_size, 2)
 
 
-def _supported_filling_modes():
+def _symbol_execution_mode(symbol_info):
+    return getattr(symbol_info, "trade_exemode", getattr(symbol_info, "trade_execution", None))
+
+
+def _supported_filling_modes(symbol_info, order_type_lower: str):
+    if order_type_lower == "limit":
+        return [getattr(mt5, "ORDER_FILLING_RETURN", 2)]
+
+    market_execution_mode = getattr(mt5, "SYMBOL_TRADE_EXECUTION_MARKET", None)
+    is_market_execution = _symbol_execution_mode(symbol_info) == market_execution_mode
+
+    symbol_filling_mode = int(getattr(symbol_info, "filling_mode", 0) or 0)
+    symbol_fok_flag = getattr(mt5, "SYMBOL_FILLING_FOK", 1)
+    symbol_ioc_flag = getattr(mt5, "SYMBOL_FILLING_IOC", 2)
+
+    order_fok = getattr(mt5, "ORDER_FILLING_FOK", 0)
+    order_ioc = getattr(mt5, "ORDER_FILLING_IOC", 1)
+    order_return = getattr(mt5, "ORDER_FILLING_RETURN", 2)
+
     modes = []
-    for name in ("ORDER_FILLING_IOC", "ORDER_FILLING_FOK", "ORDER_FILLING_RETURN"):
-        value = getattr(mt5, name, None)
-        if value is not None and value not in modes:
-            modes.append(value)
-    return modes or [0]
+    if symbol_filling_mode & symbol_fok_flag:
+        modes.append(order_fok)
+    if symbol_filling_mode & symbol_ioc_flag:
+        modes.append(order_ioc)
+
+    if not is_market_execution and order_return not in modes:
+        modes.append(order_return)
+
+    # Broker safety fallbacks for incomplete or inconsistent symbol flags.
+    for fallback in (order_fok, order_ioc):
+        if fallback not in modes:
+            modes.append(fallback)
+    if not is_market_execution and order_return not in modes:
+        modes.append(order_return)
+
+    return modes or [order_fok]
 
 
 def _success_retcodes():
@@ -81,6 +110,10 @@ def execute_trade(
       - limit
     """
     _require_mt5()
+
+    symbol_info = mt5.symbol_info(symbol)
+    if symbol_info is None:
+        raise RuntimeError(f"Symbol info not found: {symbol}")
 
     tick = mt5.symbol_info_tick(symbol)
     if tick is None:
@@ -116,7 +149,6 @@ def execute_trade(
             "action": mt5.TRADE_ACTION_DEAL,
             "type": mt5.ORDER_TYPE_BUY if direction_lower == "buy" else mt5.ORDER_TYPE_SELL,
             "price": market_price,
-            "type_filling": mt5.ORDER_FILLING_IOC,
         })
 
     result = None
@@ -124,8 +156,9 @@ def execute_trade(
     if order_type_lower == "limit":
         attempts = [request]
     else:
-        for filling_mode in _supported_filling_modes():
+        for filling_mode in _supported_filling_modes(symbol_info, order_type_lower):
             attempts.append({**request, "type_filling": filling_mode})
+        attempts.append({k: v for k, v in request.items() if k != "type_filling"})
 
     success_retcodes = _success_retcodes()
     for attempt in attempts:
@@ -143,7 +176,7 @@ def execute_trade(
 
     placed_price = request.get("price", market_price)
     print(
-        f"[{datetime.now()}] Trade placed → "
+        f"[{datetime.now()}] Trade placed -> "
         f"{symbol} {direction_upper(direction_lower)} | {lot} lots | "
         f"Type {order_type_lower.upper()} | Entry {placed_price} | SL {sl_price} | TP {tp_price}"
     )

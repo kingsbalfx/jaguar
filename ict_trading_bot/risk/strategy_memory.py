@@ -13,33 +13,26 @@ This system learns:
 Auto-selects best strategy for each signal based on historical memory!
 """
 
-import json
-import os
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
-from collections import defaultdict
+from typing import Dict, List, Tuple
+
+from utils.persistent_json import load_json_file, save_json_file, update_json_file
+from utils.symbol_profile import canonical_symbol
 
 STRATEGY_MEMORY_FILE = Path(__file__).resolve().parent.parent / "data" / "strategy_memory.json"
 
 
 def load_strategy_memory():
     """Load strategy performance history from disk."""
-    if STRATEGY_MEMORY_FILE.exists():
-        try:
-            with open(STRATEGY_MEMORY_FILE, 'r') as f:
-                return json.load(f)
-        except Exception:
-            return _init_empty_memory()
-    return _init_empty_memory()
+    memory = load_json_file(STRATEGY_MEMORY_FILE, _init_empty_memory())
+    return memory if isinstance(memory, dict) else _init_empty_memory()
 
 
 def save_strategy_memory(memory):
     """Save strategy performance history to disk."""
     try:
-        STRATEGY_MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(STRATEGY_MEMORY_FILE, 'w') as f:
-            json.dump(memory, f, indent=2)
+        save_json_file(STRATEGY_MEMORY_FILE, memory)
     except Exception as e:
         print(f"[WARNING] Failed to save strategy memory: {e}")
 
@@ -55,6 +48,15 @@ def _init_empty_memory():
         "last_updated": None,
         "total_trades_tracked": 0,
     }
+
+
+def _normalize_setup_types(setup_types: List[str]) -> List[str]:
+    normalized = []
+    for setup in setup_types or []:
+        key = str(setup or "").strip().lower()
+        if key and key not in normalized:
+            normalized.append(key)
+    return normalized or ["unknown"]
 
 
 def record_strategy_execution(
@@ -91,183 +93,202 @@ def record_strategy_execution(
         pnl: Profit/loss amount
         bars_held: Bars held before close
     """
-    memory = load_strategy_memory()
-    
-    # 1. SETUP TYPE PERFORMANCE
-    if "setup_strategies" not in memory:
-        memory["setup_strategies"] = {}
-    
-    for setup in setup_types:
-        if setup not in memory["setup_strategies"]:
-            memory["setup_strategies"][setup] = {
+    symbol_key = canonical_symbol(symbol)
+    normalized_setups = _normalize_setup_types(setup_types)
+    execution_route_key = str(execution_route or "unknown").strip().lower() or "unknown"
+    confirmation_key = str(confirmation_type or "unknown").strip().lower() or "unknown"
+    session_key = str(session or "other").strip().lower() or "other"
+    asset_class_key = str(asset_class or "unknown").strip().lower() or "unknown"
+    timestamp = datetime.now().isoformat()
+    confirmation_value = float(confirmation_score or 0.0)
+    pnl_value = float(pnl or 0.0)
+
+    def updater(memory):
+        if not isinstance(memory, dict):
+            memory = _init_empty_memory()
+
+        memory.setdefault("setup_strategies", {})
+        memory.setdefault("execution_routes", {})
+        memory.setdefault("session_strategies", {})
+        memory.setdefault("asset_class_strategies", {})
+        memory.setdefault("symbol_strategy_matrix", {})
+
+        for setup in normalized_setups:
+            if setup not in memory["setup_strategies"]:
+                memory["setup_strategies"][setup] = {
+                    "total_trades": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "win_rate": 0.0,
+                    "avg_pnl": 0.0,
+                    "avg_confirmation": 0.0,
+                    "per_symbol": {},
+                }
+
+            stat = memory["setup_strategies"][setup]
+            previous_total = stat["total_trades"]
+            stat["total_trades"] += 1
+            if win:
+                stat["wins"] += 1
+            else:
+                stat["losses"] += 1
+            stat["win_rate"] = stat["wins"] / stat["total_trades"] if stat["total_trades"] > 0 else 0.0
+            stat["avg_pnl"] = ((stat.get("avg_pnl", 0.0) * previous_total) + pnl_value) / stat["total_trades"]
+            stat["avg_confirmation"] = (
+                (stat.get("avg_confirmation", 0.0) * previous_total) + confirmation_value
+            ) / stat["total_trades"]
+
+            per_symbol = stat.setdefault("per_symbol", {})
+            if symbol_key not in per_symbol:
+                per_symbol[symbol_key] = {"wins": 0, "losses": 0, "total": 0}
+            per_symbol[symbol_key]["total"] += 1
+            if win:
+                per_symbol[symbol_key]["wins"] += 1
+            else:
+                per_symbol[symbol_key]["losses"] += 1
+
+        if execution_route_key not in memory["execution_routes"]:
+            memory["execution_routes"][execution_route_key] = {
                 "total_trades": 0,
                 "wins": 0,
                 "losses": 0,
                 "win_rate": 0.0,
-                "avg_pnl": 0.0,
-                "avg_confirmation": 0.0,
-                "per_symbol": {}
+                "confirmation_types": {},
             }
-        
-        stat = memory["setup_strategies"][setup]
-        stat["total_trades"] += 1
+
+        route_stat = memory["execution_routes"][execution_route_key]
+        route_stat["total_trades"] += 1
         if win:
-            stat["wins"] += 1
+            route_stat["wins"] += 1
         else:
-            stat["losses"] += 1
-        stat["win_rate"] = stat["wins"] / stat["total_trades"] if stat["total_trades"] > 0 else 0.0
-        
-        # Track per symbol
-        if symbol not in stat["per_symbol"]:
-            stat["per_symbol"][symbol] = {"wins": 0, "losses": 0, "total": 0}
-        stat["per_symbol"][symbol]["total"] += 1
+            route_stat["losses"] += 1
+        route_stat["win_rate"] = route_stat["wins"] / route_stat["total_trades"]
+
+        if confirmation_key not in route_stat["confirmation_types"]:
+            route_stat["confirmation_types"][confirmation_key] = {"wins": 0, "losses": 0, "total": 0}
+        route_stat["confirmation_types"][confirmation_key]["total"] += 1
         if win:
-            stat["per_symbol"][symbol]["wins"] += 1
+            route_stat["confirmation_types"][confirmation_key]["wins"] += 1
         else:
-            stat["per_symbol"][symbol]["losses"] += 1
-    
-    # 2. EXECUTION ROUTE PERFORMANCE
-    if "execution_routes" not in memory:
-        memory["execution_routes"] = {}
-    
-    if execution_route not in memory["execution_routes"]:
-        memory["execution_routes"][execution_route] = {
-            "total_trades": 0,
-            "wins": 0,
-            "losses": 0,
-            "win_rate": 0.0,
-            "confirmation_types": {}
-        }
-    
-    route_stat = memory["execution_routes"][execution_route]
-    route_stat["total_trades"] += 1
-    if win:
-        route_stat["wins"] += 1
-    else:
-        route_stat["losses"] += 1
-    route_stat["win_rate"] = route_stat["wins"] / route_stat["total_trades"]
-    
-    # Track confirmation type within route
-    if confirmation_type not in route_stat["confirmation_types"]:
-        route_stat["confirmation_types"][confirmation_type] = {"wins": 0, "losses": 0, "total": 0}
-    route_stat["confirmation_types"][confirmation_type]["total"] += 1
-    if win:
-        route_stat["confirmation_types"][confirmation_type]["wins"] += 1
-    else:
-        route_stat["confirmation_types"][confirmation_type]["losses"] += 1
-    
-    # 3. SESSION PERFORMANCE
-    if "session_strategies" not in memory:
-        memory["session_strategies"] = {}
-    
-    if session not in memory["session_strategies"]:
-        memory["session_strategies"][session] = {
-            "total_trades": 0,
-            "wins": 0,
-            "losses": 0,
-            "win_rate": 0.0,
-            "per_asset_class": {}
-        }
-    
-    session_stat = memory["session_strategies"][session]
-    session_stat["total_trades"] += 1
-    if win:
-        session_stat["wins"] += 1
-    else:
-        session_stat["losses"] += 1
-    session_stat["win_rate"] = session_stat["wins"] / session_stat["total_trades"]
-    
-    # Track per asset class per session
-    if asset_class not in session_stat["per_asset_class"]:
-        session_stat["per_asset_class"][asset_class] = {"wins": 0, "losses": 0, "total": 0}
-    session_stat["per_asset_class"][asset_class]["total"] += 1
-    if win:
-        session_stat["per_asset_class"][asset_class]["wins"] += 1
-    else:
-        session_stat["per_asset_class"][asset_class]["losses"] += 1
-    
-    # 4. ASSET CLASS PERFORMANCE
-    if "asset_class_strategies" not in memory:
-        memory["asset_class_strategies"] = {}
-    
-    if asset_class not in memory["asset_class_strategies"]:
-        memory["asset_class_strategies"][asset_class] = {
-            "total_trades": 0,
-            "wins": 0,
-            "losses": 0,
-            "win_rate": 0.0,
-            "best_session": None,
-            "best_setup": None
-        }
-    
-    ac_stat = memory["asset_class_strategies"][asset_class]
-    ac_stat["total_trades"] += 1
-    if win:
-        ac_stat["wins"] += 1
-    else:
-        ac_stat["losses"] += 1
-    ac_stat["win_rate"] = ac_stat["wins"] / ac_stat["total_trades"]
-    
-    # 5. SYMBOL-SPECIFIC STRATEGY MATRIX
-    if "symbol_strategy_matrix" not in memory:
-        memory["symbol_strategy_matrix"] = {}
-    
-    if symbol not in memory["symbol_strategy_matrix"]:
-        memory["symbol_strategy_matrix"][symbol] = {
-            "best_setup": None,
-            "best_execution_route": None,
-            "best_session": None,
-            "setup_performance": {},
-            "route_performance": {},
-            "win_rate": 0.0,
-            "trades": 0
-        }
-    
-    sym_matrix = memory["symbol_strategy_matrix"][symbol]
-    sym_matrix["trades"] += 1
-    if win:
-        sym_matrix["wins"] = sym_matrix.get("wins", 0) + 1
-    else:
-        sym_matrix["losses"] = sym_matrix.get("losses", 0) + 1
-    sym_matrix["win_rate"] = sym_matrix.get("wins", 0) / sym_matrix["trades"]
-    
-    # Track setup performance for this symbol
-    for setup in setup_types:
-        if setup not in sym_matrix["setup_performance"]:
-            sym_matrix["setup_performance"][setup] = {"wins": 0, "losses": 0}
+            route_stat["confirmation_types"][confirmation_key]["losses"] += 1
+
+        if session_key not in memory["session_strategies"]:
+            memory["session_strategies"][session_key] = {
+                "total_trades": 0,
+                "wins": 0,
+                "losses": 0,
+                "win_rate": 0.0,
+                "per_asset_class": {},
+            }
+
+        session_stat = memory["session_strategies"][session_key]
+        session_stat["total_trades"] += 1
         if win:
-            sym_matrix["setup_performance"][setup]["wins"] += 1
+            session_stat["wins"] += 1
         else:
-            sym_matrix["setup_performance"][setup]["losses"] += 1
-    
-    # Track route performance for this symbol
-    if execution_route not in sym_matrix["route_performance"]:
-        sym_matrix["route_performance"][execution_route] = {"wins": 0, "losses": 0}
-    if win:
-        sym_matrix["route_performance"][execution_route]["wins"] += 1
-    else:
-        sym_matrix["route_performance"][execution_route]["losses"] += 1
-    
-    # Find and update best strategy for this symbol
-    if sym_matrix["setup_performance"]:
-        best_setup = max(
-            sym_matrix["setup_performance"].items(),
-            key=lambda x: x[1]["wins"] / (x[1]["wins"] + x[1]["losses"] + 0.001)
-        )
-        sym_matrix["best_setup"] = best_setup[0]
-    
-    if sym_matrix["route_performance"]:
-        best_route = max(
-            sym_matrix["route_performance"].items(),
-            key=lambda x: x[1]["wins"] / (x[1]["wins"] + x[1]["losses"] + 0.001)
-        )
-        sym_matrix["best_execution_route"] = best_route[0]
-    
-    # 6. OVERALL TRACKING
-    memory["last_updated"] = datetime.now().isoformat()
-    memory["total_trades_tracked"] += 1
-    
-    save_strategy_memory(memory)
+            session_stat["losses"] += 1
+        session_stat["win_rate"] = session_stat["wins"] / session_stat["total_trades"]
+
+        if asset_class_key not in session_stat["per_asset_class"]:
+            session_stat["per_asset_class"][asset_class_key] = {"wins": 0, "losses": 0, "total": 0}
+        session_stat["per_asset_class"][asset_class_key]["total"] += 1
+        if win:
+            session_stat["per_asset_class"][asset_class_key]["wins"] += 1
+        else:
+            session_stat["per_asset_class"][asset_class_key]["losses"] += 1
+
+        if asset_class_key not in memory["asset_class_strategies"]:
+            memory["asset_class_strategies"][asset_class_key] = {
+                "total_trades": 0,
+                "wins": 0,
+                "losses": 0,
+                "win_rate": 0.0,
+                "best_session": None,
+                "best_setup": None,
+            }
+
+        ac_stat = memory["asset_class_strategies"][asset_class_key]
+        ac_stat["total_trades"] += 1
+        if win:
+            ac_stat["wins"] += 1
+        else:
+            ac_stat["losses"] += 1
+        ac_stat["win_rate"] = ac_stat["wins"] / ac_stat["total_trades"]
+
+        if symbol_key not in memory["symbol_strategy_matrix"]:
+            memory["symbol_strategy_matrix"][symbol_key] = {
+                "best_setup": None,
+                "best_execution_route": None,
+                "best_session": None,
+                "setup_performance": {},
+                "route_performance": {},
+                "session_performance": {},
+                "win_rate": 0.0,
+                "trades": 0,
+                "wins": 0,
+                "losses": 0,
+                "last_updated": None,
+            }
+
+        sym_matrix = memory["symbol_strategy_matrix"][symbol_key]
+        sym_matrix["trades"] += 1
+        if win:
+            sym_matrix["wins"] = sym_matrix.get("wins", 0) + 1
+        else:
+            sym_matrix["losses"] = sym_matrix.get("losses", 0) + 1
+        sym_matrix["win_rate"] = sym_matrix.get("wins", 0) / sym_matrix["trades"]
+
+        for setup in normalized_setups:
+            if setup not in sym_matrix["setup_performance"]:
+                sym_matrix["setup_performance"][setup] = {"wins": 0, "losses": 0}
+            if win:
+                sym_matrix["setup_performance"][setup]["wins"] += 1
+            else:
+                sym_matrix["setup_performance"][setup]["losses"] += 1
+
+        if execution_route_key not in sym_matrix["route_performance"]:
+            sym_matrix["route_performance"][execution_route_key] = {"wins": 0, "losses": 0}
+        if win:
+            sym_matrix["route_performance"][execution_route_key]["wins"] += 1
+        else:
+            sym_matrix["route_performance"][execution_route_key]["losses"] += 1
+
+        if session_key not in sym_matrix["session_performance"]:
+            sym_matrix["session_performance"][session_key] = {"wins": 0, "losses": 0}
+        if win:
+            sym_matrix["session_performance"][session_key]["wins"] += 1
+        else:
+            sym_matrix["session_performance"][session_key]["losses"] += 1
+
+        if sym_matrix["setup_performance"]:
+            best_setup = max(
+                sym_matrix["setup_performance"].items(),
+                key=lambda item: item[1]["wins"] / (item[1]["wins"] + item[1]["losses"] + 0.001),
+            )
+            sym_matrix["best_setup"] = best_setup[0]
+
+        if sym_matrix["route_performance"]:
+            best_route = max(
+                sym_matrix["route_performance"].items(),
+                key=lambda item: item[1]["wins"] / (item[1]["wins"] + item[1]["losses"] + 0.001),
+            )
+            sym_matrix["best_execution_route"] = best_route[0]
+
+        if sym_matrix["session_performance"]:
+            best_session = max(
+                sym_matrix["session_performance"].items(),
+                key=lambda item: item[1]["wins"] / (item[1]["wins"] + item[1]["losses"] + 0.001),
+            )
+            sym_matrix["best_session"] = best_session[0]
+
+        sym_matrix["last_updated"] = timestamp
+        ac_stat["best_session"] = sym_matrix.get("best_session")
+        ac_stat["best_setup"] = sym_matrix.get("best_setup")
+        memory["last_updated"] = timestamp
+        memory["total_trades_tracked"] = int(memory.get("total_trades_tracked", 0)) + 1
+        return memory
+
+    update_json_file(STRATEGY_MEMORY_FILE, updater, default=_init_empty_memory())
 
 
 def get_best_strategy_for_symbol(symbol: str) -> Dict:
@@ -285,20 +306,21 @@ def get_best_strategy_for_symbol(symbol: str) -> Dict:
             "recommendation": "Use liquidity setup with weighted execution during London"
         }
     """
+    symbol_key = canonical_symbol(symbol)
     memory = load_strategy_memory()
-    
-    if "symbol_strategy_matrix" not in memory or symbol not in memory["symbol_strategy_matrix"]:
+
+    if "symbol_strategy_matrix" not in memory or symbol_key not in memory["symbol_strategy_matrix"]:
         return {
-            "symbol": symbol,
+            "symbol": symbol_key,
             "status": "learning",
             "message": "Not enough trades yet to determine best strategy",
             "trades": 0
         }
-    
-    sym_matrix = memory["symbol_strategy_matrix"][symbol]
-    
+
+    sym_matrix = memory["symbol_strategy_matrix"][symbol_key]
+
     return {
-        "symbol": symbol,
+        "symbol": symbol_key,
         "best_setup": sym_matrix.get("best_setup", "any"),
         "best_execution_route": sym_matrix.get("best_execution_route", "any"),
         "best_session": sym_matrix.get("best_session", "any"),
@@ -306,7 +328,7 @@ def get_best_strategy_for_symbol(symbol: str) -> Dict:
         "trades": sym_matrix.get("trades", 0),
         "wins": sym_matrix.get("wins", 0),
         "losses": sym_matrix.get("losses", 0),
-        "recommendation": _generate_recommendation(symbol, sym_matrix, memory)
+        "recommendation": _generate_recommendation(symbol_key, sym_matrix, memory)
     }
 
 
@@ -472,10 +494,113 @@ def _generate_recommendation(symbol: str, matrix: Dict, memory: Dict) -> str:
     setup_desc = {
         "liquidity": "liquidity sweeps",
         "bos": "break of structure",
-        "price_action": "price action patterns"
+        "price_action": "price action patterns",
+        "fvg": "fair value gaps",
+        "order_block": "order blocks",
     }.get(best_setup, best_setup)
     
     return f"{confidence}: Trade {symbol} using {setup_desc} with {best_route} execution"
+
+
+def get_strategy_adaptation(
+    symbol: str,
+    setup_types: List[str],
+    execution_route: str,
+    session: str,
+    minimum_trades: int = 5,
+) -> Dict:
+    """
+    Convert learned strategy memory into a live execution bias.
+
+    Returns a conservative lot multiplier and, for badly performing patterns
+    with enough sample size, can veto the trade entirely.
+    """
+    symbol_key = canonical_symbol(symbol)
+    memory = load_strategy_memory()
+    sym_matrix = memory.get("symbol_strategy_matrix", {}).get(symbol_key)
+
+    neutral = {
+        "symbol": symbol_key,
+        "allow_trade": True,
+        "lot_multiplier": 1.0,
+        "sample_size": 0,
+        "edge": 0.5,
+        "reason": "No strategy memory yet",
+    }
+
+    if not sym_matrix:
+        return neutral
+
+    symbol_trades = int(sym_matrix.get("trades", 0) or 0)
+    if symbol_trades < minimum_trades:
+        neutral["sample_size"] = symbol_trades
+        neutral["reason"] = f"Learning phase ({symbol_trades}/{minimum_trades} trades)"
+        return neutral
+
+    normalized_setups = _normalize_setup_types(setup_types)
+    route_key = str(execution_route or "unknown").strip().lower() or "unknown"
+    session_key = str(session or "other").strip().lower() or "other"
+
+    win_rates = []
+    sample_sizes = []
+
+    for setup in normalized_setups:
+        perf = sym_matrix.get("setup_performance", {}).get(setup)
+        if perf:
+            total = int(perf.get("wins", 0)) + int(perf.get("losses", 0))
+            if total > 0:
+                win_rates.append(int(perf.get("wins", 0)) / total)
+                sample_sizes.append(total)
+
+    route_perf = sym_matrix.get("route_performance", {}).get(route_key)
+    if route_perf:
+        total = int(route_perf.get("wins", 0)) + int(route_perf.get("losses", 0))
+        if total > 0:
+            win_rates.append(int(route_perf.get("wins", 0)) / total)
+            sample_sizes.append(total)
+
+    session_perf = sym_matrix.get("session_performance", {}).get(session_key)
+    if session_perf:
+        total = int(session_perf.get("wins", 0)) + int(session_perf.get("losses", 0))
+        if total > 0:
+            win_rates.append(int(session_perf.get("wins", 0)) / total)
+            sample_sizes.append(total)
+
+    if not win_rates:
+        return {
+            **neutral,
+            "sample_size": symbol_trades,
+            "edge": float(sym_matrix.get("win_rate", 0.5) or 0.5),
+            "reason": "No matching setup memory yet",
+        }
+
+    edge = sum(win_rates) / len(win_rates)
+    sample_size = max(sample_sizes) if sample_sizes else symbol_trades
+
+    adaptation = {
+        "symbol": symbol_key,
+        "allow_trade": True,
+        "lot_multiplier": 1.0,
+        "sample_size": sample_size,
+        "edge": edge,
+        "reason": "Neutral strategy memory",
+    }
+
+    if sample_size >= 12 and edge < 0.35:
+        adaptation["allow_trade"] = False
+        adaptation["lot_multiplier"] = 0.0
+        adaptation["reason"] = f"Blocked by learned setup weakness ({edge:.0%} edge over {sample_size} trades)"
+    elif sample_size >= 8 and edge < 0.45:
+        adaptation["lot_multiplier"] = 0.7
+        adaptation["reason"] = f"Reduced size for weak learned edge ({edge:.0%} over {sample_size} trades)"
+    elif sample_size >= 8 and edge > 0.68:
+        adaptation["lot_multiplier"] = 1.15
+        adaptation["reason"] = f"Boosted for strong learned edge ({edge:.0%} over {sample_size} trades)"
+    elif sample_size >= 5 and edge > 0.60:
+        adaptation["lot_multiplier"] = 1.05
+        adaptation["reason"] = f"Slight boost for positive learned edge ({edge:.0%})"
+
+    return adaptation
 
 
 def reset_strategy_memory(symbol: str = None):
@@ -483,9 +608,10 @@ def reset_strategy_memory(symbol: str = None):
     memory = load_strategy_memory()
     
     if symbol:
-        if "symbol_strategy_matrix" in memory and symbol in memory["symbol_strategy_matrix"]:
-            memory["symbol_strategy_matrix"].pop(symbol)
-            print(f"[STRATEGY MEMORY] Reset memory for {symbol}")
+        symbol_key = canonical_symbol(symbol)
+        if "symbol_strategy_matrix" in memory and symbol_key in memory["symbol_strategy_matrix"]:
+            memory["symbol_strategy_matrix"].pop(symbol_key)
+            print(f"[STRATEGY MEMORY] Reset memory for {symbol_key}")
     else:
         memory = _init_empty_memory()
         print("[STRATEGY MEMORY] Reset all strategy memory")
