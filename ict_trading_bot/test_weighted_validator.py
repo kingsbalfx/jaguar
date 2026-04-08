@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 """Test script for weighted entry validator with intelligent alternative paths"""
 
+import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 from strategy.weighted_entry_validator import (
     calculate_entry_confidence,
     format_confidence_report,
@@ -57,9 +62,9 @@ print(f"✓ Backtest Required: {confidence_data_structure['backtest_required']}"
 print(f"✓ Alternative Path: {confirmation_flags_structure.get('price_action', {}).get('confirmed')} → {confidence_data_structure.get('alternative_path', {}).get('type')}")
 
 # ============================================================================
-# TEST 2: INTELLIGENT ALTERNATIVE PATH - Weak Topdown But Exceptional Structure
+# TEST 2: Weak Topdown Must Skip Even With Exceptional Structure
 # ============================================================================
-print("\n\nTEST 2: Intelligent Alternative (Weak Topdown BUT Liquidity+BOS+FVG+OB+Price Strong)")
+print("\n\nTEST 2: Weak Topdown Must Skip (even with Liquidity+BOS+FVG+OB+Price Strong)")
 print("-" * 100)
 
 analysis_weak_topdown = {
@@ -92,8 +97,10 @@ confidence_data_intelligent = calculate_entry_confidence(
 print(format_confidence_report(confidence_data_intelligent))
 print(f"\n✓ Execution Route: {confidence_data_intelligent['execution_route'].upper()}")
 print(f"✓ Backtest Required: {confidence_data_intelligent['backtest_required']}")
-print(f"✓ Alternative Path Type: {confidence_data_intelligent.get('alternative_path', {}).get('type')}")
-print(f"✓ Smart Confidence: {confidence_data_intelligent.get('alternative_path', {}).get('confidence_if_direct', 0):.1f}/100")
+alt_path = confidence_data_intelligent.get('alternative_path') or {}
+print(f"✓ Alternative Path Type: {alt_path.get('type')}")
+print(f"✓ Smart Confidence: {alt_path.get('confidence_if_direct', 0):.1f}/100")
+assert confidence_data_intelligent["execution_route"] == "skip"
 
 # ============================================================================
 # TEST 3: WEAK TOPDOWN & TREND + WEAK STRUCTURE = SKIP

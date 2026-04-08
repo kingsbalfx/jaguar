@@ -12,6 +12,13 @@ from execution.mt5_connector import (
     get_open_positions,
     get_account_snapshot,
 )
+from utils.symbol_profile import (
+    LIQUID_FOREX,
+    LIQUID_METALS,
+    LIQUID_CRYPTO,
+    infer_asset_class,
+)
+from risk.intelligence_system import get_cis_decision
 from config.symbol_mappings import candidates_for
 from execution.trade_executor import calculate_lot_size, execute_trade, apply_trade_action
 from execution.order_router import choose_order_type
@@ -59,6 +66,10 @@ from risk.intelligent_execution import (
     load_intelligent_stats,
 )
 from risk.intelligent_sync import sync_intelligent_stats_to_supabase, sync_trade_outcome_to_supabase
+from risk.profitability_guard import (
+    evaluate_profitability_guard,
+    normalize_rr_after_sl_adjustment,
+)
 
 # =====================================================
 # QUALITY FILTERS
@@ -78,7 +89,12 @@ from utils.sessions import in_london_session, in_newyork_session, trading_sessio
 # PORTFOLIO + DASHBOARD
 # =====================================================
 from portfolio.allocator import allocate_risk
-from dashboard.bridge import push_trade, persist_signal_to_supabase, persist_log_to_supabase
+from dashboard.bridge import (
+    push_trade,
+    persist_signal_to_supabase,
+    persist_log_to_supabase,
+    persist_account_snapshot_to_supabase,
+)
 from utils.mt5_credentials import fetch_mt5_credentials_signature
 import time
 import traceback
@@ -124,19 +140,62 @@ def get_trading_session():
     return "other"
 
 
+LAST_ACCOUNT_SNAPSHOT_SYNC = 0
+
+
+def build_asset_scan_breakdown(symbols):
+    breakdown = {"forex": 0, "metals": 0, "crypto": 0, "other": 0}
+    for item in symbols or []:
+        asset_class = infer_asset_class(item)
+        if asset_class not in breakdown:
+            asset_class = "other"
+        breakdown[asset_class] += 1
+    return breakdown
+
+
 def publish_runtime_metrics(symbols=None):
+    global LAST_ACCOUNT_SNAPSHOT_SYNC
     try:
+        symbols = symbols or []
         positions = get_open_positions()
         account = get_account_snapshot() or {}
+        floating_profit = round(sum(float(p.get("profit") or 0) for p in positions), 2)
+        asset_breakdown = build_asset_scan_breakdown(symbols)
         update_metrics(
             open_positions=len(positions),
-            floating_profit=round(sum(float(p.get("profit") or 0) for p in positions), 2),
+            floating_profit=floating_profit,
             balance=account.get("balance"),
             equity=account.get("equity"),
             margin_free=account.get("margin_free"),
-            symbols=symbols or [],
+            symbols=symbols,
+            asset_scan=asset_breakdown,
         )
         set_connection(True, None, account)
+
+        interval = max(10, int(os.getenv("ACCOUNT_SNAPSHOT_SYNC_INTERVAL", "30")))
+        now = time.time()
+        if now - LAST_ACCOUNT_SNAPSHOT_SYNC >= interval:
+            persist_account_snapshot_to_supabase(
+                {
+                    "bot_id": os.getenv("PERSISTENT_BOT_ID") or os.getenv("BOT_ID"),
+                    "user_id": os.getenv("BOT_USER_ID") or os.getenv("SIGNAL_USER_ID"),
+                    "user_email": os.getenv("BOT_USER_EMAIL"),
+                    "account_login": account.get("login"),
+                    "server": account.get("server"),
+                    "balance": account.get("balance"),
+                    "equity": account.get("equity"),
+                    "floating_profit": floating_profit,
+                    "open_positions": len(positions),
+                    "margin_free": account.get("margin_free"),
+                    "currency": account.get("currency"),
+                    "company": account.get("company"),
+                    "symbols_count": len(symbols),
+                    "asset_scan": asset_breakdown,
+                    "symbols": symbols,
+                    "unavailable_symbols": list(UNAVAILABLE_SYMBOLS),
+                }
+            )
+            LAST_ACCOUNT_SNAPSHOT_SYNC = now
     except Exception as metric_error:
         set_connection(False, str(metric_error), None)
 
@@ -158,12 +217,7 @@ if os.getenv("MT5_DISABLED", "").lower() in ("1", "true", "yes"):
     while True:
         time.sleep(60)
 
-DEFAULT_SYMBOLS = [
-    "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "NZDUSD", "USDCAD",
-    "USDCHF", "EURGBP", "EURJPY", "GBPJPY", "AUDJPY", "CADJPY",
-    "GBPCHF", "EURCHF", "EURAUD", "GBPAUD",
-    "XAUUSD", "XAGUSD",
-] + TradingPairs.CRYPTO
+DEFAULT_SYMBOLS = LIQUID_FOREX + LIQUID_METALS + LIQUID_CRYPTO
 
 
 def load_symbols():
@@ -177,11 +231,14 @@ def load_symbols():
 
 
 SYMBOLS = load_symbols()
+UNAVAILABLE_SYMBOLS = []
 
 def resolve_symbols():
     # Validate and resolve symbols using mapping candidates; keep a mapping original->resolved
+    global UNAVAILABLE_SYMBOLS
     valid = []
     resolved_map = {}
+    unavailable = []
     for symbol in SYMBOLS:
         resolved = None
         # try direct first, then mapping candidates
@@ -197,6 +254,7 @@ def resolve_symbols():
             valid.append(resolved)
             resolved_map[symbol] = resolved
         else:
+            unavailable.append(symbol)
             bot_log(
                 "symbol_unavailable",
                 f"Symbol {symbol} unavailable in MT5. Skipping it.",
@@ -207,6 +265,7 @@ def resolve_symbols():
     if not valid:
         raise RuntimeError("No valid trading symbols available in MT5. Check account/instruments.")
 
+    UNAVAILABLE_SYMBOLS = unavailable
     return valid, resolved_map
 
 
@@ -229,6 +288,7 @@ def ensure_connected(force_reconnect=False):
     publish_runtime_metrics(list(VALID_SYMBOLS))
     account = get_account_snapshot() or {}
     symbol_map = {original: resolved for original, resolved in RESOLVED_MAP.items()}
+    asset_breakdown = build_asset_scan_breakdown(VALID_SYMBOLS)
     bot_log(
         "mt5_connected",
         f"MT5 connected for account {account.get('login')} on {account.get('server')}.",
@@ -237,13 +297,19 @@ def ensure_connected(force_reconnect=False):
             "server": account.get("server"),
             "balance": account.get("balance"),
             "symbols": list(VALID_SYMBOLS),
+            "asset_scan": asset_breakdown,
+            "unavailable_symbols": list(UNAVAILABLE_SYMBOLS),
             "symbol_map": symbol_map,
         },
     )
     bot_log(
         "symbol_resolution",
         "Resolved trading symbols for this broker.",
-        {"symbol_map": symbol_map},
+        {
+            "symbol_map": symbol_map,
+            "asset_scan": asset_breakdown,
+            "unavailable_symbols": list(UNAVAILABLE_SYMBOLS),
+        },
         persist=False,
     )
 
@@ -277,7 +343,7 @@ def record_skip(reason, symbol, confidence=0.0, analysis=None):
     examples = skip_examples.setdefault(reason, [])
     if symbol not in examples and len(examples) < 5:
         examples.append(symbol)
-    
+
     # ALSO save to persistent storage (survives network disruption!)
     record_skip_detailed(reason, symbol, confidence=confidence, analysis=analysis)
 
@@ -342,6 +408,11 @@ WEIGHTED_CONFIRMATION_DIRECT_EXECUTION = os.getenv("WEIGHTED_CONFIRMATION_DIRECT
 WEIGHTED_CONFIRMATION_BACKTEST_FALLBACK = os.getenv("WEIGHTED_CONFIRMATION_BACKTEST_FALLBACK", "true").lower() in ("1", "true", "yes")
 FOUR_CONFIRMATION_DIRECT_EXECUTION = os.getenv("FOUR_CONFIRMATION_DIRECT_EXECUTION", "true").lower() in ("1", "true", "yes")
 FOUR_CONFIRMATION_DIRECT_MIN_COUNT = max(4, int(os.getenv("FOUR_CONFIRMATION_DIRECT_MIN_COUNT", "4")))
+ANALYSIS_RESCUE_MIN_CONFIDENCE = max(0.0, min(100.0, float(os.getenv("ANALYSIS_RESCUE_MIN_CONFIDENCE", "65"))))
+ANALYSIS_RESCUE_REQUIRES_INTELLIGENCE = os.getenv(
+    "ANALYSIS_RESCUE_REQUIRES_INTELLIGENCE",
+    "true",
+).lower() in ("1", "true", "yes")
 
 
 def build_execution_context(
@@ -353,11 +424,20 @@ def build_execution_context(
     execution_route=None,
     decision_bundle=None,
 ):
-    timeframes = analysis.get("timeframes", {"HTF": "H4", "MTF": "H1", "LTF": "M15"})
+    timeframes = analysis.get(
+        "timeframes",
+        {"DAILY": "D1", "H4": "H4", "HTF": "H1", "MTF": "M30", "LTF": "M15", "EXECUTION": "M5"},
+    )
+    brief_context = analysis.get("brief_context") or {}
+    daily_state = analysis.get("DAILY") or brief_context.get("daily") or {}
+    h4_state = analysis.get("H4_CONTEXT") or brief_context.get("h4") or {}
     timeframe_trends = {
+        "DAILY": daily_state.get("trend"),
+        "H4": h4_state.get("trend"),
         "HTF": analysis.get("HTF", {}).get("trend"),
         "MTF": analysis.get("MTF", {}).get("trend"),
         "LTF": analysis.get("LTF", {}).get("trend"),
+        "EXECUTION": analysis.get("EXECUTION", {}).get("trend"),
     }
     met_confirmations = [name for name, passed in confirmation_flags.items() if _confirmation_passed(passed)]
     setup_context = signal.get("setup_context") or {}
@@ -365,6 +445,7 @@ def build_execution_context(
         "topdown_trend": signal.get("trend"),
         "timeframes": timeframes,
         "timeframe_trends": timeframe_trends,
+        "brief_context_alignment": brief_context.get("alignment"),
         "confirmation_threshold": confirmation_threshold,
         "confirmation_count": len(met_confirmations),
         "confirmation_score": float((confirmation_summary or {}).get("score", 0.0)),
@@ -532,6 +613,14 @@ def build_hybrid_trade_decision(
 
     weighted_intelligence_pass = weighted_pass and intelligence_pass
     analysis_pass = classic_analysis["decision"]
+    analysis_rescue_allowed = (
+        analysis_pass
+        and confirmation_score_value >= ANALYSIS_RESCUE_MIN_CONFIDENCE
+        and (
+            intelligence_pass
+            or not ANALYSIS_RESCUE_REQUIRES_INTELLIGENCE
+        )
+    )
 
     if weighted_intelligence_pass and analysis_pass:
         decision_source = "analysis_and_weighted_intelligence"
@@ -549,7 +638,7 @@ def build_hybrid_trade_decision(
         backtest_required = bool(confidence_data.get("backtest_required", True))
         execute = True
         skip_reason = None
-    elif analysis_pass:
+    elif analysis_rescue_allowed:
         decision_source = "analysis_only"
         engine_agreement = "analysis_rescue"
         effective_execution_route = classic_analysis.get("execution_route", "conservative")
@@ -558,11 +647,18 @@ def build_hybrid_trade_decision(
         skip_reason = None
     else:
         decision_source = "none"
-        engine_agreement = "both_failed"
+        if analysis_pass and not intelligence_pass:
+            engine_agreement = "analysis_blocked_by_intelligence"
+            skip_reason = "intelligence"
+        elif analysis_pass and confirmation_score_value < ANALYSIS_RESCUE_MIN_CONFIDENCE:
+            engine_agreement = "analysis_blocked_by_weighted_confidence"
+            skip_reason = "weighted_confidence"
+        else:
+            engine_agreement = "both_failed"
+            skip_reason = "hybrid_reject"
         effective_execution_route = "skip"
         backtest_required = False
         execute = False
-        skip_reason = "hybrid_reject"
 
     reasons = []
     if weighted_intelligence_pass:
@@ -573,6 +669,12 @@ def build_hybrid_trade_decision(
         reasons.append("classic analysis approved")
     else:
         reasons.append("classic analysis rejected")
+    if analysis_pass and not analysis_rescue_allowed and not weighted_intelligence_pass:
+        reasons.append(
+            f"classic rescue blocked: intelligence={intelligence_pass}, "
+            f"weighted_confidence={confirmation_score_value:.1f}, "
+            f"required={ANALYSIS_RESCUE_MIN_CONFIDENCE:.1f}"
+        )
 
     return {
         "execute": execute,
@@ -642,14 +744,23 @@ while True:
             continue
 
         session_open = trading_session_open()
-        if not session_open:
+        trade_all_day = os.getenv("TRADE_ALL_SESSIONS", "false").lower() in ("1", "true", "yes")
+
+        if not session_open and not trade_all_day:
             if now - last_idle_summary >= 30:
                 metrics_positions = len(get_open_positions())
+                asset_breakdown = build_asset_scan_breakdown(VALID_SYMBOLS)
                 bot_log(
                     "bot_heartbeat",
-                    f"Bot is online but outside the configured session window. Open positions: {metrics_positions}. Set TRADE_ALL_SESSIONS=true to trade all day.",
+                    f"Bot is online but outside primary sessions. "
+                    f"Scanning forex={asset_breakdown['forex']}, metals={asset_breakdown['metals']}, "
+                    f"crypto={asset_breakdown['crypto']}, other={asset_breakdown['other']}. "
+                    f"Open positions: {metrics_positions}. "
+                    "Set TRADE_ALL_SESSIONS=true to trade 24/5 with Session IQ.",
                     {
                         "symbols": list(VALID_SYMBOLS),
+                        "asset_scan": asset_breakdown,
+                        "unavailable_symbols": list(UNAVAILABLE_SYMBOLS),
                         "open_positions": metrics_positions,
                         "session_open": False,
                     },
@@ -662,7 +773,13 @@ while True:
         if now - last_idle_summary >= 30:
             metrics_positions = len(get_open_positions())
             skip_summary = ", ".join(f"{key}={value}" for key, value in sorted(skip_stats.items()))
-            heartbeat_message = f"Bot is scanning {len(VALID_SYMBOLS)} symbols. Open positions: {metrics_positions}."
+            asset_breakdown = build_asset_scan_breakdown(VALID_SYMBOLS)
+            heartbeat_message = (
+                f"Bot is scanning {len(VALID_SYMBOLS)} symbols "
+                f"(forex={asset_breakdown['forex']}, metals={asset_breakdown['metals']}, "
+                f"crypto={asset_breakdown['crypto']}, other={asset_breakdown['other']}). "
+                f"Open positions: {metrics_positions}."
+            )
             if skip_summary:
                 heartbeat_message += f" Skip reasons: {skip_summary}."
             if skip_examples:
@@ -692,7 +809,7 @@ while True:
                 route_summary.append(f"weighted_rescue={stage_hits['weighted_intelligence_rescue']}")
             if route_summary:
                 heartbeat_message += f" Execution routes: {', '.join(route_summary)}."
-            
+
             # Sync local intelligence to Supabase periodically
             try:
                 sync_intelligent_stats_to_supabase(load_intelligent_stats())
@@ -707,11 +824,11 @@ while True:
                     heartbeat_message += f" Symbol Performance: {symbol_summary}"
             except Exception:
                 pass
-            
+
             # Add intelligent execution report (every 60 seconds)
             if '_last_intel_report' not in _bot_state:
                 _bot_state['_last_intel_report'] = 0
-            
+
             now_for_intel = time.time()
             if now_for_intel - _bot_state['_last_intel_report'] >= 120:  # Every 2 minutes
                 try:
@@ -725,12 +842,14 @@ while True:
                     _bot_state['_last_intel_report'] = now_for_intel
                 except Exception as e:
                     pass  # Silently fail if intelligence report fails
-            
+
             bot_log(
                 "bot_heartbeat",
                 heartbeat_message,
                 {
                     "symbols": list(VALID_SYMBOLS),
+                    "asset_scan": asset_breakdown,
+                    "unavailable_symbols": list(UNAVAILABLE_SYMBOLS),
                     "open_positions": metrics_positions,
                     "skip_stats": dict(skip_stats),
                     "skip_examples": dict(skip_examples),
@@ -803,15 +922,22 @@ while True:
             # -----------------------------
             # ENTRY MODEL (ICT CORE)
             # -----------------------------
+            m30_state = analysis.get("MTF", {})
+            m15_state = analysis.get("LTF", {})
+            execution_state = analysis.get("EXECUTION", {})
+            entry_fib_levels = m15_state.get("fib") or m30_state.get("fib", {})
+            entry_fvgs = execution_state.get("fvgs") or m15_state.get("fvgs", {})
+            entry_order_blocks = m15_state.get("order_blocks") or m30_state.get("order_blocks", {})
+            entry_atr = execution_state.get("atr") or m15_state.get("atr") or m30_state.get("atr")
             try:
                 signal = check_entry(
                     trend=trend,
                     price=price,
-                    fib_levels=analysis.get("MTF", {}).get("fib", {}),
-                    fvgs=analysis.get("LTF", {}).get("fvgs", {}),
-                    htf_order_blocks=analysis.get("MTF", {}).get("order_blocks", {}),
+                    fib_levels=entry_fib_levels,
+                    fvgs=entry_fvgs,
+                    htf_order_blocks=entry_order_blocks,
                     symbol=original_symbol,
-                    atr=analysis.get("MTF", {}).get("atr"),
+                    atr=entry_atr,
                 )
             except Exception as e:
                 print("Entry model error, skipping symbol:", e)
@@ -822,11 +948,11 @@ while True:
                 entry_reason = explain_entry_failure(
                     trend=trend,
                     price=price,
-                    fib_levels=analysis.get("MTF", {}).get("fib", {}),
-                    fvgs=analysis.get("LTF", {}).get("fvgs", {}),
-                    htf_order_blocks=analysis.get("MTF", {}).get("order_blocks", {}),
+                    fib_levels=entry_fib_levels,
+                    fvgs=entry_fvgs,
+                    htf_order_blocks=entry_order_blocks,
                     symbol=original_symbol,
-                    atr=analysis.get("MTF", {}).get("atr"),
+                    atr=entry_atr,
                 )
                 record_skip(f"entry_{entry_reason}", original_symbol)
                 continue
@@ -861,23 +987,32 @@ while True:
                 "price_action": price_action_state,
             }
 
+            # --- CIS INTELLIGENCE DECISION ---
+            cis_decision = get_cis_decision(
+                symbol=original_symbol,
+                direction="BUY" if trend == "bullish" else "SELL",
+                timeframe=analysis.get("timeframes", {}).get("EXECUTION", "M5"),
+                entry_price=price,
+                multi_tf_analysis=analysis,
+            )
+
             # ============================================================
             # WEIGHTED ENTRY VALIDATION (Replaces Hard-Gate Filtering)
             # ============================================================
             # Instead of sequential binary checks, use weighted confidence scoring
             # This allows strong confirmations to bypass weak filters
-            
+
             # Log initial confirmations (informational only)
             smt_ok = smt_confirmed(signal, analysis["correlated"])
             if smt_ok:
                 # record_stage("smt", original_symbol)
                 pass
-            
+
             rule_ok = rule_quality_filter(signal)
             if rule_ok:
                 # record_stage("rule_quality", original_symbol)
                 pass
-            
+
             # ML QUALITY FILTER
             features = build_signal_features(signal, price, analysis, atr)
             model = None  # load trained model
@@ -888,6 +1023,11 @@ while True:
                 "liquidity_setup": liquidity_state,
                 "bos": bos_state,
                 "price_action": price_action_state,
+                "fvg": {
+                    "confirmed": bool(signal.get("fvg")),
+                    "timeframe": (signal.get("fvg") or {}).get("timeframe"),
+                },
+                "order_block_confirmed": bool(signal.get("htf_ob")),
                 "smt": smt_ok,
                 "rule_quality": rule_ok,
                 "ml": ml_ok,
@@ -902,11 +1042,12 @@ while True:
                 trend=trend,
                 price=price,
                 confirmation_flags=confirmation_flags,
+                cis_decision=cis_decision,
             )
-            
+
             execution_route = confidence_data.get("execution_route", "skip")
             confirmation_score_value = float(confidence_data.get("confidence", 0.0))
-            
+
             # Log confidence data
             record_stage("weighted_confidence", original_symbol)
             confidence_report = format_confidence_report(confidence_data)
@@ -1006,7 +1147,7 @@ while True:
                 continue
 
             execution_route = hybrid_decision["effective_execution_route"]
-            
+
             # ========================================
             # WHOLE EXECUTION PLAN
             # ========================================
@@ -1016,14 +1157,14 @@ while True:
             # 4. Execute if either engine family passes; skip only if both fail.
             # 5. Record which engine approved the trade so learning can evolve toward a full autonomous wizard.
             backtest_required = hybrid_decision["backtest_required"]
-            
+
             if backtest_required:
                 # Need backtest approval for conservative/protected routes
                 try:
                     record_backtest_required(original_symbol)
                 except Exception:
                     pass
-                
+
                 if not WEIGHTED_CONFIRMATION_BACKTEST_FALLBACK:
                     record_skip(
                         "backtest_required",
@@ -1032,7 +1173,7 @@ while True:
                         analysis=confidence_data,
                     )
                     continue
-                
+
                 setup_signature = build_setup_signature(signal, analysis, confirmation_flags)
                 backtest_approved, backtest_details = ensure_setup_backtest_approval(
                     symbol,
@@ -1114,25 +1255,59 @@ while True:
             # ----------------------------
             # INTELLIGENT SL/TP CALCULATION
             # ----------------------------
-            # Use standard SL/TP as base, then adjust intelligently
-            sl_base, tp_base = calculate_sl_tp(
+            # Precise Structural SL/TP with ATR Buffer
+            sl, tp = calculate_sl_tp(
                 direction=direction,
                 entry_price=price,
-                htf_ob=signal["htf_ob"]
+                htf_ob=signal["htf_ob"],
+                atr=atr,
+                rr=float(os.getenv("DEFAULT_RR_RATIO", "3.0"))
             )
-            
-            # Calculate intelligent stop loss based on symbol confidence
-            # Wider stops for high-confidence symbols, tighter for low-confidence
-            base_pips = abs(sl_base - price) / 0.0001  # Convert to pips
-            sl_intelligent, sl_intelligence = calculate_intelligent_stop_loss(
-                price,
-                direction,
-                base_pips,
-                original_symbol
+
+            # Refine SL based on symbol win-rate history
+            base_pips = abs(sl - price) / (0.01 if "JPY" in symbol else 0.0001)
+            sl_final, sl_intelligence = calculate_intelligent_stop_loss(
+                price, direction, base_pips, original_symbol
             )
-            
-            sl = sl_intelligent  # Use intelligent stop loss
-            tp = tp_base  # Keep take profit as-is
+            sl = sl_final
+            sl, tp, rr_adjustment = normalize_rr_after_sl_adjustment(
+                direction=direction,
+                entry=price,
+                sl=sl,
+                tp=tp,
+                min_rr=float(os.getenv("MIN_RR_RATIO", "2.0")),
+            )
+
+            profitability_guard = evaluate_profitability_guard(
+                symbol=original_symbol,
+                direction=direction,
+                entry=price,
+                sl=sl,
+                tp=tp,
+                confidence=confirmation_score_value,
+                execution_route=execution_route,
+                open_positions=open_positions,
+            )
+            signal["profitability_guard"] = profitability_guard
+            signal["rr_adjustment"] = rr_adjustment
+            if not profitability_guard.get("allow", True):
+                record_skip(
+                    f"profitability_guard_{profitability_guard.get('reason', 'reject')}",
+                    original_symbol,
+                    confidence=round(confirmation_score_value / 100.0, 2),
+                    analysis=profitability_guard,
+                )
+                bot_log(
+                    "profitability_guard_block",
+                    (
+                        f"[{original_symbol}] Blocked by profitability guard: "
+                        f"{profitability_guard.get('reason')}. "
+                        f"RR={profitability_guard.get('rr')}, "
+                        f"confidence={profitability_guard.get('confidence')}."
+                    ),
+                    profitability_guard,
+                )
+                continue
 
             # ----------------------------
             # INTELLIGENT POSITION SIZING
@@ -1144,7 +1319,7 @@ while True:
                 risk_percent=allowed_risk,
                 stop_loss_pips=max(5, sl_pips)
             )
-            
+
             # Then apply intelligent multipliers based on symbol confidence
             lot_intelligent, lot_intelligence = calculate_dynamic_lot_size(
                 original_symbol,
@@ -1152,9 +1327,9 @@ while True:
                 account_balance,
                 allowed_risk
             )
-            
+
             lot = lot_intelligent  # Use intelligent lot sizing
-            
+
             # Log intelligent decisions
             bot_log(
                 "intelligent_execution",
@@ -1165,6 +1340,8 @@ while True:
                     "symbol": original_symbol,
                     "sl_intelligence": sl_intelligence,
                     "lot_intelligence": lot_intelligence,
+                    "rr_adjustment": rr_adjustment,
+                    "profitability_guard": profitability_guard,
                     "trade_confidence": round(confirmation_score_value / 100.0, 2),
                     "weighted_trade_confidence": confirmation_score_value,
                     "execution_route": execution_route,
@@ -1177,10 +1354,12 @@ while True:
             # -----------------------------
             # PERSIST SIGNAL TO SUPABASE (no webhook)
             # -----------------------------
-            current_bot_id = os.getenv("BOT_ID") or os.getenv("BOT_INSTANCE_ID") or f"mt5_bot_{get_account_snapshot().get('login', 'unknown')}"
+            current_bot_id = os.getenv("PERSISTENT_BOT_ID") or os.getenv("BOT_ID") or f"mt5_bot_{original_symbol}"
+            signal_allowed = True
             try:
-                persist_signal_to_supabase({
+                signal_allowed = persist_signal_to_supabase({
                     "bot_id": current_bot_id,
+                    "user_id": os.getenv("BOT_USER_ID") or os.getenv("SIGNAL_USER_ID"),
                     "symbol": original_symbol,
                     "direction": direction,
                     "entry_price": price,
@@ -1189,6 +1368,7 @@ while True:
                     "lot": lot,
                     "ml_probability": probability,
                     "signal_quality": "premium",
+                    "confidence": confirmation_score_value,
                     "reason": build_execution_context(
                         signal,
                         analysis,
@@ -1202,6 +1382,14 @@ while True:
                 })
             except Exception:
                 pass
+            if signal_allowed is False:
+                record_skip("user_signal_limit", original_symbol)
+                bot_log(
+                    "signal_quota_blocked",
+                    f"Signal and execution blocked for {original_symbol} by user/group bot limits.",
+                    {"symbol": original_symbol, "direction": direction},
+                )
+                continue
 
             execution_context = build_execution_context(
                 signal,
@@ -1217,12 +1405,19 @@ while True:
                 "signal_detected",
                 (
                     f"Signal detected on {original_symbol} ({direction}). "
-                    f"Top-down {execution_context['timeframes']['HTF']}/"
+                    f"Brief {execution_context['timeframes'].get('DAILY', 'D1')}/"
+                    f"{execution_context['timeframes'].get('H4', 'H4')} trends: "
+                    f"{execution_context['timeframe_trends'].get('DAILY')}/"
+                    f"{execution_context['timeframe_trends'].get('H4')} "
+                    f"({execution_context.get('brief_context_alignment') or 'context'}). "
+                    f"Analysis {execution_context['timeframes']['HTF']}/"
                     f"{execution_context['timeframes']['MTF']}/"
                     f"{execution_context['timeframes']['LTF']} trends: "
                     f"{execution_context['timeframe_trends']['HTF']}/"
                     f"{execution_context['timeframe_trends']['MTF']}/"
                     f"{execution_context['timeframe_trends']['LTF']}. "
+                    f"Execution {execution_context['timeframes'].get('EXECUTION', 'M5')} trend: "
+                    f"{execution_context['timeframe_trends'].get('EXECUTION')}. "
                     f"Confirmations met: {', '.join(execution_context['confirmations_met']) or 'none'}. "
                     f"Score: {execution_context['confirmation_score']:.1f}/"
                     f"{execution_context['confirmation_score_required']:.1f} "
@@ -1244,28 +1439,55 @@ while True:
             # -----------------------------
             # EXECUTE TRADE
             # -----------------------------
-            trade = execute_trade(
-                symbol=symbol,
-                direction=direction,
-                lot=lot,
-                sl_price=sl,
-                tp_price=tp,
-                order_type=order_type
-            )
+            try:
+                trade = execute_trade(
+                    symbol=symbol,
+                    direction=direction,
+                    lot=lot,
+                    sl_price=sl,
+                    tp_price=tp,
+                    order_type=order_type,
+                    entry_price=price,
+                )
+            except Exception as execution_error:
+                record_skip("trade_execution_error", original_symbol)
+                bot_log(
+                    "trade_execution_error",
+                    f"Trade execution error for {original_symbol}: {execution_error}",
+                    {
+                        "symbol": original_symbol,
+                        "resolved_symbol": symbol,
+                        "direction": direction,
+                        "lot": lot,
+                        "sl": sl,
+                        "tp": tp,
+                        "order_type": order_type,
+                        "error": str(execution_error),
+                    },
+                )
+                continue
             if not trade:
                 record_skip("trade_failed", original_symbol)
                 bot_log(
                     "trade_failed",
                     f"Trade execution failed for {original_symbol}.",
-                    {"symbol": original_symbol, "direction": direction},
+                    {
+                        "symbol": original_symbol,
+                        "resolved_symbol": symbol,
+                        "direction": direction,
+                        "lot": lot,
+                        "sl": sl,
+                        "tp": tp,
+                        "order_type": order_type,
+                    },
                 )
                 continue
             record_stage("trade_opened", original_symbol)
-            
+
             # Register trade and track symbol IQ
             from risk.protection import register_trade, update_symbol_confidence
             from risk.symbol_stats import record_symbol_trade, record_backtest_skip, record_backtest_required
-            
+
             register_trade(symbol, ob_id)
             # Do not record trade outcomes on open.
             # Trade outcome and confirmation quality are recorded on SL/TP close.
@@ -1287,10 +1509,15 @@ while True:
                 "trade_opened",
                 (
                     f"Trade opened on {original_symbol} ({direction}) with lot {lot}. "
-                    f"Top-down trend {execution_context['topdown_trend']} across "
+                    f"Brief {execution_context['timeframes'].get('DAILY', 'D1')}/"
+                    f"{execution_context['timeframes'].get('H4', 'H4')} context "
+                    f"{execution_context['timeframe_trends'].get('DAILY')}/"
+                    f"{execution_context['timeframe_trends'].get('H4')}; "
+                    f"analysis trend {execution_context['topdown_trend']} across "
                     f"{execution_context['timeframes']['HTF']}/"
                     f"{execution_context['timeframes']['MTF']}/"
-                    f"{execution_context['timeframes']['LTF']}. "
+                    f"{execution_context['timeframes']['LTF']}; "
+                    f"execution {execution_context['timeframes'].get('EXECUTION', 'M5')}. "
                     f"Confirmations used: {', '.join(execution_context['confirmations_met']) or 'none'}. "
                     f"Score: {execution_context['confirmation_score']:.1f}/"
                     f"{execution_context['confirmation_score_required']:.1f}. "
@@ -1313,11 +1540,11 @@ while True:
             # Record trade entry for later stats/reporting
             trade_entry_time = time.time()
             trade_entry_price = trade.get("entry", price)
-            
+
             # -----------------------------
             while trade and trade.get("open"):
                 live_price = get_price(symbol)
-                
+
                 # Check for SL/TP hits
                 sl_hit = False
                 tp_hit = False
@@ -1327,7 +1554,7 @@ while True:
                 else:  # sell
                     sl_hit = live_price >= trade["sl"]
                     tp_hit = live_price <= trade["tp"]
-                
+
                 if sl_hit:
                     # Trade hit stop loss - record as loss with detailed intelligence
                     try:
@@ -1362,12 +1589,12 @@ while True:
                             pnl=pnl,
                             execution_route=execution_route
                         )
-                        
+
                         # RECORD STRATEGY MEMORY - what strategy was used, did it work?
                         try:
                             from risk.strategy_memory import record_strategy_execution
                             from utils.symbol_profile import infer_asset_class
-                            
+
                             setup_types = []
                             if signal.get("setup_context", {}).get("liquidity", {}).get("confirmed"):
                                 setup_types.append("liquidity")
@@ -1375,11 +1602,11 @@ while True:
                                 setup_types.append("bos")
                             if signal.get("setup_context", {}).get("price_action", {}).get("confirmed"):
                                 setup_types.append("price_action")
-                            
+
                             session = get_trading_session()
                             asset_class = infer_asset_class(original_symbol)
                             bars_held = int((time.time() - trade_entry_time) / 60 / 5)  # Approx bars
-                            
+
                             record_strategy_execution(
                                 symbol=original_symbol,
                                 setup_types=setup_types or ["unknown"],
@@ -1440,12 +1667,12 @@ while True:
                             pnl=pnl,
                             execution_route=execution_route
                         )
-                        
+
                         # RECORD STRATEGY MEMORY - what strategy was used, did it work?
                         try:
                             from risk.strategy_memory import record_strategy_execution
                             from utils.symbol_profile import infer_asset_class
-                            
+
                             setup_types = []
                             if signal.get("setup_context", {}).get("liquidity", {}).get("confirmed"):
                                 setup_types.append("liquidity")
@@ -1453,11 +1680,11 @@ while True:
                                 setup_types.append("bos")
                             if signal.get("setup_context", {}).get("price_action", {}).get("confirmed"):
                                 setup_types.append("price_action")
-                            
+
                             session = get_trading_session()
                             asset_class = infer_asset_class(original_symbol)
                             bars_held = int((time.time() - trade_entry_time) / 60 / 5)  # Approx bars
-                            
+
                             record_strategy_execution(
                                 symbol=original_symbol,
                                 setup_types=setup_types or ["unknown"],
@@ -1484,7 +1711,7 @@ while True:
                     )
                     trade["open"] = False
                     break
-                
+
                 action = manage_trade(trade, live_price)
 
                 if action:

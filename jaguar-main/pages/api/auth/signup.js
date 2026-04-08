@@ -1,4 +1,5 @@
 import { getSupabaseClient } from "../../../lib/supabaseClient";
+import { getBotTierDefaults } from "../../../lib/pricing-config";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -69,6 +70,7 @@ export default async function handler(req, res) {
 
     const userId = data?.user?.id;
     if (userId) {
+      const freeDefaults = getBotTierDefaults("free");
       const payload = {
         id: userId,
         email,
@@ -79,6 +81,11 @@ export default async function handler(req, res) {
         country,
         age_confirmed: true,
         role: "user",
+        bot_tier: freeDefaults.botTier,
+        bot_max_signals_per_day: freeDefaults.botMaxSignalsPerDay,
+        bot_max_concurrent_trades: freeDefaults.botMaxConcurrentTrades,
+        bot_signal_quality: freeDefaults.botSignalQuality,
+        bot_tier_updated_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
       let profileErr = null;

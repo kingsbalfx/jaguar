@@ -18,6 +18,7 @@ _state = {
         "equity": None,
         "margin_free": None,
         "symbols": [],
+        "asset_scan": {"forex": 0, "metals": 0, "crypto": 0, "other": 0},
     },
     "recent_logs": [],
 }

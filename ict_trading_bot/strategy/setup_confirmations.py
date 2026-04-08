@@ -43,12 +43,15 @@ def swing_trend_confirmation(swings, trend):
 def bos_setup(analysis, trend):
     mtf_swings = (analysis.get("MTF") or {}).get("swings") or []
     ltf_swings = (analysis.get("LTF") or {}).get("swings") or []
+    execution_swings = (analysis.get("EXECUTION") or {}).get("swings") or []
     mtf_bos = recent_bos(mtf_swings, trend)
     ltf_bos = recent_bos(ltf_swings, trend)
+    execution_bos = recent_bos(execution_swings, trend)
     return {
-        "confirmed": mtf_bos or ltf_bos,
+        "confirmed": mtf_bos or ltf_bos or execution_bos,
         "mtf_bos": mtf_bos,
         "ltf_bos": ltf_bos,
+        "execution_bos": execution_bos,
     }
 
 
@@ -56,16 +59,21 @@ def liquidity_sweep_or_swing(price, analysis, direction):
     trend = _direction_to_trend(direction)
     mtf = analysis.get("MTF") or {}
     ltf = analysis.get("LTF") or {}
+    execution = analysis.get("EXECUTION") or {}
 
     sweep = liquidity_taken(price, mtf.get("liquidity"), direction)
+    execution_sweep = liquidity_taken(price, execution.get("liquidity"), direction)
     mtf_swing = swing_trend_confirmation(mtf.get("swings") or [], trend)
     ltf_swing = swing_trend_confirmation(ltf.get("swings") or [], trend)
+    execution_swing = swing_trend_confirmation(execution.get("swings") or [], trend)
 
     return {
-        "confirmed": sweep or mtf_swing or ltf_swing,
+        "confirmed": sweep or execution_sweep or mtf_swing or ltf_swing or execution_swing,
         "liquidity_sweep": sweep,
+        "execution_liquidity_sweep": execution_sweep,
         "mtf_swing": mtf_swing,
         "ltf_swing": ltf_swing,
+        "execution_swing": execution_swing,
     }
 
 
@@ -175,6 +183,12 @@ def _timeframe_price_action(candles, trend):
     previous_candle = candles[-2]
     current_candle = candles[-1]
 
+    # Volume confirmation for Price Action
+    volume_window = candles[-10:]
+    avg_vol = sum(c.get("volume", 0) for c in volume_window) / max(1, len(volume_window))
+    curr_vol = current_candle.get("volume", 0)
+    volume_confirmed = curr_vol > avg_vol
+
     if trend == "bullish":
         engulfing = _bullish_engulfing(previous_candle, current_candle)
         rejection = _bullish_rejection(current_candle)
@@ -197,7 +211,7 @@ def _timeframe_price_action(candles, trend):
         patterns.append("momentum")
 
     return {
-        "confirmed": bool(patterns),
+        "confirmed": bool(patterns) and volume_confirmed,
         "engulfing": engulfing,
         "rejection": rejection,
         "momentum": momentum,
@@ -208,22 +222,29 @@ def _timeframe_price_action(candles, trend):
 def price_action_setup(analysis, trend):
     mtf = analysis.get("MTF") or {}
     ltf = analysis.get("LTF") or {}
+    execution = analysis.get("EXECUTION") or {}
 
     mtf_state = _timeframe_price_action(_recent_candles(mtf), trend)
     ltf_state = _timeframe_price_action(_recent_candles(ltf), trend)
+    execution_state = _timeframe_price_action(_recent_candles(execution), trend)
 
     return {
-        "confirmed": mtf_state["confirmed"] or ltf_state["confirmed"],
+        "confirmed": mtf_state["confirmed"] or ltf_state["confirmed"] or execution_state["confirmed"],
         "mtf_confirmed": mtf_state["confirmed"],
         "ltf_confirmed": ltf_state["confirmed"],
+        "execution_confirmed": execution_state["confirmed"],
         "mtf_engulfing": mtf_state["engulfing"],
         "ltf_engulfing": ltf_state["engulfing"],
+        "execution_engulfing": execution_state["engulfing"],
         "mtf_rejection": mtf_state["rejection"],
         "ltf_rejection": ltf_state["rejection"],
+        "execution_rejection": execution_state["rejection"],
         "mtf_momentum": mtf_state["momentum"],
         "ltf_momentum": ltf_state["momentum"],
+        "execution_momentum": execution_state["momentum"],
         "mtf_patterns": mtf_state["patterns"],
         "ltf_patterns": ltf_state["patterns"],
+        "execution_patterns": execution_state["patterns"],
     }
 
 

@@ -4,7 +4,10 @@ import os
 from pathlib import Path
 from typing import Dict, List
 
-import requests
+try:
+    import requests
+except Exception:
+    requests = None
 
 HIGH_IMPACT_EVENTS = {
     "CPI",
@@ -70,6 +73,8 @@ def _load_local_events() -> List[Dict[str, object]]:
 
 def _fetch_forex_factory_events() -> List[Dict[str, object]]:
     if os.getenv("LIVE_NEWS_SOURCE_ENABLED", "true").lower() not in ("1", "true", "yes"):
+        return []
+    if requests is None:
         return []
 
     timeout_seconds = float(os.getenv("NEWS_HTTP_TIMEOUT_SECONDS", "10"))

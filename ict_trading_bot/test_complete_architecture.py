@@ -5,6 +5,8 @@ Testing: Price Action as Optional + All Architecture Components
 
 import sys
 import os
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from strategy.weighted_entry_validator import calculate_entry_confidence
@@ -144,9 +146,9 @@ def test_weak_price_action_strong_structure():
 
 def test_weak_topdown_strong_structure():
     """
-    TEST 3: Weak Topdown + Strong Structure = INTELLIGENT PATH
+    TEST 3: Weak Topdown + Strong Structure = SKIP
     Scenario: Bearish topdown (conflicts) BUT market structure all bullish (all 4 confirmed)
-    Expected: Intelligent Structure Path detected, smart scoring used
+    Expected: Skip. Strong structure must not override the major topdown trend.
     """
     signal = {
         "direction": "bullish",
@@ -184,24 +186,18 @@ def test_weak_topdown_strong_structure():
     route = result["execution_route"]
     alt_path = result.get("alternative_path")
     
-    # Should trigger "intelligent_structure_path" because:
-    # - topdown < 60 (would be 20 - strong conflict)
-    # - 3+ structures confirmed (has all 4)
-    
     passed = (
-        confidence >= 50 and  # Lowered threshold - system is being smart
-        route in ["intelligent_alternative", "intelligent_backtest"] and
-        alt_path and
-        alt_path.get("type") == "intelligent_structure_path"
+        confidence == 0.0 and
+        route == "skip" and
+        alt_path is None
     )
     
     print_result(
-        "TEST 3: Weak Topdown + Strong Structure",
+        "TEST 3: Weak Topdown + Strong Structure Must Skip",
         passed,
         confidence,
         route,
-        f"Alternative: {alt_path.get('type') if alt_path else 'None'} | "
-        f"Smart Scoring Applied: {alt_path.get('confidence_if_direct') if alt_path else 'N/A'}"
+        "Major topdown conflict blocked the setup before alternative routing"
     )
     return passed
 
@@ -324,9 +320,9 @@ def test_all_weak():
 
 def test_mixed_with_strong_price_action():
     """
-    TEST 6: Mixed + Strong Price Action = STANDARD Route
+    TEST 6: Mixed + Strong Price Action = SKIP
     Scenario: Topdown weak, but price action excellent (patterns confirmed)
-    Expected: Should still execute via STANDARD route (PA compensates)
+    Expected: Skip. Price action must not compensate for a conflicting topdown trend.
     """
     signal = {
         "direction": "bearish",
@@ -363,19 +359,17 @@ def test_mixed_with_strong_price_action():
     confidence = result["confidence"]
     route = result["execution_route"]
     
-    # Mixed signals: weak topdown + strong PA + moderate structure
-    # System may use intelligent path, but confidence should be >= 45
     passed = (
-        confidence >= 45 and
-        route in ["standard", "conservative", "intelligent_alternative"]
+        confidence == 0.0 and
+        route == "skip"
     )
     
     print_result(
-        "TEST 6: Mixed Signals + Strong Price Action",
+        "TEST 6: Mixed Signals + Strong Price Action Must Skip",
         passed,
         confidence,
         route,
-        f"Price action compensated for weak topdown: executed at {confidence}/100"
+        "Conflicting topdown blocked the setup before price-action compensation"
     )
     return passed
 

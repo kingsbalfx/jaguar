@@ -68,6 +68,14 @@ def _indexed_env_accounts():
         if server:
             account["server"] = server
 
+        user_id = os.getenv(f"{prefix}USER_ID", "").strip()
+        if user_id:
+            account["user_id"] = user_id
+
+        email = os.getenv(f"{prefix}EMAIL", "").strip()
+        if email:
+            account["email"] = email
+
         symbols = _split_csv(os.getenv(f"{prefix}SYMBOLS", ""))
         if symbols:
             account["symbols"] = symbols
@@ -122,6 +130,8 @@ def _server_accounts():
                 "bot_id": f"mt5_bot_{login}",
                 "password": row.get("password"),
                 "server": row.get("server"),
+                "user_id": row.get("user_id"),
+                "email": row.get("email"),
                 "source": "server",
             }
         )
@@ -179,6 +189,11 @@ def build_env(account):
         env["MT5_ACCOUNT_PASSWORD"] = str(account["password"])
     if account.get("server"):
         env["MT5_ACCOUNT_SERVER"] = str(account["server"])
+    if account.get("user_id"):
+        env["BOT_USER_ID"] = str(account["user_id"])
+        env["SIGNAL_USER_ID"] = str(account["user_id"])
+    if account.get("email"):
+        env["BOT_USER_EMAIL"] = str(account["email"])
     if account.get("api_port") is not None:
         env["API_PORT"] = str(account["api_port"])
     if account.get("mt5_path"):

@@ -160,6 +160,27 @@ export const PRICING_TIERS = {
   },
 };
 
+export const BOT_UNLIMITED_LIMIT = 1000000;
+
+export function normalizeBotLimit(value, fallback = 0) {
+  if (value === "unlimited") return BOT_UNLIMITED_LIMIT;
+  if (value === Infinity) return BOT_UNLIMITED_LIMIT;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) return fallback;
+  return Math.floor(numeric);
+}
+
+export function getBotTierDefaults(tierId) {
+  const tier = getPricingTier(tierId || "free") || PRICING_TIERS.FREE;
+  const features = tier.features || {};
+  return {
+    botTier: tier.id,
+    botMaxSignalsPerDay: normalizeBotLimit(features.maxSignalsPerDay, 0),
+    botMaxConcurrentTrades: normalizeBotLimit(features.maxConcurrentTrades, 0),
+    botSignalQuality: features.signalQuality || "none",
+  };
+}
+
 /**
  * Get pricing tier by ID
  */

@@ -24,11 +24,16 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional
 
 import MetaTrader5 as mt5
+from utils.persistent_json import save_json_file
+from utils.symbol_profile import canonical_symbol
 
 logger = logging.getLogger(__name__)
 
 VOLATILITY_STATS_FILE = Path(__file__).resolve().parent.parent / "data" / "pair_volatility_analysis.json"
 
+def _symbol_key(symbol: str) -> str:
+    """Get normalized symbol key for consistent data tracking across brokers."""
+    return canonical_symbol(symbol)
 
 def load_volatility_analysis():
     """Load volatility analysis for all pairs from disk."""
@@ -45,9 +50,7 @@ def load_volatility_analysis():
 def save_volatility_analysis(analysis: dict):
     """Save volatility analysis to disk."""
     try:
-        VOLATILITY_STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(VOLATILITY_STATS_FILE, 'w') as f:
-            json.dump(analysis, f, indent=2)
+        save_json_file(VOLATILITY_STATS_FILE, analysis)
     except Exception as e:
         logger.warning(f"Failed to save volatility analysis: {e}")
 
@@ -65,7 +68,15 @@ def calculate_atr(symbol: str, timeframe: str, periods: int = 14) -> Optional[fl
         ATR value or None if fetch failed
     """
     try:
-        tf = mt5.TIMEFRAME_H1 if timeframe == "H1" else mt5.TIMEFRAME_M15
+        tf_map = {
+            "M5": mt5.TIMEFRAME_M5,
+            "M15": mt5.TIMEFRAME_M15,
+            "M30": mt5.TIMEFRAME_M30,
+            "H1": mt5.TIMEFRAME_H1,
+            "H4": mt5.TIMEFRAME_H4,
+            "D1": mt5.TIMEFRAME_D1,
+        }
+        tf = tf_map.get(timeframe, mt5.TIMEFRAME_H1)
         rates = mt5.copy_rates_from_pos(symbol, tf, 0, periods + 5)
         
         if rates is None or len(rates) < periods:
@@ -116,8 +127,10 @@ def analyze_market_condition_per_pair(symbol: str, timeframe: str = "H1") -> Dic
         # Fetch rates
         tf_map = {
             "H1": mt5.TIMEFRAME_H1,
+            "M30": mt5.TIMEFRAME_M30,
             "M15": mt5.TIMEFRAME_M15,
             "M5": mt5.TIMEFRAME_M5,
+            "H4": mt5.TIMEFRAME_H4,
             "D1": mt5.TIMEFRAME_D1,
         }
         tf = tf_map.get(timeframe, mt5.TIMEFRAME_H1)
@@ -188,7 +201,13 @@ def analyze_market_condition_per_pair(symbol: str, timeframe: str = "H1") -> Dic
             volatility_index = min(1.0, volatility_index * 1.2)
         
         # Market condition classification
-        if volatility_index > 0.7:
+        if consolidation_strength > 0.75:
+            market_condition = "ranging"
+            opportunity_type = "range_bound"
+            position_size_adjustment = 0.7 # Reduce size in range to avoid chop
+            confidence_adjustment = -0.15 # Require MUCH higher confirmation in ranges
+            avoid_hours = 0
+        elif volatility_index > 0.7:
             market_condition = "volatile"
             opportunity_type = "breakout"
             position_size_adjustment = 0.8  # Reduce for volatility
@@ -257,7 +276,8 @@ def analyze_all_pairs(symbols: list, timeframe: str = "H1") -> Dict[str, Dict]:
     """
     analysis = {}
     for symbol in symbols:
-        analysis[symbol] = analyze_market_condition_per_pair(symbol, timeframe)
+        pair_analysis = analyze_market_condition_per_pair(symbol, timeframe)
+        analysis[_symbol_key(symbol)] = pair_analysis
     
     # Save to disk
     existing = load_volatility_analysis()
@@ -283,10 +303,11 @@ def get_volatility_summary(symbols: list = None) -> str:
     target_symbols = symbols or list(analysis.keys())
     
     for symbol in sorted(target_symbols):
-        if symbol not in analysis:
-            continue
+        key = _symbol_key(symbol)
+        if key not in analysis:
+             continue
         
-        data = analysis[symbol]
+        data = analysis[key]
         condition = data.get("market_condition", "unknown").upper()
         vol_index = data.get("volatility_index", 0.0)
         atr = data.get("atr_percent", 0.0)
@@ -308,14 +329,15 @@ def should_trade_pair_based_on_volatility(symbol: str) -> tuple:
         (False, "VOLATILE EURUSD, avoid for next 1 hour", {"position_size": 0.8, "confidence": -0.1})
     """
     analysis = load_volatility_analysis()
-    
-    if symbol not in analysis:
-        return True, f"No volatility data for {symbol}, trading allowed", {
+    key = _symbol_key(symbol)
+
+    if key not in analysis:
+        return True, f"No volatility data for {key}, trading allowed", {
             "position_size_adjustment": 1.0,
             "confidence_adjustment": 0.0,
         }
     
-    data = analysis[symbol]
+    data = analysis[key]
     condition = data.get("market_condition", "unknown")
     volatility = data.get("volatility_index", 0.5)
     avoid_hours = data.get("trades_should_avoid_in_last_hours", 0)

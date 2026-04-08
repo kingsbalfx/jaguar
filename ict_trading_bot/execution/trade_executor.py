@@ -32,12 +32,36 @@ def calculate_lot_size(
     if symbol_info is None:
         raise RuntimeError(f"Symbol info not found: {symbol}")
 
-    pip_value = symbol_info.trade_tick_value
+    pip_value = float(getattr(symbol_info, "trade_tick_value", 0.0) or 0.0)
+    if pip_value <= 0:
+        pip_value = 1.0
+    stop_loss_pips = max(float(stop_loss_pips or 0), 1.0)
     risk_amount = balance * (risk_percent / 100)
 
     lot_size = risk_amount / (stop_loss_pips * pip_value)
 
     return round(lot_size, 2)
+
+
+def _supported_filling_modes():
+    modes = []
+    for name in ("ORDER_FILLING_IOC", "ORDER_FILLING_FOK", "ORDER_FILLING_RETURN"):
+        value = getattr(mt5, name, None)
+        if value is not None and value not in modes:
+            modes.append(value)
+    return modes or [0]
+
+
+def _success_retcodes():
+    return {
+        code
+        for code in (
+            getattr(mt5, "TRADE_RETCODE_DONE", None),
+            getattr(mt5, "TRADE_RETCODE_PLACED", None),
+            getattr(mt5, "TRADE_RETCODE_DONE_PARTIAL", None),
+        )
+        if code is not None
+    }
 
 
 def execute_trade(
@@ -95,11 +119,26 @@ def execute_trade(
             "type_filling": mt5.ORDER_FILLING_IOC,
         })
 
-    result = mt5.order_send(request)
+    result = None
+    attempts = []
+    if order_type_lower == "limit":
+        attempts = [request]
+    else:
+        for filling_mode in _supported_filling_modes():
+            attempts.append({**request, "type_filling": filling_mode})
 
-    if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+    success_retcodes = _success_retcodes()
+    for attempt in attempts:
+        result = mt5.order_send(attempt)
+        if result is not None and getattr(result, "retcode", None) in success_retcodes:
+            request = attempt
+            break
+
+    if result is None or getattr(result, "retcode", None) not in success_retcodes:
         msg = getattr(result, "comment", "unknown MT5 error")
-        print(f"[{datetime.now()}] Trade failed: {msg}")
+        retcode = getattr(result, "retcode", None)
+        last_error = mt5.last_error()
+        print(f"[{datetime.now()}] Trade failed: retcode={retcode} comment={msg} last_error={last_error}")
         return None
 
     placed_price = request.get("price", market_price)
@@ -121,6 +160,7 @@ def execute_trade(
         "stage": 0,
         "order_type": order_type_lower,
         "mt5_retcode": getattr(result, "retcode", None),
+        "mt5_comment": getattr(result, "comment", None),
     }
 
 

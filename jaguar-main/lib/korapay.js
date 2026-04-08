@@ -1,8 +1,21 @@
 import crypto from "crypto";
 import fetch from "node-fetch";
 import { getSupabaseClient } from "./supabaseClient.js";
+import { getBotTierDefaults } from "./pricing-config.js";
 
 const DEFAULT_API_BASE = "https://api.korapay.com/merchant/api/v1";
+
+function buildProfilePlanUpdate(plan) {
+  const defaults = getBotTierDefaults(plan);
+  return {
+    role: plan,
+    bot_tier: defaults.botTier,
+    bot_max_signals_per_day: defaults.botMaxSignalsPerDay,
+    bot_max_concurrent_trades: defaults.botMaxConcurrentTrades,
+    bot_signal_quality: defaults.botSignalQuality,
+    bot_tier_updated_at: new Date().toISOString(),
+  };
+}
 
 function getConfig() {
   const secret = process.env.KORAPAY_SECRET_KEY || process.env.KORAPAY_SECRET;
@@ -193,8 +206,9 @@ export async function handleKorapayEvent(rawBody, eventJson) {
 
     if (isSuccess && plan) {
       try {
+        const profileUpdate = buildProfilePlanUpdate(plan);
         if (userId) {
-          await supabase.from("profiles").update({ role: plan }).eq("id", userId);
+          await supabase.from("profiles").update(profileUpdate).eq("id", userId);
           try {
             await supabase.auth.admin.updateUserById(userId, {
               app_metadata: { role: plan },
@@ -209,7 +223,7 @@ export async function handleKorapayEvent(rawBody, eventJson) {
             .eq("email", customerEmail)
             .maybeSingle();
           if (profile?.id) {
-            await supabase.from("profiles").update({ role: plan }).eq("id", profile.id);
+            await supabase.from("profiles").update(profileUpdate).eq("id", profile.id);
           }
         }
       } catch (e) {

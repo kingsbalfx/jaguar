@@ -394,16 +394,27 @@ def calculate_dynamic_lot_size(
     if intel["current_streak"] == "loss" and intel["loss_streak"] > 0:
         streak_multiplier = max(0.3, 1.0 - (intel["loss_streak"] * 0.15))  # Each loss = 15% reduction
     
-    # Win streak bonus: Increase size during winning streaks
+    # Win streak bonus: FIXED - Cap at 1.1x to prevent "blowup" at end of streaks
     if intel["current_streak"] == "win" and intel["win_streak"] > 1:
-        streak_multiplier = min(1.8, 1.0 + (intel["win_streak"] - 1) * 0.2)  # Each win = 20% increase
+        streak_multiplier = min(1.1, 1.0 + (intel["win_streak"] - 1) * 0.05)
     
     # Expectancy adjustment: Positive expectancy = larger, negative = smaller
-    expectancy_multiplier = 1.0 + (intel["expectancy"] * 0.3) if intel["expectancy"] > 0 else 1.0 - abs(intel["expectancy"] * 0.5)
-    expectancy_multiplier = max(0.2, min(2.0, expectancy_multiplier))
+    expectancy_multiplier = 1.0 + (intel["expectancy"] * 0.1) if intel["expectancy"] > 0 else 1.0 - abs(intel["expectancy"] * 0.2)
+    expectancy_multiplier = max(0.5, min(1.2, expectancy_multiplier))
     
+    # Session IQ: Adjust sizing based on current session alignment
+    session_multiplier = 1.0
+    try:
+        from risk.intelligence_system import calculate_timing_score
+        timing_score, timing_details = calculate_timing_score(symbol, os.getenv("EXECUTION_TIMEFRAME", "M5"))
+        session_alignment = timing_details.get("session_alignment", 0.5)
+        if session_alignment < 0.6:
+            session_multiplier = 0.75  # Reduce size by 25% for off-session trading
+    except Exception:
+        pass
+
     # Final calculation
-    final_multiplier = base_multiplier * opportunity_multiplier * streak_multiplier * expectancy_multiplier
+    final_multiplier = base_multiplier * opportunity_multiplier * streak_multiplier * expectancy_multiplier * session_multiplier
     # Apply asset class specific limits
     final_multiplier = max(base_min, min(base_max, final_multiplier))
     
@@ -454,12 +465,12 @@ def calculate_intelligent_stop_loss(
         # Medium confidence: standard stops
         multiplier = 1.0
     else:
-        # High/Medium-high risk: tighter stops, preserve capital
-        multiplier = 0.7
+        # High risk: Use standard stops. Tighter stops cause more losses on volatile pairs.
+        multiplier = 1.0
     
-    # Adjust based on streak: Losing momentum = tighter stop
-    if intel["current_streak"] == "loss" and intel["loss_streak"] > 1:
-        multiplier *= max(0.6, 1.0 - (intel["loss_streak"] * 0.1))
+    # Adjust based on streak: Use standard ATR buffer during losses to avoid "stop-hunting"
+    if intel["current_streak"] == "loss":
+        multiplier = max(1.0, multiplier)
     
     # Adjust based on prediction accuracy
     # High accuracy = we trust the stop, wider is ok
@@ -519,7 +530,8 @@ def should_take_trade(
         "crypto": 0.60,
         "other": 0.62,
     }
-    base_threshold = base_thresholds.get(asset_class, 0.62)
+    # FIXED: Standardized base threshold to prevent "Veteran" quality degradation
+    base_threshold = base_thresholds.get(asset_class, 0.65)
 
     if total_trades == 0:
         historical_threshold = 0.70
@@ -530,7 +542,8 @@ def should_take_trade(
     elif total_trades < 50:
         historical_threshold = base_threshold - 0.05
     else:
-        historical_threshold = max(0.50, base_threshold - 0.10)
+        # VETERAN: Maintain high standards. Success doesn't excuse low-quality setups.
+        historical_threshold = base_threshold
 
     route_threshold = _get_weighted_route_threshold(signal_type)
     final_threshold = min(historical_threshold, route_threshold) if route_threshold is not None else historical_threshold
@@ -621,13 +634,14 @@ def should_take_trade(
         analysis["confidence"] *= 0.7
         if analysis["confidence"] < final_threshold:
             analysis["decision"] = False
+            analysis["factors"].append("🚨 CRITICAL: Blocked by losing streak protection (Stationary Discipline)")
             return False, analysis
 
     if intel["current_streak"] == "win" and intel["win_streak"] >= 2:
         analysis["factors"].append(
-            f"Win streak {intel['win_streak']} = increase confidence by 25%"
+            f"Win streak {intel['win_streak']} = maintain confidence"
         )
-        analysis["confidence"] = min(0.99, analysis["confidence"] * 1.25)
+        # FIXED: Removed confidence multiplier for streaks to prevent over-optimization
 
     analysis["confidence"] = round(max(0.0, min(0.99, analysis["confidence"])), 2)
 
@@ -642,125 +656,6 @@ def should_take_trade(
             f"FINAL: Skip - only {analysis['confidence']:.0%} confidence (need {final_threshold:.0%})"
         )
 
-    return analysis["decision"], analysis
-
-    intel = calculate_precise_winning_rate(symbol)
-    asset_class = infer_asset_class(symbol)
-    
-    # DYNAMIC THRESHOLD - Adapts as symbol learns from history
-    total_trades = intel.get("total_trades", 0)
-    base_thresholds = {
-        "forex": 0.65,
-        "metals": 0.62,
-        "crypto": 0.60,
-        "other": 0.62,
-    }
-    base_threshold = base_thresholds.get(asset_class, 0.62)
-    
-    # Adaptive learning schedule
-    # PROTECTIVE thresholds: Require higher conviction until symbol is proven
-    if total_trades == 0:
-        final_threshold = 0.70  # Increased from 55% to 70% to prevent "trash" trades
-    elif total_trades < 5:
-        final_threshold = 0.68  # Increased from 60% to 68%
-    elif total_trades < 15:
-        final_threshold = 0.62  # LEARNING: Lowered from 68% to 62% (OPTION 1A)
-    elif total_trades < 50:
-        final_threshold = base_threshold - 0.05  # PROVEN: Reduce by 5% (OPTION 1A)
-    else:
-        final_threshold = max(0.50, base_threshold - 0.10)  # VETERAN: Reduce by 10% (OPTION 1A)
-    
-    analysis = {
-        "symbol": symbol,
-        "asset_class": asset_class,
-        "confirmation_score": confirmation_score,
-        "signal_type": signal_type,
-        "decision": False,
-        "confidence": 0.0,
-        "threshold": final_threshold,
-        "factors": [],
-    }
-    
-    # Factor 1: New symbol (no history) - TRADE SMALL
-    if intel["total_trades"] == 0:
-        if confirmation_score >= 6.5:
-            analysis["factors"].append(f"New {asset_class} + moderate confirmation = SMALL trade OK")
-            analysis["decision"] = True
-            analysis["confidence"] = 0.6
-        else:
-            analysis["factors"].append("New symbol + low confirmation = SKIP")
-            return False, analysis
-    
-    # Factor 2: Symbol win rate is too low (< 40%) - SKIP HIGH RISK
-    elif intel["base_win_rate"] < 0.40:
-        if confirmation_score < 6.5:
-            analysis["factors"].append(f"Poor win rate ({intel['base_win_rate']:.1%}) + low confirmation = SKIP")
-            return False, analysis
-        else:
-            analysis["factors"].append(f"Poor win rate ({intel['base_win_rate']:.1%}) but HIGH confirmation = TRY")
-            analysis["decision"] = True
-            analysis["confidence"] = 0.55
-    
-    # Factor 3: Symbol has great history (> 65% win rate)
-    elif intel["base_win_rate"] >= 0.65:
-        analysis["factors"].append(f"Strong {asset_class} win rate ({intel['base_win_rate']:.1%}) = ALWAYS TRADE")
-        analysis["decision"] = True
-        analysis["confidence"] = 0.95
-    
-    # Factor 4: Symbol is in good range (45-65% win rate)
-    elif intel["base_win_rate"] >= 0.45:
-        if confirmation_score >= 7.2:
-            analysis["factors"].append(f"Good {asset_class} win rate ({intel['base_win_rate']:.1%}) + high confirmation = TRADE")
-            analysis["decision"] = True
-            analysis["confidence"] = 0.85
-        elif confirmation_score >= 6.8:
-            analysis["factors"].append(f"Good {asset_class} win rate ({intel['base_win_rate']:.1%}) + medium confirmation = TRADE")
-            analysis["decision"] = True
-            analysis["confidence"] = 0.70
-        else:
-            analysis["factors"].append(f"Good win rate but LOW confirmation = SKIP")
-            return False, analysis
-    
-    # Factor 5: Losing streak penalty
-    if intel["current_streak"] == "loss" and intel["loss_streak"] >= 3:
-        analysis["factors"].append(f"⚠️ {intel['loss_streak']} loss streak = REDUCE confidence by 30%")
-        analysis["confidence"] *= 0.7
-        
-        # Skip trade if confidence drops below threshold
-        if analysis["confidence"] < final_threshold:
-            analysis["decision"] = False
-            return False, analysis
-    
-    # Factor 6: Win streak bonus
-    if intel["current_streak"] == "win" and intel["win_streak"] >= 2:
-        analysis["factors"].append(f"✅ {intel['win_streak']} win streak = INCREASE confidence by 25%")
-        analysis["confidence"] = min(0.99, analysis["confidence"] * 1.25)
-    
-    # Factor 7: Signal type credibility (asset-class adjusted)
-    signal_credibility = {
-        "elite": 1.0,
-        "standard": 0.95,
-        "weighted_confirmation": 0.95,
-        "intelligent_alternative": 0.92,
-        "four_confirmation": 0.90,
-        "symbol_confidence_high": 0.85,
-        "backtest_fallback": 0.75 if asset_class == "forex" else 0.80,
-    }
-    
-    credibility = signal_credibility.get(signal_type, 0.70)
-    analysis["factors"].append(f"Signal type '{signal_type}' credibility: {credibility:.0%}")
-    analysis["confidence"] *= credibility
-    
-    # Final threshold
-    analysis["confidence"] = round(max(0.0, min(0.99, analysis["confidence"])), 2)
-    
-    if analysis["confidence"] >= final_threshold:
-        analysis["decision"] = True
-        analysis["factors"].append(f"✅ FINAL: {asset_class.upper()} trade with {analysis['confidence']:.0%} confidence (threshold: {final_threshold:.0%})")
-    else:
-        analysis["decision"] = False
-        analysis["factors"].append(f"❌ FINAL: Skip - only {analysis['confidence']:.0%} confidence (need {final_threshold:.0%})")
-    
     return analysis["decision"], analysis
 
 

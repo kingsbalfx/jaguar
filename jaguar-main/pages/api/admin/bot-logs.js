@@ -50,7 +50,18 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "failed to fetch logs" });
     }
 
-    return res.status(200).json({ logs: data || [] });
+    const signalLimit = Number(req.query.signalLimit) || 50;
+    const { data: signals, error: signalsError } = await supabaseAdmin
+      .from("bot_signals")
+      .select("id,user_id,symbol,direction,entry_price,stop_loss,take_profit,signal_quality,confidence,status,created_at")
+      .order("created_at", { ascending: false })
+      .limit(signalLimit);
+
+    return res.status(200).json({
+      logs: data || [],
+      signals: signalsError ? [] : signals || [],
+      signalsError: signalsError?.message || null,
+    });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: e.message || String(e) });

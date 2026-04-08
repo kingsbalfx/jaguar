@@ -102,6 +102,29 @@ FOREX_SYMBOLS = {normalize_symbol(symbol) for symbol in LIQUID_FOREX}
 METAL_SYMBOLS = {normalize_symbol(symbol) for symbol in LIQUID_METALS}
 CRYPTO_SYMBOLS = {normalize_symbol(symbol) for symbol in LIQUID_CRYPTO}
 
+CRYPTO_CODES = {
+    "BTC",
+    "ETH",
+    "SOL",
+    "BNB",
+    "XRP",
+    "DOGE",
+    "ADA",
+    "LTC",
+    "BCH",
+    "TRX",
+    "TON",
+    "AVAX",
+    "EOS",
+    "MATIC",
+    "LINK",
+    "UNI",
+    "SHIB",
+    "DOT",
+    "NEAR",
+    "PEPE",
+}
+
 FOREX_ALIASES = _build_asset_aliases(LIQUID_FOREX)
 METAL_ALIASES = _build_asset_aliases(LIQUID_METALS)
 CRYPTO_ALIASES = _build_asset_aliases(LIQUID_CRYPTO)
@@ -121,7 +144,13 @@ def infer_asset_class(symbol: str) -> str:
         or normalized.startswith(("XAU", "XAG", "XPT", "XPD"))
     ):
         return "metals"
-    if normalized in CRYPTO_ALIASES or canonical in CRYPTO_SYMBOLS:
+
+    # Enhanced crypto detection for various formats (BTC, BTCUSD, BTCUSDM, etc.)
+    if (
+        normalized in CRYPTO_ALIASES
+        or canonical in CRYPTO_SYMBOLS
+        or any(code in normalized for code in CRYPTO_CODES)
+    ):
         return "crypto"
     if len(normalized) >= 6 and normalized[:3] in FX_CODES and normalized[3:6] in FX_CODES:
         return "forex"

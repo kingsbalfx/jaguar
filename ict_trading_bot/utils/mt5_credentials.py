@@ -37,8 +37,13 @@ def _warn_once(message):
     logger.warning(message)
 
 
-def _select_fields(has_updated_at):
-    return "login,password,server,updated_at" if has_updated_at else "login,password,server"
+def _select_fields(has_updated_at, has_owner_fields):
+    fields = ["login", "password", "server"]
+    if has_updated_at:
+        fields.append("updated_at")
+    if has_owner_fields:
+        fields.extend(["user_id", "email"])
+    return ",".join(fields)
 
 
 def _fetch_mt5_credentials_rows():
@@ -52,8 +57,8 @@ def _fetch_mt5_credentials_rows():
 
     account_login = os.getenv("MT5_ACCOUNT_LOGIN", "").strip()
 
-    def _query(has_active, has_updated_at):
-        query = client.table("mt5_credentials").select(_select_fields(has_updated_at))
+    def _query(has_active, has_updated_at, has_owner_fields):
+        query = client.table("mt5_credentials").select(_select_fields(has_updated_at, has_owner_fields))
 
         if has_active:
             query = query.eq("active", True)
@@ -68,11 +73,12 @@ def _fetch_mt5_credentials_rows():
 
     has_active = True
     has_updated_at = True
+    has_owner_fields = True
 
     res = None
-    for _ in range(4):
+    for _ in range(6):
         try:
-            res = _query(has_active, has_updated_at)
+            res = _query(has_active, has_updated_at, has_owner_fields)
             break
         except Exception as exc:
             if has_active and _is_missing_column_error(exc, "active"):
@@ -82,6 +88,12 @@ def _fetch_mt5_credentials_rows():
             if has_updated_at and _is_missing_column_error(exc, "updated_at"):
                 has_updated_at = False
                 _warn_once("mt5_credentials.updated_at column missing; falling back without updated_at ordering")
+                continue
+            if has_owner_fields and (
+                _is_missing_column_error(exc, "user_id") or _is_missing_column_error(exc, "email")
+            ):
+                has_owner_fields = False
+                _warn_once("mt5_credentials user owner columns missing; floating PnL will fall back to login-only mapping")
                 continue
             raise RuntimeError(f"Failed to fetch MT5 credentials from Supabase: {exc}") from exc
 
@@ -130,6 +142,8 @@ def fetch_all_mt5_credentials():
             "login": row.get("login"),
             "password": row.get("password"),
             "server": row.get("server"),
+            "user_id": row.get("user_id"),
+            "email": row.get("email"),
         }
         for row in rows
     ]

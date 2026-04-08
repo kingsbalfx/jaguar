@@ -2,7 +2,19 @@
 import React from "react";
 import Link from "next/link";
 import { verifyKorapayCharge } from "../../lib/korapay";
-import { PRICING_TIERS } from "../../lib/pricing-config";
+import { PRICING_TIERS, getBotTierDefaults } from "../../lib/pricing-config";
+
+function buildProfilePlanUpdate(plan) {
+  const defaults = getBotTierDefaults(plan);
+  return {
+    role: plan,
+    bot_tier: defaults.botTier,
+    bot_max_signals_per_day: defaults.botMaxSignalsPerDay,
+    bot_max_concurrent_trades: defaults.botMaxConcurrentTrades,
+    bot_signal_quality: defaults.botSignalQuality,
+    bot_tier_updated_at: new Date().toISOString(),
+  };
+}
 
 export default function CheckoutSuccess({ success, message, reference, plan }) {
   const dashboardUrl =
@@ -117,29 +129,32 @@ export async function getServerSideProps(context) {
     );
 
     try {
-      if (userId) {
-        await supabaseAdmin.from("profiles").update({ role: plan }).eq("id", userId);
-        try {
-          await supabaseAdmin.auth.admin.updateUserById(userId, {
-            app_metadata: { role: plan },
-          });
-        } catch (e) {
-          console.warn("auth.admin.updateUserById failed:", e?.message || e);
-        }
-      } else if (buyerEmail) {
-        const { data: profileRow } = await supabaseAdmin
-          .from("profiles")
-          .select("id")
-          .eq("email", buyerEmail)
-          .maybeSingle();
+      if (plan) {
+        const profileUpdate = buildProfilePlanUpdate(plan);
+        if (userId) {
+          await supabaseAdmin.from("profiles").update(profileUpdate).eq("id", userId);
+          try {
+            await supabaseAdmin.auth.admin.updateUserById(userId, {
+              app_metadata: { role: plan },
+            });
+          } catch (e) {
+            console.warn("auth.admin.updateUserById failed:", e?.message || e);
+          }
+        } else if (buyerEmail) {
+          const { data: profileRow } = await supabaseAdmin
+            .from("profiles")
+            .select("id")
+            .eq("email", buyerEmail)
+            .maybeSingle();
 
-        if (profileRow?.id) {
-          await supabaseAdmin.from("profiles").update({ role: plan }).eq("id", profileRow.id);
-        } else {
-          await supabaseAdmin.from("profiles").insert([{ email: buyerEmail, role: plan }]);
+          if (profileRow?.id) {
+            await supabaseAdmin.from("profiles").update(profileUpdate).eq("id", profileRow.id);
+          } else {
+            await supabaseAdmin.from("profiles").insert([{ email: buyerEmail, ...profileUpdate }]);
+          }
         }
       }
-      if (buyerEmail) {
+      if (buyerEmail && plan) {
         await supabaseAdmin.from("subscriptions").upsert(
           {
             email: buyerEmail,

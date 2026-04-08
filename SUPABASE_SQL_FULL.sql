@@ -350,6 +350,8 @@ create index if not exists idx_mentorship_sessions_status on public.mentorship_s
 -- ============================================
   create table if not exists public.mt5_credentials (
     id uuid primary key default gen_random_uuid(),
+    user_id uuid references auth.users(id) on delete set null,
+    email varchar(254),
     login text not null,
     password text not null,
     server text not null,
@@ -359,6 +361,8 @@ create index if not exists idx_mentorship_sessions_status on public.mentorship_s
   );
 
   create index if not exists idx_mt5_credentials_active on public.mt5_credentials(active);
+  create index if not exists idx_mt5_credentials_user on public.mt5_credentials(user_id);
+  create index if not exists idx_mt5_credentials_login on public.mt5_credentials(login);
   create index if not exists idx_mt5_credentials_updated_at on public.mt5_credentials(updated_at desc);
 
   create table if not exists public.mt5_submissions (

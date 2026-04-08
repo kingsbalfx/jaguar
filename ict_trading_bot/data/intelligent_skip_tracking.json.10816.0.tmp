@@ -1,0 +1,241 @@
+{
+  "BNBUSD": {
+    "symbol": "BNBUSD",
+    "asset_class": "crypto",
+    "total_skips": 3,
+    "skip_reasons": {
+      "bos": 1,
+      "price_action": 1,
+      "hybrid_reject": 1
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-07T06:33:52.520779",
+        "symbol": "BNBUSD",
+        "asset_class": "crypto",
+        "reason": "bos",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-07T06:33:52.603047",
+        "symbol": "BNBUSD",
+        "asset_class": "crypto",
+        "reason": "price_action",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-07T06:33:56.047809",
+        "symbol": "BNBUSD",
+        "asset_class": "crypto",
+        "reason": "hybrid_reject",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-07T06:33:56.047826",
+    "skip_patterns": {
+      "bos": [
+        0.0
+      ],
+      "price_action": [
+        0.0
+      ],
+      "hybrid_reject": [
+        0.0
+      ]
+    }
+  },
+  "EURCHF": {
+    "symbol": "EURCHF",
+    "asset_class": "forex",
+    "total_skips": 2,
+    "skip_reasons": {
+      "price_action": 1,
+      "risk": 1
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-07T06:33:53.030557",
+        "symbol": "EURCHF",
+        "asset_class": "forex",
+        "reason": "price_action",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-07T06:33:57.273074",
+        "symbol": "EURCHF",
+        "asset_class": "forex",
+        "reason": "risk",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-07T06:33:57.273105",
+    "skip_patterns": {
+      "price_action": [
+        0.0
+      ],
+      "risk": [
+        0.0
+      ]
+    }
+  },
+  "EURUSD": {
+    "symbol": "EURUSD",
+    "asset_class": "forex",
+    "total_skips": 1,
+    "skip_reasons": {
+      "entry_fib_zone": 1
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-07T06:33:54.808313",
+        "symbol": "EURUSD",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-07T06:33:54.808327",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0
+      ]
+    }
+  },
+  "XRPUSD": {
+    "symbol": "XRPUSD",
+    "asset_class": "crypto",
+    "total_skips": 1,
+    "skip_reasons": {
+      "price_action": 1
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-07T06:33:56.955788",
+        "symbol": "XRPUSD",
+        "asset_class": "crypto",
+        "reason": "price_action",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-07T06:33:56.955798",
+    "skip_patterns": {
+      "price_action": [
+        0.0
+      ]
+    }
+  },
+  "GBPCHF": {
+    "symbol": "GBPCHF",
+    "asset_class": "forex",
+    "total_skips": 1,
+    "skip_reasons": {
+      "entry_fib_zone": 1
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-07T06:33:58.049275",
+        "symbol": "GBPCHF",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-07T06:33:58.049287",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0
+      ]
+    }
+  },
+  "AUDJPY": {
+    "symbol": "AUDJPY",
+    "asset_class": "forex",
+    "total_skips": 1,
+    "skip_reasons": {
+      "entry_fib_zone": 1
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-07T06:33:59.049402",
+        "symbol": "AUDJPY",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-07T06:33:59.049416",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0
+      ]
+    }
+  },
+  "CADJPY": {
+    "symbol": "CADJPY",
+    "asset_class": "forex",
+    "total_skips": 1,
+    "skip_reasons": {
+      "entry_fib_zone": 1
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-07T06:34:00.606763",
+        "symbol": "CADJPY",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-07T06:34:00.606788",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0
+      ]
+    }
+  },
+  "GBPUSD": {
+    "symbol": "GBPUSD",
+    "asset_class": "forex",
+    "total_skips": 1,
+    "skip_reasons": {
+      "risk": 1
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-07T06:34:01.102873",
+        "symbol": "GBPUSD",
+        "asset_class": "forex",
+        "reason": "risk",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-07T06:34:01.102954",
+    "skip_patterns": {
+      "risk": [
+        0.0
+      ]
+    }
+  }
+}

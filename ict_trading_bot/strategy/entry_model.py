@@ -51,6 +51,13 @@ def explain_entry_failure(trend, price, fib_levels, fvgs, htf_order_blocks, symb
             if not isinstance(fvg, dict):
                 continue
             if fvg.get("type") == trend and fvg.get("low") is not None and fvg.get("high") is not None:
+                # Fake FVG check: Is it already mitigated or past optimal entry?
+                # For bullish FVG, if price is above the FVG's midpoint, it's less optimal.
+                # For bearish FVG, if price is below the FVG's midpoint, it's less optimal.
+                if (trend == "bullish" and price > (fvg["low"] + fvg["high"]) / 2) or \
+                   (trend == "bearish" and price < (fvg["low"] + fvg["high"]) / 2):
+                    continue # Skip this FVG as it's already mitigated or past optimal entry
+
                 if fvg["low"] <= price <= fvg["high"]:
                     valid_fvg = fvg
                     break
@@ -160,4 +167,3 @@ def check_entry(
         "entry_buffer": bounds["buffer"],
         "asset_class": infer_asset_class(symbol),
     }
-

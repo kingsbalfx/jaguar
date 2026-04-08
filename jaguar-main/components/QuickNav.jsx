@@ -4,11 +4,11 @@ import { useRouter } from "next/router";
 import { getBrowserSupabaseClient } from "../lib/supabaseClient";
 
 const ROLE_DASHBOARD = {
-  user: { label: "Dashboard", href: "/dashboard" },
-  premium: { label: "Dashboard (Premium)", href: "/dashboard/premium" },
-  vip: { label: "Dashboard (VIP)", href: "/dashboard/vip" },
-  pro: { label: "Dashboard (Pro)", href: "/dashboard/pro" },
-  lifetime: { label: "Dashboard (Lifetime)", href: "/dashboard/lifetime" },
+  user: { label: "Dashboard", href: "/dashboard", group: "Account" },
+  premium: { label: "Premium Desk", href: "/dashboard/premium", group: "Account" },
+  vip: { label: "VIP Desk", href: "/dashboard/vip", group: "Account" },
+  pro: { label: "Pro Desk", href: "/dashboard/pro", group: "Account" },
+  lifetime: { label: "Lifetime Desk", href: "/dashboard/lifetime", group: "Account" },
 };
 
 function getDashboardPathFromRoute(pathname = "") {
@@ -30,45 +30,119 @@ function resolveRoleFromPath(pathname = "") {
   return null;
 }
 
-function buildLinks(role, pathname) {
-  const links = [{ label: "Home", href: "/" }];
-  const currentDashboardPath = getDashboardPathFromRoute(pathname);
+function dedupeLinks(links) {
+  return links.filter((item, idx) => links.findIndex((x) => x.href === item.href) === idx);
+}
 
+function buildLinks(role, pathname) {
+  const links = [{ label: "Home", href: "/", group: "Main" }];
+  const currentDashboardPath = getDashboardPathFromRoute(pathname);
   const dashboard = ROLE_DASHBOARD[role];
+
   if (dashboard) {
     links.push(dashboard);
   }
 
   if (currentDashboardPath && currentDashboardPath !== "/dashboard") {
-    links.push({ label: "Bot Access", href: `${currentDashboardPath}#bot-access` });
-    links.push({ label: "Mentorship Content", href: `${currentDashboardPath}#mentorship-content` });
+    links.push({ label: "Bot Access", href: `${currentDashboardPath}#bot-access`, group: "Trading" });
+    links.push({ label: "Mentorship", href: `${currentDashboardPath}#mentorship-content`, group: "Trading" });
   }
 
   if (role && role !== "admin" && role !== "lifetime") {
-    links.push({ label: "Upgrade Plan", href: "/pricing" });
+    links.push({ label: "Upgrade", href: "/pricing", group: "Account" });
   }
 
   if (role && role !== "admin") {
-    links.push({ label: "Live Room", href: "/live-pen" });
-    links.push({ label: "Profile", href: "/complete-profile" });
+    links.push({ label: "Live Room", href: "/live-pen", group: "Trading" });
+    links.push({ label: "Profile", href: "/complete-profile", group: "Account" });
   }
 
   if (role === "admin") {
     links.push(
-      { label: "Admin Home", href: "/admin" },
-      { label: "Payments History", href: "/admin/payments" },
-      { label: "Bot Logs", href: "/admin/bot-logs" },
-      { label: "MT5 Status", href: "/admin/settings" },
-      { label: "Admin Messages", href: "/admin/messages" },
-      { label: "Mentorship", href: "/admin/mentorship" },
-      { label: "Users", href: "/admin/users" },
-      { label: "Subscriptions", href: "/admin/subscriptions" }
+      { label: "Command", href: "/admin", group: "Admin" },
+      { label: "Users & Limits", href: "/admin/users", group: "Admin" },
+      { label: "Market Edge", href: "/admin/bot-logs#market-edge", group: "Bot Desk" },
+      { label: "Bot Logs", href: "/admin/bot-logs", group: "Bot Desk" },
+      { label: "MT5 Status", href: "/admin/settings", group: "Bot Desk" },
+      { label: "Payments", href: "/admin/payments", group: "Business" },
+      { label: "Subscriptions", href: "/admin/subscriptions", group: "Business" },
+      { label: "Messages", href: "/admin/messages", group: "Community" },
+      { label: "Mentorship", href: "/admin/mentorship", group: "Community" },
+      { label: "Content", href: "/admin/content", group: "Community" }
     );
   }
 
-  links.push({ label: "Support", href: "/contact" });
+  links.push({ label: "Support", href: "/contact", group: "Main" });
+  return dedupeLinks(links);
+}
 
-  return links.filter((item, idx) => links.findIndex((x) => x.href === item.href) === idx);
+function isActiveHref(pathname, href) {
+  const cleanHref = href.split("#")[0];
+  if (cleanHref === "/") return pathname === "/";
+  return pathname === cleanHref || pathname.startsWith(`${cleanHref}/`);
+}
+
+function groupLinks(links) {
+  return links.reduce((groups, item) => {
+    const group = item.group || "Main";
+    if (!groups[group]) groups[group] = [];
+    groups[group].push(item);
+    return groups;
+  }, {});
+}
+
+function NavPanel({ links, role, pathname, onSignOut, compact = false }) {
+  const grouped = groupLinks(links);
+
+  return (
+    <div className={`${compact ? "w-72" : "w-64"} rounded-lg border border-white/10 bg-slate-950/95 shadow-2xl shadow-black/40 backdrop-blur`}>
+      <div className="px-4 py-3 border-b border-white/10">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs text-emerald-200">Quick Navigator</div>
+            <div className="text-sm font-semibold text-white mt-1 capitalize">{role || "member"} access</div>
+          </div>
+          <span className="inline-flex items-center gap-2 rounded-md border border-emerald-400/30 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200">
+            <span className="h-2 w-2 rounded-sm bg-emerald-300" />
+            Live
+          </span>
+        </div>
+      </div>
+
+      <nav className="px-2 py-3 text-sm">
+        {Object.entries(grouped).map(([group, items]) => (
+          <div key={group} className="mb-3 last:mb-0">
+            <div className="px-3 pb-1 text-[11px] font-semibold text-gray-500">{group}</div>
+            <div className="space-y-1">
+              {items.map((item) => {
+                const active = isActiveHref(pathname, item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`block rounded-md px-3 py-2 transition-colors ${
+                      active
+                        ? "bg-emerald-500/15 text-emerald-100 border border-emerald-400/20"
+                        : "text-gray-200 hover:bg-white/10"
+                    }`}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={onSignOut}
+          className="mt-2 w-full text-left px-3 py-2 rounded-md text-red-200 hover:bg-white/10"
+        >
+          Sign Out
+        </button>
+      </nav>
+    </div>
+  );
 }
 
 export default function QuickNav() {
@@ -86,8 +160,7 @@ export default function QuickNav() {
       if (!client) return;
       const { data } = await client.auth.getSession();
       const user = data?.session?.user;
-      if (!user) return;
-      if (!active) return;
+      if (!user || !active) return;
       setAllowed(true);
       setUserEmail(user.email || "");
 
@@ -99,11 +172,9 @@ export default function QuickNav() {
         });
         const json = await res.json();
         const resolvedRole = (json?.role || "user").toLowerCase();
-        if (!active) return;
-        setRole(resolvedRole);
+        if (active) setRole(resolvedRole);
       } catch {
-        if (!active) return;
-        setRole(resolveRoleFromPath(pathname) || "user");
+        if (active) setRole(resolveRoleFromPath(pathname) || "user");
       }
     };
 
@@ -117,13 +188,14 @@ export default function QuickNav() {
     setOpen(false);
   }, [pathname]);
 
-  const links = useMemo(() => {
+  const effectiveRole = useMemo(() => {
     const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || "").toLowerCase();
     const isAdminEmail = adminEmail && userEmail.toLowerCase() === adminEmail;
     const fallbackRole = resolveRoleFromPath(pathname);
-    const effectiveRole = role === "admin" || isAdminEmail ? "admin" : role || fallbackRole;
-    return buildLinks(effectiveRole, pathname);
+    return role === "admin" || isAdminEmail ? "admin" : role || fallbackRole;
   }, [role, userEmail, pathname]);
+
+  const links = useMemo(() => buildLinks(effectiveRole, pathname), [effectiveRole, pathname]);
 
   if (!allowed) return null;
   const showSidebar = pathname.startsWith("/dashboard") || pathname.startsWith("/admin");
@@ -140,36 +212,13 @@ export default function QuickNav() {
     return (
       <>
         <aside className="fixed left-4 top-24 z-40 hidden lg:block">
-          <div className="w-64 rounded-2xl border border-white/10 bg-slate-950/90 shadow-2xl shadow-black/40 backdrop-blur">
-            <div className="px-4 py-3 border-b border-white/10">
-              <div className="text-xs uppercase tracking-widest text-gray-400">Quick Navigator</div>
-              <div className="text-sm font-semibold text-white mt-1 capitalize">{role || "member"} access</div>
-            </div>
-            <nav className="px-2 py-3 space-y-1 text-sm">
-              {links.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="block px-3 py-2 rounded-lg text-gray-200 hover:bg-white/10"
-                >
-                  {item.label}
-                </Link>
-              ))}
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="w-full text-left px-3 py-2 rounded-lg text-red-200 hover:bg-white/10"
-              >
-                Sign Out
-              </button>
-            </nav>
-          </div>
+          <NavPanel links={links} role={effectiveRole} pathname={pathname} onSignOut={handleSignOut} />
         </aside>
         <div className="relative z-40 lg:hidden">
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="flex items-center gap-2 px-4 py-2 rounded-full border border-white/10 bg-white/5 text-xs uppercase tracking-widest text-gray-200 hover:bg-white/10 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 rounded-md border border-white/10 bg-slate-950/80 text-xs text-gray-200 hover:bg-white/10 transition-colors"
             aria-expanded={open}
             aria-label="Quick navigation"
           >
@@ -177,29 +226,14 @@ export default function QuickNav() {
             <span>{open ? "Close Nav" : "Quick Nav"}</span>
           </button>
           {open && (
-            <div className="absolute right-0 mt-3 w-64 rounded-2xl bg-slate-950/95 border border-white/10 shadow-xl backdrop-blur text-sm">
-              <div className="px-4 py-3 border-b border-white/10">
-                <div className="text-xs uppercase tracking-widest text-gray-400">Quick Navigator</div>
-                <div className="text-sm font-semibold text-white mt-1 capitalize">{role || "member"} access</div>
-              </div>
-              <nav className="p-2 space-y-1">
-                {links.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className="block px-3 py-2 rounded-md text-gray-200 hover:bg-white/10"
-                  >
-                    {item.label}
-                  </Link>
-                ))}
-                <button
-                  type="button"
-                  onClick={handleSignOut}
-                  className="w-full text-left px-3 py-2 rounded-md text-red-200 hover:bg-white/10"
-                >
-                  Sign Out
-                </button>
-              </nav>
+            <div className="absolute right-0 mt-3">
+              <NavPanel
+                links={links}
+                role={effectiveRole}
+                pathname={pathname}
+                onSignOut={handleSignOut}
+                compact
+              />
             </div>
           )}
         </div>
@@ -212,7 +246,7 @@ export default function QuickNav() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 px-4 py-2 rounded-full border border-white/10 bg-white/5 text-xs uppercase tracking-widest text-gray-200 hover:bg-white/10 transition-colors"
+        className="flex items-center gap-2 px-4 py-2 rounded-md border border-white/10 bg-slate-950/80 text-xs text-gray-200 hover:bg-white/10 transition-colors"
         aria-expanded={open}
         aria-label="Quick navigation"
       >
@@ -220,29 +254,8 @@ export default function QuickNav() {
         <span>{open ? "Close Nav" : "Quick Nav"}</span>
       </button>
       {open && (
-        <div className="absolute right-0 mt-3 w-64 rounded-2xl bg-slate-950/95 border border-white/10 shadow-xl backdrop-blur text-sm">
-          <div className="px-4 py-3 border-b border-white/10">
-            <div className="text-xs uppercase tracking-widest text-gray-400">Quick Navigator</div>
-            <div className="text-sm font-semibold text-white mt-1 capitalize">{role || "member"} access</div>
-          </div>
-          <nav className="p-2 space-y-1">
-            {links.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="block px-3 py-2 rounded-md text-gray-200 hover:bg-white/10"
-              >
-                {item.label}
-              </Link>
-            ))}
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="w-full text-left px-3 py-2 rounded-md text-red-200 hover:bg-white/10"
-            >
-              Sign Out
-            </button>
-          </nav>
+        <div className="absolute right-0 mt-3">
+          <NavPanel links={links} role={effectiveRole} pathname={pathname} onSignOut={handleSignOut} compact />
         </div>
       )}
     </div>

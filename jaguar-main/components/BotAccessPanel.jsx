@@ -1,4 +1,5 @@
 import MT5SubmissionForm from "./MT5SubmissionForm";
+import AccountFloatPanel from "./AccountFloatPanel";
 
 export default function BotAccessPanel({ tier, isActive }) {
   const features = tier?.features || {};
@@ -34,7 +35,10 @@ export default function BotAccessPanel({ tier, isActive }) {
 
       <div className="mt-4">
         {botAccess && isActive ? (
-          <MT5SubmissionForm />
+          <div className="space-y-4">
+            <AccountFloatPanel />
+            <MT5SubmissionForm />
+          </div>
         ) : (
           <div className="text-sm text-yellow-300">
             Activate your subscription to enable MT5 submission.

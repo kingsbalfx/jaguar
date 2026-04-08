@@ -1,26 +1,23 @@
 from ict_concepts.market_structure import get_daily_trend
 
+
 def rule_quality_filter(signal):
     score = 0
-    
+
     if not isinstance(signal, dict):
         return False
 
-    # 1️⃣ Fib zone
     if signal.get("fib_zone") in ["discount", "premium"]:
         score += 1
 
-    # 2️⃣ FVG timeframe
     fvg = signal.get("fvg")
-    if isinstance(fvg, dict) and fvg.get("timeframe") == "M15":
+    if isinstance(fvg, dict) and fvg.get("timeframe") in ["M5", "M15", "M30"]:
         score += 1
 
-    # 3️⃣ HTF Order Block (relax timeframe requirement)
     htf_ob = signal.get("htf_ob")
-    if isinstance(htf_ob, dict) and htf_ob.get("timeframe") in ["M15", "H1", "H4", "D1"]:
+    if isinstance(htf_ob, dict) and htf_ob.get("timeframe") in ["M15", "M30", "H1", "H4", "D1"]:
         score += 1
 
-    # 4️⃣ DAILY TREND CONFIRMATION (MANDATORY) - skip if 'trend' or 'symbol' missing
     try:
         if signal.get("symbol") and signal.get("trend"):
             daily_trend = get_daily_trend(signal["symbol"])

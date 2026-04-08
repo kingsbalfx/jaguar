@@ -1,0 +1,282 @@
+{
+  "EURUSD": {
+    "symbol": "EURUSD",
+    "asset_class": "forex",
+    "total_skips": 3,
+    "skip_reasons": {
+      "entry_fib_zone": 3
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-03T20:26:20.726413",
+        "symbol": "EURUSD",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-03T20:26:26.320985",
+        "symbol": "EURUSD",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-03T20:26:40.881517",
+        "symbol": "EURUSD",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-03T20:26:40.881529",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "GBPUSD": {
+    "symbol": "GBPUSD",
+    "asset_class": "forex",
+    "total_skips": 3,
+    "skip_reasons": {
+      "entry_fib_zone": 3
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-03T20:26:21.694196",
+        "symbol": "GBPUSD",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-03T20:26:27.369810",
+        "symbol": "GBPUSD",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-03T20:26:41.946603",
+        "symbol": "GBPUSD",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-03T20:26:41.946613",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "USDJPY": {
+    "symbol": "USDJPY",
+    "asset_class": "forex",
+    "total_skips": 2,
+    "skip_reasons": {
+      "entry_fib_zone": 2
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-03T20:26:22.590387",
+        "symbol": "USDJPY",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-03T20:26:28.294284",
+        "symbol": "USDJPY",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-03T20:26:28.294303",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "AUDUSD": {
+    "symbol": "AUDUSD",
+    "asset_class": "forex",
+    "total_skips": 2,
+    "skip_reasons": {
+      "entry_fib_zone": 2
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-03T20:26:24.286918",
+        "symbol": "AUDUSD",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-03T20:26:29.211625",
+        "symbol": "AUDUSD",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-03T20:26:29.211635",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "NZDUSD": {
+    "symbol": "NZDUSD",
+    "asset_class": "forex",
+    "total_skips": 1,
+    "skip_reasons": {
+      "entry_fib_zone": 1
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-03T20:26:30.710406",
+        "symbol": "NZDUSD",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-03T20:26:30.710417",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0
+      ]
+    }
+  },
+  "USDCHF": {
+    "symbol": "USDCHF",
+    "asset_class": "forex",
+    "total_skips": 3,
+    "skip_reasons": {
+      "entry_fib_zone": 3
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-03T20:26:31.424268",
+        "symbol": "USDCHF",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-03T20:26:32.321645",
+        "symbol": "USDCHF",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-03T20:26:35.304766",
+        "symbol": "USDCHF",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-03T20:26:35.304799",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "EURGBP": {
+    "symbol": "EURGBP",
+    "asset_class": "forex",
+    "total_skips": 1,
+    "skip_reasons": {
+      "entry_fib_zone": 1
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-03T20:26:33.132066",
+        "symbol": "EURGBP",
+        "asset_class": "forex",
+        "reason": "entry_fib_zone",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-03T20:26:33.132084",
+    "skip_patterns": {
+      "entry_fib_zone": [
+        0.0
+      ]
+    }
+  },
+  "EURJPY": {
+    "symbol": "EURJPY",
+    "asset_class": "forex",
+    "total_skips": 1,
+    "skip_reasons": {
+      "price_action": 1
+    },
+    "skip_samples": [
+      {
+        "timestamp": "2026-04-03T20:26:34.194703",
+        "symbol": "EURJPY",
+        "asset_class": "forex",
+        "reason": "price_action",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      }
+    ],
+    "last_skip": "2026-04-03T20:26:34.194724",
+    "skip_patterns": {
+      "price_action": [
+        0.0
+      ]
+    }
+  }
+}

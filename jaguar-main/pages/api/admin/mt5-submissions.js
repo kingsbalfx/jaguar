@@ -109,7 +109,7 @@ export default async function handler(req, res) {
 
     const { data: submission, error: loadErr } = await supabaseAdmin
       .from("mt5_submissions")
-      .select("id, login, password, server")
+      .select("id, user_id, email, login, password, server")
       .eq("id", id)
       .maybeSingle();
 
@@ -138,6 +138,8 @@ export default async function handler(req, res) {
     }
 
     const payload = {
+      user_id: submission.user_id,
+      email: submission.email,
       login: submission.login,
       password: submission.password,
       server: submission.server,
@@ -149,9 +151,22 @@ export default async function handler(req, res) {
       payload.updated_at = new Date().toISOString();
     }
 
-    const { error: insertError } = await supabaseAdmin
+    let { error: insertError } = await supabaseAdmin
       .from("mt5_credentials")
       .insert(payload);
+
+    if (insertError) {
+      const msg = String(insertError?.message || "").toLowerCase();
+      if (msg.includes("user_id") || msg.includes("email")) {
+        const fallbackPayload = { ...payload };
+        delete fallbackPayload.user_id;
+        delete fallbackPayload.email;
+        const fallback = await supabaseAdmin
+          .from("mt5_credentials")
+          .insert(fallbackPayload);
+        insertError = fallback.error;
+      }
+    }
 
     if (insertError) {
       return res.status(500).json({ error: insertError.message || "failed to activate credentials" });

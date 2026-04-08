@@ -5,7 +5,7 @@
  */
 
 import { getSupabaseClient } from "../../../lib/supabaseClient";
-import { PRICING_TIERS } from "../../../lib/pricing-config";
+import { PRICING_TIERS, getBotTierDefaults } from "../../../lib/pricing-config";
 
 export default async function handler(req, res) {
   // Only allow GET and POST
@@ -27,7 +27,7 @@ export default async function handler(req, res) {
       const supabase = getSupabaseClient({ server: true });
 
       // Get all pricing tiers from database if custom configured
-      const { data: customTiers, error: tiersError } = await supabase
+      const { error: tiersError } = await supabase
         .from("pricing_tiers")
         .select("*");
 
@@ -40,17 +40,20 @@ export default async function handler(req, res) {
       return res.status(200).json({
         status: "ok",
         timestamp: new Date().toISOString(),
-        tiers: Object.values(PRICING_TIERS).map((t) => ({
-          id: t.id,
-          name: t.name,
-          price: t.price,
-          currency: t.currency,
-          features: {
-            maxSignalsPerDay: t.features.maxSignalsPerDay,
-            maxConcurrentTrades: t.features.maxConcurrentTrades,
-            signalQuality: t.features.signalQuality,
-          },
-        })),
+        tiers: Object.values(PRICING_TIERS).map((t) => {
+          const defaults = getBotTierDefaults(t.id);
+          return {
+            id: t.id,
+            name: t.name,
+            price: t.price,
+            currency: t.currency,
+            features: {
+              maxSignalsPerDay: defaults.botMaxSignalsPerDay,
+              maxConcurrentTrades: defaults.botMaxConcurrentTrades,
+              signalQuality: defaults.botSignalQuality,
+            },
+          };
+        }),
       });
     }
 
@@ -66,6 +69,7 @@ export default async function handler(req, res) {
 
       const supabase = getSupabaseClient({ server: true });
       const tierConfig = PRICING_TIERS[tier.toUpperCase()];
+      const tierDefaults = getBotTierDefaults(tier);
 
       if (!tierConfig) {
         return res.status(404).json({ error: "Tier not found" });
@@ -75,10 +79,10 @@ export default async function handler(req, res) {
       const { error: updateError } = await supabase
         .from("profiles")
         .update({
-          bot_tier: tier.toLowerCase(),
-          bot_max_signals_per_day: tierConfig.features.maxSignalsPerDay,
-          bot_max_concurrent_trades: tierConfig.features.maxConcurrentTrades,
-          bot_signal_quality: tierConfig.features.signalQuality,
+          bot_tier: tierDefaults.botTier,
+          bot_max_signals_per_day: tierDefaults.botMaxSignalsPerDay,
+          bot_max_concurrent_trades: tierDefaults.botMaxConcurrentTrades,
+          bot_signal_quality: tierDefaults.botSignalQuality,
           bot_tier_updated_at: new Date().toISOString(),
         })
         .eq("id", userId);
@@ -90,11 +94,11 @@ export default async function handler(req, res) {
         event: "pricing_sync",
         payload: {
           userId,
-          tier,
+          tier: tierDefaults.botTier,
           tier_config: {
-            maxSignals: tierConfig.features.maxSignalsPerDay,
-            maxTrades: tierConfig.features.maxConcurrentTrades,
-            quality: tierConfig.features.signalQuality,
+            maxSignals: tierDefaults.botMaxSignalsPerDay,
+            maxTrades: tierDefaults.botMaxConcurrentTrades,
+            quality: tierDefaults.botSignalQuality,
           },
         },
       });
@@ -102,11 +106,11 @@ export default async function handler(req, res) {
       return res.status(200).json({
         status: "ok",
         message: "Pricing synchronized",
-        tier: tier.toLowerCase(),
+        tier: tierDefaults.botTier,
         config: {
-          maxSignalsPerDay: tierConfig.features.maxSignalsPerDay,
-          maxConcurrentTrades: tierConfig.features.maxConcurrentTrades,
-          signalQuality: tierConfig.features.signalQuality,
+          maxSignalsPerDay: tierDefaults.botMaxSignalsPerDay,
+          maxConcurrentTrades: tierDefaults.botMaxConcurrentTrades,
+          signalQuality: tierDefaults.botSignalQuality,
         },
       });
     }

@@ -5,6 +5,7 @@
  */
 
 import { getSupabaseClient } from "../../../lib/supabaseClient";
+import { getBotTierDefaults } from "../../../lib/pricing-config";
 
 export default async function handler(req, res) {
   // Verify admin API key
@@ -13,7 +14,7 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { action, userId, tier, forceSync } = req.body || {};
+  const { action, userId, tier } = req.body || {};
 
   try {
     const supabase = getSupabaseClient({ server: true });
@@ -29,13 +30,13 @@ export default async function handler(req, res) {
         const botHealth = await fetch(`${botBaseUrl}/health`);
         const botStatus = await botHealth.json();
 
-        const { data: botLogs, error: logsError } = await supabase
+        const { data: botLogs } = await supabase
           .from("bot_logs")
           .select("event,created_at")
           .order("created_at", { ascending: false })
           .limit(10);
 
-        const { data: signals, error: signalsError } = await supabase
+        const { data: signals } = await supabase
           .from("bot_signals")
           .select("id,status")
           .order("created_at", { ascending: false })
@@ -67,13 +68,16 @@ export default async function handler(req, res) {
 
     // ========== SYNC USER PRICING ==========
     if (action === "sync-pricing" && userId && tier) {
-      const tierUpper = tier.toUpperCase();
+      const tierDefaults = getBotTierDefaults(tier);
 
       // Update or create pricing sync in database
       const { error: syncError } = await supabase
         .from("profiles")
         .update({
-          bot_tier: tier.toLowerCase(),
+          bot_tier: tierDefaults.botTier,
+          bot_max_signals_per_day: tierDefaults.botMaxSignalsPerDay,
+          bot_max_concurrent_trades: tierDefaults.botMaxConcurrentTrades,
+          bot_signal_quality: tierDefaults.botSignalQuality,
           bot_tier_updated_at: new Date().toISOString(),
         })
         .eq("id", userId);
@@ -86,7 +90,12 @@ export default async function handler(req, res) {
         payload: {
           admin_sync: true,
           userId,
-          tier: tier.toLowerCase(),
+          tier: tierDefaults.botTier,
+          limits: {
+            maxSignalsPerDay: tierDefaults.botMaxSignalsPerDay,
+            maxConcurrentTrades: tierDefaults.botMaxConcurrentTrades,
+            signalQuality: tierDefaults.botSignalQuality,
+          },
         },
       });
 
@@ -94,7 +103,8 @@ export default async function handler(req, res) {
         status: "ok",
         message: "User pricing synchronized",
         userId,
-        tier: tier.toLowerCase(),
+        tier: tierDefaults.botTier,
+        limits: tierDefaults,
       });
     }
 
@@ -117,10 +127,14 @@ export default async function handler(req, res) {
           .single();
 
         if (profile) {
+          const tierDefaults = getBotTierDefaults(sub.plan);
           await supabase
             .from("profiles")
             .update({
-              bot_tier: sub.plan.toLowerCase(),
+              bot_tier: tierDefaults.botTier,
+              bot_max_signals_per_day: tierDefaults.botMaxSignalsPerDay,
+              bot_max_concurrent_trades: tierDefaults.botMaxConcurrentTrades,
+              bot_signal_quality: tierDefaults.botSignalQuality,
               bot_tier_updated_at: new Date().toISOString(),
             })
             .eq("id", profile.id);
