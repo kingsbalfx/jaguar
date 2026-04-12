@@ -42,12 +42,13 @@ from strategy.setup_confirmations import (
     liquidity_sweep_or_swing,
     price_action_setup,
 )
+from strategy.market_rhythm import analyze_market_rhythm, build_market_rhythm_summary
 
 # =====================================================
 # RISK & TRADE MANAGEMENT
 # =====================================================
 from risk.sl_tp_engine import calculate_sl_tp
-from risk.protection import can_trade, register_trade
+from risk.protection import can_trade, register_trade, update_symbol_confidence
 from risk.trade_management import manage_trade
 from risk.intelligent_execution import (
     calculate_precise_winning_rate,
@@ -55,12 +56,14 @@ from risk.intelligent_execution import (
     calculate_intelligent_stop_loss,
     record_trade_outcome,
     should_take_trade,
+    should_allow_intelligence_direct_execution,
     get_market_intelligence_report,
     get_intelligent_recommendation,
     record_skip_detailed,
     get_skip_pattern_analysis,
     get_skip_statistics_report,
     should_skip_symbol_entirely,
+    get_symbol_skip_diagnostics,
     get_learned_threshold_adjustment,
     learn_from_repeated_skips,
     load_intelligent_stats,
@@ -71,6 +74,7 @@ from risk.profitability_guard import (
     normalize_rr_after_sl_adjustment,
 )
 from risk.strategy_memory import get_strategy_adaptation
+from risk.symbol_stats import record_symbol_trade, record_backtest_skip, record_backtest_required
 
 # =====================================================
 # QUALITY FILTERS
@@ -100,6 +104,7 @@ from utils.mt5_credentials import fetch_mt5_credentials_signature
 import time
 import traceback
 import os
+from pathlib import Path
 from bot_state import (
     is_running,
     consume_restart_request,
@@ -109,6 +114,17 @@ from bot_state import (
 )
 
 load_dotenv()
+
+# CLEANUP STALE LOCKS: Prevents "Timed out waiting for JSON lock" on startup
+def cleanup_stale_locks():
+    data_dir = Path(__file__).resolve().parent / "data"
+    if data_dir.exists():
+        for lock_file in data_dir.glob("*.lock"):
+            try:
+                lock_file.unlink()
+                print(f"[SYSTEM] Cleaned up stale lock: {lock_file.name}")
+            except: pass
+cleanup_stale_locks()
 
 if (
     os.getenv("MULTI_ACCOUNT_ENABLED", "false").lower() in ("1", "true", "yes", "on")
@@ -355,6 +371,223 @@ skip_examples = {}
 stage_hits = {}
 stage_examples = {}
 _bot_state = {}  # Module-level state for tracking timers
+ACTIVE_TRADES = {}
+
+
+def humanize_reason(reason):
+    return str(reason or "unknown").replace("_", " ")
+
+
+def bot_log_throttled(event, symbol, message, payload=None, persist=False, cooldown=300, signature=None):
+    cache = _bot_state.setdefault("throttled_logs", {})
+    cache_key = f"{event}:{symbol}"
+    now = time.time()
+    signature_text = str(signature if signature is not None else message)
+    previous = cache.get(cache_key)
+
+    if previous and previous.get("signature") == signature_text and (now - previous.get("time", 0)) < cooldown:
+        return False
+
+    cache[cache_key] = {"signature": signature_text, "time": now}
+    bot_log(event, message, payload, persist=persist)
+    return True
+
+
+def _active_trade_key(trade, original_symbol, direction):
+    ticket = (trade or {}).get("ticket")
+    if ticket:
+        return str(ticket)
+    return f"{original_symbol}:{direction}:{int(time.time())}"
+
+
+def register_active_trade(
+    trade,
+    original_symbol,
+    resolved_symbol,
+    direction,
+    lot,
+    price,
+    confirmation_score_value,
+    execution_route,
+    hybrid_decision,
+    signal,
+    market_rhythm,
+):
+    key = _active_trade_key(trade, original_symbol, direction)
+    ACTIVE_TRADES[key] = {
+        "trade": trade,
+        "original_symbol": original_symbol,
+        "resolved_symbol": resolved_symbol,
+        "direction": direction,
+        "lot": lot,
+        "entry_price": price,
+        "confirmation_score": confirmation_score_value,
+        "execution_route": execution_route,
+        "hybrid_decision": hybrid_decision,
+        "signal": signal,
+        "market_rhythm": market_rhythm,
+        "trade_entry_time": time.time(),
+        "last_checked": 0.0,
+    }
+    return key
+
+
+def process_active_trades():
+    poll_seconds = max(2.0, float(os.getenv("OPEN_TRADE_POLL_SECONDS", "5") or 5))
+
+    for key in list(ACTIVE_TRADES.keys()):
+        meta = ACTIVE_TRADES.get(key) or {}
+        trade = meta.get("trade") or {}
+        if not trade or not trade.get("open"):
+            ACTIVE_TRADES.pop(key, None)
+            continue
+
+        now = time.time()
+        if now - float(meta.get("last_checked", 0.0) or 0.0) < poll_seconds:
+            continue
+        meta["last_checked"] = now
+
+        original_symbol = meta.get("original_symbol")
+        resolved_symbol = meta.get("resolved_symbol")
+        direction = meta.get("direction")
+        lot = float(meta.get("lot", trade.get("lot", 0.0)) or 0.0)
+        price = float(meta.get("entry_price", trade.get("entry", 0.0)) or 0.0)
+        confirmation_score_value = float(meta.get("confirmation_score", 0.0) or 0.0)
+        execution_route = meta.get("execution_route")
+        hybrid_decision = meta.get("hybrid_decision") or {}
+        signal = meta.get("signal") or {}
+        market_rhythm = meta.get("market_rhythm") or {}
+
+        try:
+            live_price = get_price(resolved_symbol)
+        except Exception as price_error:
+            bot_log_throttled(
+                "active_trade_price_error",
+                original_symbol,
+                f"[{original_symbol}] Active trade price refresh failed: {price_error}",
+                {"symbol": original_symbol, "error": str(price_error)},
+                persist=False,
+                cooldown=120,
+                signature=str(price_error),
+            )
+            continue
+
+        sl_hit = False
+        tp_hit = False
+        if trade.get("direction") == "buy":
+            sl_hit = live_price <= float(trade.get("sl", 0.0) or 0.0)
+            tp_hit = live_price >= float(trade.get("tp", 0.0) or 0.0)
+        else:
+            sl_hit = live_price >= float(trade.get("sl", 0.0) or 0.0)
+            tp_hit = live_price <= float(trade.get("tp", 0.0) or 0.0)
+
+        if sl_hit or tp_hit:
+            win = bool(tp_hit)
+            pnl = round((live_price - price) * lot if direction == "buy" else (price - live_price) * lot, 2)
+            try:
+                update_symbol_confidence(original_symbol, win=win, confirmation_score=confirmation_score_value)
+                record_trade_outcome(
+                    original_symbol,
+                    win=win,
+                    confirmation_score=confirmation_score_value,
+                    entry_price=price,
+                    exit_price=live_price,
+                    stop_loss_price=trade.get("sl", 0.0),
+                    take_profit_price=trade.get("tp", 0.0),
+                    lot_size=lot,
+                    pnl=pnl,
+                    signal_type=execution_route,
+                    decision_source=hybrid_decision.get("decision_source", "unknown"),
+                    analysis_score=hybrid_decision.get("classic_analysis", {}).get("score", 0.0),
+                    analysis_confidence=hybrid_decision.get("classic_analysis", {}).get("confidence", 0.0),
+                    analysis_pass=hybrid_decision.get("analysis_pass", False),
+                    weighted_pass=hybrid_decision.get("weighted_pass", False),
+                    intelligence_pass=hybrid_decision.get("intelligence_pass", False),
+                    engine_agreement=hybrid_decision.get("engine_agreement", "unknown"),
+                )
+                record_symbol_trade(original_symbol, win=win, confirmation_score=confirmation_score_value)
+                sync_trade_outcome_to_supabase(
+                    symbol=original_symbol,
+                    win=win,
+                    confirmation_score=confirmation_score_value,
+                    entry_price=price,
+                    exit_price=live_price,
+                    pnl=pnl,
+                    execution_route=execution_route,
+                )
+
+                try:
+                    from risk.strategy_memory import record_strategy_execution
+
+                    setup_types = extract_setup_types(signal)
+                    session = get_trading_session()
+                    asset_class = infer_asset_class(original_symbol)
+                    bars_held = int((time.time() - float(meta.get("trade_entry_time", now) or now)) / 60 / 5)
+
+                    record_strategy_execution(
+                        symbol=original_symbol,
+                        setup_types=setup_types,
+                        execution_route=execution_route or "unknown",
+                        confirmation_type=signal.get("confirmation_summary", {}).get("type", "unknown"),
+                        session=session,
+                        asset_class=asset_class,
+                        confirmation_score=confirmation_score_value,
+                        entry_price=price,
+                        sl=trade.get("sl", 0.0),
+                        tp=trade.get("tp", 0.0),
+                        win=win,
+                        pnl=pnl,
+                        bars_held=bars_held,
+                    )
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+            bot_log(
+                "trade_closed",
+                (
+                    f"Trade closed by {'TP' if win else 'SL'} on {original_symbol}. "
+                    f"PnL={pnl}, route={execution_route}, decision={hybrid_decision.get('decision_source')}, "
+                    f"confidence={confirmation_score_value:.1f}. "
+                    f"Entry rhythm={market_rhythm.get('phase')}. "
+                    f"Reasons: {'; '.join(hybrid_decision.get('reasons', [])) or 'none provided'}."
+                ),
+                {
+                    "symbol": original_symbol,
+                    "result": "win" if win else "loss",
+                    "price": live_price,
+                    "entry": price,
+                    "sl": trade.get("sl"),
+                    "tp": trade.get("tp"),
+                    "lot": lot,
+                    "pnl": pnl,
+                    "execution_route": execution_route,
+                    "decision_source": hybrid_decision.get("decision_source"),
+                    "engine_agreement": hybrid_decision.get("engine_agreement"),
+                    "market_rhythm": market_rhythm,
+                    "weighted_confidence": confirmation_score_value,
+                    "reasons": hybrid_decision.get("reasons", []),
+                },
+            )
+            trade["open"] = False
+            ACTIVE_TRADES.pop(key, None)
+            continue
+
+        action = manage_trade(trade, live_price, market_rhythm=market_rhythm)
+        if action:
+            meta["trade"] = apply_trade_action(trade, action)
+            bot_log(
+                "trade_update",
+                f"Trade update on {original_symbol}: {action.get('action')} with rhythm {market_rhythm.get('phase')}.",
+                {
+                    "symbol": original_symbol,
+                    "action": action,
+                    "live_price": live_price,
+                    "market_rhythm": market_rhythm,
+                },
+                persist=False,
+            )
 
 
 def record_skip(reason, symbol, confidence=0.0, analysis=None):
@@ -433,6 +666,9 @@ ANALYSIS_RESCUE_REQUIRES_INTELLIGENCE = os.getenv(
     "ANALYSIS_RESCUE_REQUIRES_INTELLIGENCE",
     "true",
 ).lower() in ("1", "true", "yes")
+ALLOW_RELAXED_TOPDOWN = os.getenv("ALLOW_RELAXED_TOPDOWN", "false").lower() in ("1", "true", "yes")
+ENABLE_INTELLIGENCE_OVERRIDE = os.getenv("ENABLE_INTELLIGENCE_OVERRIDE", "true").lower() in ("1", "true", "yes")
+ENABLE_SMART_EXECUTION = os.getenv("ENABLE_SMART_EXECUTION", "true").lower() in ("1", "true", "yes")
 
 
 def build_execution_context(
@@ -461,6 +697,7 @@ def build_execution_context(
     }
     met_confirmations = [name for name, passed in confirmation_flags.items() if _confirmation_passed(passed)]
     setup_context = signal.get("setup_context") or {}
+    market_rhythm = analysis.get("market_rhythm") or signal.get("market_rhythm") or {}
     context = {
         "topdown_trend": signal.get("trend"),
         "timeframes": timeframes,
@@ -482,6 +719,13 @@ def build_execution_context(
         "bos": setup_context.get("bos"),
         "liquidity": setup_context.get("liquidity"),
         "price_action": setup_context.get("price_action"),
+        "market_rhythm_phase": market_rhythm.get("phase"),
+        "market_rhythm_bias": market_rhythm.get("entry_bias"),
+        "market_rhythm_summary": market_rhythm.get("summary"),
+        "market_reversal_score": market_rhythm.get("reversal_score"),
+        "market_continuation_score": market_rhythm.get("continuation_score"),
+        "market_compression_score": market_rhythm.get("compression_score"),
+        "market_management_plan": market_rhythm.get("management_plan"),
     }
     if decision_bundle:
         context["decision_source"] = decision_bundle.get("decision_source")
@@ -633,6 +877,15 @@ def build_hybrid_trade_decision(
 
     weighted_intelligence_pass = weighted_pass and intelligence_pass
     analysis_pass = classic_analysis["decision"]
+
+    intelligence_override = False
+    intelligence_override_meta = {}
+    if not weighted_intelligence_pass and intelligence_pass and ENABLE_INTELLIGENCE_OVERRIDE and ENABLE_SMART_EXECUTION:
+        intelligence_override, intelligence_override_meta = should_allow_intelligence_direct_execution(
+            symbol,
+            intelligence_analysis,
+            confidence_data=confidence_data,
+        )
     analysis_rescue_allowed = (
         analysis_pass
         and confirmation_score_value >= ANALYSIS_RESCUE_MIN_CONFIDENCE
@@ -655,6 +908,13 @@ def build_hybrid_trade_decision(
         decision_source = "weighted_intelligence_only"
         engine_agreement = "weighted_intelligence_rescue"
         effective_execution_route = weighted_route
+        backtest_required = bool(confidence_data.get("backtest_required", True))
+        execute = True
+        skip_reason = None
+    elif intelligence_override:
+        decision_source = "intelligence_override"
+        engine_agreement = "intelligence_override"
+        effective_execution_route = "intelligence_override"
         backtest_required = bool(confidence_data.get("backtest_required", True))
         execute = True
         skip_reason = None
@@ -685,6 +945,10 @@ def build_hybrid_trade_decision(
         reasons.append("weighted+intelligence approved")
     else:
         reasons.append("weighted+intelligence rejected")
+    if intelligence_override:
+        reasons.append(
+            f"intelligence_override({intelligence_override_meta.get('reason','unknown')})"
+        )
     if analysis_pass:
         reasons.append("classic analysis approved")
     else:
@@ -710,6 +974,7 @@ def build_hybrid_trade_decision(
         "analysis_pass": analysis_pass,
         "classic_analysis": classic_analysis,
         "intelligence_analysis": intelligence_analysis,
+        "intelligence_override_meta": intelligence_override_meta,
         "reasons": reasons,
     }
 
@@ -762,6 +1027,8 @@ while True:
         if not is_running():
             time.sleep(1)
             continue
+
+        process_active_trades()
 
         session_open = trading_session_open()
         trade_all_day = os.getenv("TRADE_ALL_SESSIONS", "false").lower() in ("1", "true", "yes")
@@ -895,12 +1162,39 @@ while True:
             # ===================================
             # SKIP ENTIRELY FILTER (LEARNED FROM SKIP PATTERNS)
             # ===================================
-            # DISABLED: Pattern learning blacklist removed in favor of weighted entry validation
-            # The new weighted entry system is more intelligent and doesn't require symbol blacklisting
-            # should_skip_entirely, skip_reason = should_skip_symbol_entirely(original_symbol)
-            # if should_skip_entirely:
-            #     record_skip("skip_pattern_learned", original_symbol)
-            #     continue
+            should_skip_entirely, skip_reason = should_skip_symbol_entirely(original_symbol)
+            if should_skip_entirely:
+                skip_diagnostics = get_symbol_skip_diagnostics(original_symbol)
+                top_reasons = ", ".join(
+                    f"{item.get('reason')}={item.get('count')}"
+                    for item in skip_diagnostics.get("top_reasons", [])[:3]
+                )
+                record_skip(
+                    "skip_pattern_blacklist",
+                    original_symbol,
+                    confidence=0.0,
+                    analysis={"reason": skip_reason},
+                )
+                bot_log_throttled(
+                    "skip_pattern_blacklist",
+                    original_symbol,
+                    (
+                        f"[{original_symbol}] Learning pause active: {skip_reason} "
+                        f"Executed trades={skip_diagnostics.get('executed_trades', 0)}, "
+                        f"hard-block skips={skip_diagnostics.get('hard_block_skips', 0)}, "
+                        f"soft-filter skips={skip_diagnostics.get('soft_filter_skips', 0)}. "
+                        f"Top skip reasons: {top_reasons or 'none recorded'}."
+                    ),
+                    {
+                        "symbol": original_symbol,
+                        "skip_reason": skip_reason,
+                        "skip_diagnostics": skip_diagnostics,
+                    },
+                    persist=False,
+                    cooldown=600,
+                    signature=f"{skip_reason}|{top_reasons}|{skip_diagnostics.get('hard_block_skips', 0)}",
+                )
+                continue
 
             # -----------------------------
             # FUNDAMENTALS / NEWS FILTER
@@ -933,11 +1227,61 @@ while True:
             atr_threshold = max(atr * 1.5, atr_threshold)
 
             trend = analysis["overall_trend"]
+            # Allow explicit fallback when top-down bias is uncertain but execution timeframe trend exists.
+            if trend not in ("bullish", "bearish") and ALLOW_RELAXED_TOPDOWN:
+                trend = (analysis.get("topdown") or {}).get("execution_trend") or analysis.get("EXECUTION", {}).get("trend")
+                if trend in ("bullish", "bearish"):
+                    bot_log(
+                        "topdown_relaxed",
+                        f"[{original_symbol}] Topdown trend uncertain; using execution timeframe fallback: {trend}",
+                        {"symbol": original_symbol, "relaxed_trend": trend},
+                        persist=False,
+                    )
+
             if trend not in ("bullish", "bearish"):
                 record_skip("topdown", original_symbol)
                 continue
             record_stage("topdown", original_symbol)
             direction = "buy" if trend == "bullish" else "sell"
+
+            market_rhythm = analyze_market_rhythm(analysis, trend)
+            analysis["market_rhythm"] = market_rhythm
+
+            if market_rhythm.get("should_avoid_entry"):
+                record_skip(
+                    "market_rhythm_reversal",
+                    original_symbol,
+                    analysis=market_rhythm,
+                )
+                bot_log_throttled(
+                    "market_rhythm_reversal",
+                    original_symbol,
+                    f"[{original_symbol}] Entry blocked by market rhythm: {market_rhythm.get('summary')}",
+                    {
+                        "symbol": original_symbol,
+                        "trend": trend,
+                        "market_rhythm": market_rhythm,
+                    },
+                    persist=False,
+                    cooldown=300,
+                    signature=build_market_rhythm_summary(market_rhythm),
+                )
+                continue
+
+            if market_rhythm.get("entry_bias") != "favorable":
+                bot_log_throttled(
+                    "market_rhythm_caution",
+                    original_symbol,
+                    f"[{original_symbol}] Rhythm caution: {market_rhythm.get('summary')}",
+                    {
+                        "symbol": original_symbol,
+                        "trend": trend,
+                        "market_rhythm": market_rhythm,
+                    },
+                    persist=False,
+                    cooldown=300,
+                    signature=build_market_rhythm_summary(market_rhythm),
+                )
 
             # -----------------------------
             # ENTRY MODEL (ICT CORE)
@@ -975,6 +1319,20 @@ while True:
                     atr=entry_atr,
                 )
                 record_skip(f"entry_{entry_reason}", original_symbol)
+                bot_log_throttled(
+                    "entry_wait",
+                    original_symbol,
+                    f"[{original_symbol}] Waiting for entry, not executing yet: {humanize_reason(entry_reason)}.",
+                    {
+                        "symbol": original_symbol,
+                        "entry_reason": entry_reason,
+                        "trend": trend,
+                        "price": price,
+                    },
+                    persist=False,
+                    cooldown=300,
+                    signature=entry_reason,
+                )
                 continue
             record_stage("entry", original_symbol)
 
@@ -982,6 +1340,7 @@ while True:
             signal["symbol"] = original_symbol
             signal["direction"] = direction
             signal["trend"] = trend
+            signal["market_rhythm"] = market_rhythm
 
             liquidity_state = liquidity_sweep_or_swing(price, analysis, direction)
             if liquidity_state["confirmed"]:
@@ -1079,6 +1438,7 @@ while True:
                     "confidence": confirmation_score_value,
                     "execution_route": execution_route,
                     "components": confidence_data.get("component_scores", {}),
+                    "market_rhythm": confidence_data.get("market_rhythm", {}),
                 },
                 persist=False,
             )
@@ -1108,6 +1468,22 @@ while True:
                 record_stage("weighted_intelligence_rescue", original_symbol)
             elif hybrid_decision["engine_agreement"] == "both_passed":
                 record_stage("dual_engine_agreement", original_symbol)
+            elif hybrid_decision["engine_agreement"] == "intelligence_override":
+                record_stage("intelligence_override", original_symbol)
+                bot_log(
+                    "intelligence_override",
+                    f"[{original_symbol}] Intelligence override executed based on learned opportunity: {hybrid_decision.get('intelligence_override_meta', {}).get('reason', 'unknown')}",
+                    {
+                        "symbol": original_symbol,
+                        "reason": hybrid_decision.get('intelligence_override_meta', {}).get('reason'),
+                        "meta": hybrid_decision.get('intelligence_override_meta', {}),
+                        "confidence": round(confirmation_score_value / 100.0, 2),
+                        "weighted_route": execution_route,
+                        "intelligence_pass": hybrid_decision["intelligence_pass"],
+                        "analysis_pass": hybrid_decision["analysis_pass"],
+                    },
+                    persist=False,
+                )
 
             signal["confirmation_summary"] = {
                 **confirmation_summary,
@@ -1136,6 +1512,7 @@ while True:
                     "backtest_required": hybrid_decision["backtest_required"],
                     "classic_analysis": hybrid_decision["classic_analysis"],
                     "intelligence_analysis": hybrid_decision["intelligence_analysis"],
+                    "intelligence_override_meta": hybrid_decision.get("intelligence_override_meta", {}),
                 },
                 persist=False,
             )
@@ -1147,22 +1524,35 @@ while True:
                     confidence=round(confirmation_score_value / 100.0, 2),
                     analysis=hybrid_decision,
                 )
-                bot_log(
+                bot_log_throttled(
                     "hybrid_trade_reject",
+                    original_symbol,
                     (
-                        f"[{original_symbol}] Rejected by both engines. "
+                        f"[{original_symbol}] Candidate rejected. "
                         f"Weighted route={execution_route}, intelligence={hybrid_decision['intelligence_pass']}, "
-                        f"classic={hybrid_decision['analysis_pass']}."
+                        f"classic={hybrid_decision['analysis_pass']}, "
+                        f"confidence={confirmation_score_value:.1f}. "
+                        f"Reasons: {'; '.join(hybrid_decision.get('reasons', [])) or 'none provided'}."
                     ),
                     {
                         "symbol": original_symbol,
                         "weighted_route": execution_route,
                         "intelligence_pass": hybrid_decision["intelligence_pass"],
                         "analysis_pass": hybrid_decision["analysis_pass"],
+                        "reasons": hybrid_decision.get("reasons", []),
                         "classic_analysis": hybrid_decision["classic_analysis"],
                         "intelligence_analysis": hybrid_decision["intelligence_analysis"],
                     },
                     persist=False,
+                    cooldown=300,
+                    signature="|".join(
+                        [
+                            str(hybrid_decision.get("skip_reason") or "hybrid_reject"),
+                            str(execution_route),
+                            str(round(confirmation_score_value, 1)),
+                            ";".join(hybrid_decision.get("reasons", [])),
+                        ]
+                    ),
                 )
                 continue
 
@@ -1252,6 +1642,8 @@ while True:
                 execution_route=execution_route
             )
             allowed_risk = smart_risk["risk_percent"]
+            allowed_risk *= float(market_rhythm.get("risk_multiplier", 1.0) or 1.0)
+            allowed_risk = round(max(0.0, allowed_risk), 2)
 
             if allowed_risk <= 0:
                 record_skip(
@@ -1391,7 +1783,8 @@ while True:
                 f"Intelligent execution for {original_symbol}: "
                 f"SL adjustment {sl_intelligence['multiplier']:.2f}x, "
                 f"Lot adjustment {lot_intelligence['final_multiplier']:.2f}x, "
-                f"Memory adjustment {strategy_adaptation.get('lot_multiplier', 1.0):.2f}x",
+                f"Memory adjustment {strategy_adaptation.get('lot_multiplier', 1.0):.2f}x, "
+                f"Rhythm {build_market_rhythm_summary(market_rhythm)}",
                 {
                     "symbol": original_symbol,
                     "sl_intelligence": sl_intelligence,
@@ -1400,6 +1793,7 @@ while True:
                     "setup_types": setup_types,
                     "rr_adjustment": rr_adjustment,
                     "profitability_guard": profitability_guard,
+                    "market_rhythm": market_rhythm,
                     "trade_confidence": round(confirmation_score_value / 100.0, 2),
                     "weighted_trade_confidence": confirmation_score_value,
                     "execution_route": execution_route,
@@ -1481,7 +1875,10 @@ while True:
                     f"{execution_context['confirmation_score_required']:.1f} "
                     f"({execution_context['confirmation_count']} flags). "
                     f"Execution route: {execution_context['execution_route']}. "
-                    f"Backtest status: {execution_context['backtest'].get('reason')}."
+                    f"Backtest status: {execution_context['backtest'].get('reason')}. "
+                    f"Rhythm: {execution_context.get('market_rhythm_phase')} "
+                    f"(cont={execution_context.get('market_continuation_score')}, "
+                    f"rev={execution_context.get('market_reversal_score')})."
                 ),
                 {
                     "symbol": original_symbol,
@@ -1543,9 +1940,6 @@ while True:
             record_stage("trade_opened", original_symbol)
 
             # Register trade and track symbol IQ
-            from risk.protection import register_trade, update_symbol_confidence
-            from risk.symbol_stats import record_symbol_trade, record_backtest_skip, record_backtest_required
-
             register_trade(symbol, ob_id)
             # Do not record trade outcomes on open.
             # Trade outcome and confirmation quality are recorded on SL/TP close.
@@ -1579,7 +1973,10 @@ while True:
                     f"Confirmations used: {', '.join(execution_context['confirmations_met']) or 'none'}. "
                     f"Score: {execution_context['confirmation_score']:.1f}/"
                     f"{execution_context['confirmation_score_required']:.1f}. "
-                    f"Execution route: {execution_context['execution_route']}."
+                    f"Execution route: {execution_context['execution_route']}. "
+                    f"Rhythm: {execution_context.get('market_rhythm_phase')} "
+                    f"(cont={execution_context.get('market_continuation_score')}, "
+                    f"rev={execution_context.get('market_reversal_score')})."
                 ),
                 {
                     "symbol": original_symbol,
@@ -1595,183 +1992,20 @@ while True:
 
             # -----------------------------
             # LIVE TRADE MANAGEMENT
-            # Record trade entry for later stats/reporting
-            trade_entry_time = time.time()
-            trade_entry_price = trade.get("entry", price)
-
-            # -----------------------------
-            while trade and trade.get("open"):
-                live_price = get_price(symbol)
-
-                # Check for SL/TP hits
-                sl_hit = False
-                tp_hit = False
-                if trade["direction"] == "buy":
-                    sl_hit = live_price <= trade["sl"]
-                    tp_hit = live_price >= trade["tp"]
-                else:  # sell
-                    sl_hit = live_price >= trade["sl"]
-                    tp_hit = live_price <= trade["tp"]
-
-                if sl_hit:
-                    # Trade hit stop loss - record as loss with detailed intelligence
-                    try:
-                        pnl = round((live_price - price) * lot if direction == "buy" else (price - live_price) * lot, 2)
-                        update_symbol_confidence(original_symbol, win=False, confirmation_score=confirmation_score_value)
-                        record_trade_outcome(
-                            original_symbol,
-                            win=False,
-                            confirmation_score=confirmation_score_value,
-                            entry_price=price,
-                            exit_price=live_price,
-                            stop_loss_price=trade["sl"],
-                            take_profit_price=trade["tp"],
-                            lot_size=lot,
-                            pnl=pnl,
-                            signal_type=execution_route,
-                            decision_source=hybrid_decision["decision_source"],
-                            analysis_score=hybrid_decision["classic_analysis"].get("score", 0.0),
-                            analysis_confidence=hybrid_decision["classic_analysis"].get("confidence", 0.0),
-                            analysis_pass=hybrid_decision["analysis_pass"],
-                            weighted_pass=hybrid_decision["weighted_pass"],
-                            intelligence_pass=hybrid_decision["intelligence_pass"],
-                            engine_agreement=hybrid_decision["engine_agreement"],
-                        )
-                        record_symbol_trade(original_symbol, win=False, confirmation_score=confirmation_score_value)
-                        sync_trade_outcome_to_supabase(
-                            symbol=original_symbol,
-                            win=False,
-                            confirmation_score=confirmation_score_value,
-                            entry_price=price,
-                            exit_price=live_price,
-                            pnl=pnl,
-                            execution_route=execution_route
-                        )
-
-                        # RECORD STRATEGY MEMORY - what strategy was used, did it work?
-                        try:
-                            from risk.strategy_memory import record_strategy_execution
-                            from utils.symbol_profile import infer_asset_class
-
-                            setup_types = extract_setup_types(signal)
-                            session = get_trading_session()
-                            asset_class = infer_asset_class(original_symbol)
-                            bars_held = int((time.time() - trade_entry_time) / 60 / 5)  # Approx bars
-
-                            record_strategy_execution(
-                                symbol=original_symbol,
-                                setup_types=setup_types,
-                                execution_route=execution_route or "unknown",
-                                confirmation_type=signal.get("confirmation_summary", {}).get("type", "unknown"),
-                                session=session,
-                                asset_class=asset_class,
-                                confirmation_score=confirmation_score_value,
-                                entry_price=price,
-                                sl=trade["sl"],
-                                tp=trade["tp"],
-                                win=False,
-                                pnl=pnl,
-                                bars_held=bars_held
-                            )
-                        except Exception as e:
-                            pass  # Don't fail main bot if strategy memory fails
-                    except Exception:
-                        pass
-                    bot_log(
-                        "trade_closed",
-                        f"Trade closed by SL on {original_symbol}",
-                        {"symbol": original_symbol, "price": live_price, "sl": trade["sl"]},
-                    )
-                    trade["open"] = False
-                    break
-                elif tp_hit:
-                    # Trade hit take profit - record as win with detailed intelligence
-                    try:
-                        pnl = round((live_price - price) * lot if direction == "buy" else (price - live_price) * lot, 2)
-                        update_symbol_confidence(original_symbol, win=True, confirmation_score=confirmation_score_value)
-                        record_trade_outcome(
-                            original_symbol,
-                            win=True,
-                            confirmation_score=confirmation_score_value,
-                            entry_price=price,
-                            exit_price=live_price,
-                            stop_loss_price=trade["sl"],
-                            take_profit_price=trade["tp"],
-                            lot_size=lot,
-                            pnl=pnl,
-                            signal_type=execution_route,
-                            decision_source=hybrid_decision["decision_source"],
-                            analysis_score=hybrid_decision["classic_analysis"].get("score", 0.0),
-                            analysis_confidence=hybrid_decision["classic_analysis"].get("confidence", 0.0),
-                            analysis_pass=hybrid_decision["analysis_pass"],
-                            weighted_pass=hybrid_decision["weighted_pass"],
-                            intelligence_pass=hybrid_decision["intelligence_pass"],
-                            engine_agreement=hybrid_decision["engine_agreement"],
-                        )
-                        record_symbol_trade(original_symbol, win=True, confirmation_score=confirmation_score_value)
-                        sync_trade_outcome_to_supabase(
-                            symbol=original_symbol,
-                            win=True,
-                            confirmation_score=confirmation_score_value,
-                            entry_price=price,
-                            exit_price=live_price,
-                            pnl=pnl,
-                            execution_route=execution_route
-                        )
-
-                        # RECORD STRATEGY MEMORY - what strategy was used, did it work?
-                        try:
-                            from risk.strategy_memory import record_strategy_execution
-                            from utils.symbol_profile import infer_asset_class
-
-                            setup_types = extract_setup_types(signal)
-                            session = get_trading_session()
-                            asset_class = infer_asset_class(original_symbol)
-                            bars_held = int((time.time() - trade_entry_time) / 60 / 5)  # Approx bars
-
-                            record_strategy_execution(
-                                symbol=original_symbol,
-                                setup_types=setup_types,
-                                execution_route=execution_route or "unknown",
-                                confirmation_type=signal.get("confirmation_summary", {}).get("type", "unknown"),
-                                session=session,
-                                asset_class=asset_class,
-                                confirmation_score=confirmation_score_value,
-                                entry_price=price,
-                                sl=trade["sl"],
-                                tp=trade["tp"],
-                                win=True,
-                                pnl=pnl,
-                                bars_held=bars_held
-                            )
-                        except Exception as e:
-                            pass  # Don't fail main bot if strategy memory fails
-                    except Exception:
-                        pass
-                    bot_log(
-                        "trade_closed",
-                        f"Trade closed by TP on {original_symbol}",
-                        {"symbol": original_symbol, "price": live_price, "tp": trade["tp"]},
-                    )
-                    trade["open"] = False
-                    break
-
-                action = manage_trade(trade, live_price)
-
-                if action:
-                    trade = apply_trade_action(trade, action)
-                    bot_log(
-                        "trade_update",
-                        f"Trade update on {original_symbol}: {action.get('action')}.",
-                        {
-                            "symbol": original_symbol,
-                            "action": action,
-                            "live_price": live_price,
-                        },
-                        persist=False,
-                    )
-                else:
-                    break
+            # Keep scanning the market while a background manager watches open trades.
+            register_active_trade(
+                trade=trade,
+                original_symbol=original_symbol,
+                resolved_symbol=symbol,
+                direction=direction,
+                lot=lot,
+                price=price,
+                confirmation_score_value=confirmation_score_value,
+                execution_route=execution_route,
+                hybrid_decision=hybrid_decision,
+                signal=signal,
+                market_rhythm=market_rhythm,
+            )
     except Exception as e:
         set_connection(False, str(e), None)
         bot_log("main_loop_error", f"Error in main loop: {e}", {"error": str(e)})

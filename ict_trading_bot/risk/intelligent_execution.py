@@ -49,14 +49,19 @@ ASSET CLASS MULTIPLIERS (Position Sizing):
 """
 import json
 import os
+import time
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Any
+from risk.intelligent_sync import sync_intelligent_stats_to_supabase, sync_trade_outcome_to_supabase
 from utils.persistent_json import load_json_file, save_json_file, update_json_file
 from utils.symbol_profile import canonical_symbol, infer_asset_class
 
 INTELLIGENT_STATS_FILE = Path(__file__).resolve().parent.parent / "data" / "intelligent_execution_stats.json"
 INTELLIGENT_SKIP_FILE = Path(__file__).resolve().parent.parent / "data" / "intelligent_skip_tracking.json"
+
+# Global cache to prevent disk hammering and lock contention
+_SKIP_COOLDOWN_CACHE = {}
 
 
 def load_intelligent_stats():
@@ -320,6 +325,14 @@ def calculate_precise_winning_rate(symbol: str) -> Dict:
     )
     opportunity_score = min(0.99, max(0.1, opportunity_score))
     
+    symbol_edge = min(
+        0.99,
+        (base_win_rate * 0.35)
+        + (min(profit_factor / 3.0, 1.0) * 0.25)
+        + (prediction_accuracy * 0.2)
+        + ((avg_confidence / 10.0) * 0.2),
+    )
+    
     return {
         "symbol": symbol_key,
         "asset_class": asset_class,
@@ -337,7 +350,37 @@ def calculate_precise_winning_rate(symbol: str) -> Dict:
         "prediction_accuracy": round(prediction_accuracy, 2),
         "risk_rating": risk_rating,
         "opportunity_score": round(opportunity_score, 2),
+        "symbol_edge": round(symbol_edge, 3),
     }
+
+
+def get_learned_threshold_adjustment(symbol: str) -> float:
+    """
+    Return a learned adjustment to the execution threshold for this symbol.
+
+    Negative values relax the threshold, positive values tighten it.
+    This is based on symbol win-rate, profit factor, and recent streaks.
+    """
+    intel = calculate_precise_winning_rate(symbol)
+    if intel["total_trades"] == 0:
+        return 0.0
+
+    adjustment = 0.0
+    if intel["base_win_rate"] >= 0.70 and intel["profit_factor"] >= 1.4:
+        adjustment -= 0.05
+    elif intel["base_win_rate"] >= 0.60 and intel["profit_factor"] >= 1.2:
+        adjustment -= 0.03
+    elif intel["base_win_rate"] >= 0.50 and intel["profit_factor"] >= 1.0:
+        adjustment -= 0.01
+    elif intel["base_win_rate"] < 0.40:
+        adjustment += 0.02
+
+    if intel["win_streak"] >= 2:
+        adjustment -= 0.01
+    elif intel["loss_streak"] >= 3:
+        adjustment += 0.02
+
+    return max(-0.08, min(0.08, adjustment))
 
 
 def calculate_dynamic_lot_size(
@@ -413,8 +456,15 @@ def calculate_dynamic_lot_size(
     except Exception:
         pass
 
+    # Edge bonus from symbol-specific profitability
+    edge_bonus = 1.0
+    if intel.get("symbol_edge", 0.0) >= 0.75:
+        edge_bonus += min(0.10, (intel["symbol_edge"] - 0.75) * 0.3)
+    if intel["profit_factor"] >= 1.8 and intel["base_win_rate"] >= 0.60:
+        edge_bonus += 0.03
+
     # Final calculation
-    final_multiplier = base_multiplier * opportunity_multiplier * streak_multiplier * expectancy_multiplier * session_multiplier
+    final_multiplier = base_multiplier * opportunity_multiplier * streak_multiplier * expectancy_multiplier * session_multiplier * edge_bonus
     # Apply asset class specific limits
     final_multiplier = max(base_min, min(base_max, final_multiplier))
     
@@ -558,7 +608,10 @@ def should_take_trade(
         "decision": False,
         "confidence": 0.0,
         "threshold": final_threshold,
+        "threshold_adjustment": 0.0,
         "factors": [],
+        "learning_notes": [],
+        "self_upgrade": False,
     }
 
     if route_threshold is not None:
@@ -607,6 +660,47 @@ def should_take_trade(
         elif total_trades > 0 and intel["base_win_rate"] < 0.40:
             analysis["factors"].append(f"Weak {asset_class} history ({intel['base_win_rate']:.1%}) trims confidence")
             analysis["confidence"] *= 0.85
+
+    threshold_adjustment = get_learned_threshold_adjustment(symbol)
+    analysis["threshold_adjustment"] = round(threshold_adjustment, 3)
+    if threshold_adjustment != 0:
+        analysis["factors"].append(
+            f"Learned threshold adjustment: {threshold_adjustment:+.0%}"
+        )
+
+    final_threshold = max(0.50, min(0.99, final_threshold + threshold_adjustment))
+    if threshold_adjustment != 0:
+        analysis["learning_notes"].append(
+            f"Threshold adapted by {threshold_adjustment:+.0%} based on symbol learning history"
+        )
+        analysis["self_upgrade"] = True
+
+    if intel["base_win_rate"] >= 0.70 and intel["profit_factor"] >= 1.5:
+        analysis["factors"].append("Strong historical edge detected - relaxing threshold by 3%")
+        analysis["learning_notes"].append("Profit edge found, confidence allowed to increase")
+        final_threshold = max(0.50, final_threshold - 0.03)
+        analysis["self_upgrade"] = True
+
+    if intel["opportunity_score"] >= 0.80:
+        analysis["confidence"] = min(0.99, analysis["confidence"] + 0.04)
+        analysis["factors"].append("High opportunity score gives extra confidence")
+        analysis["learning_notes"].append("Opportunity score supports the setup")
+    elif intel["opportunity_score"] < 0.50:
+        analysis["confidence"] = max(0.0, analysis["confidence"] - 0.05)
+        analysis["factors"].append("Low opportunity score reduces confidence")
+        analysis["learning_notes"].append("Weak opportunity score reduces trade confidence")
+
+    if intel.get("symbol_edge", 0.0) >= 0.80:
+        edge_bonus = min(0.05, (intel["symbol_edge"] - 0.80) * 0.2)
+        analysis["confidence"] = min(0.99, analysis["confidence"] + edge_bonus)
+        analysis["factors"].append(f"Symbol edge {intel['symbol_edge']:.2f} adds {edge_bonus:.0%} confidence")
+        analysis["learning_notes"].append("High edge symbol can justify stronger execution")
+    elif intel.get("symbol_edge", 0.0) < 0.35:
+        analysis["confidence"] = max(0.0, analysis["confidence"] - 0.04)
+        analysis["factors"].append("Low symbol edge reduces confidence")
+        analysis["learning_notes"].append("Low edge symbol requires extra caution")
+
+    analysis["threshold"] = round(final_threshold, 3)
 
     signal_credibility = {
         "elite": 0.98,
@@ -782,7 +876,12 @@ def record_trade_outcome(
         s["last_updated"] = timestamp
         return stats
 
-    update_json_file(INTELLIGENT_STATS_FILE, updater, default={})
+    # Save locally and capture result for sync
+    updated_stats = update_json_file(INTELLIGENT_STATS_FILE, updater, default={})
+    
+    # DUALITY: Trigger background sync to Supabase
+    sync_intelligent_stats_to_supabase(updated_stats)
+    sync_trade_outcome_to_supabase(symbol, win, confirmation_score, entry_price, exit_price, pnl, signal_type)
 
 
 def get_market_intelligence_report(symbols: List[str] = None) -> str:
@@ -793,7 +892,20 @@ def get_market_intelligence_report(symbols: List[str] = None) -> str:
     stats = load_intelligent_stats()
     
     if not stats:
-        return "[MARKET INTEL] No trading data yet. System learning..."
+        skip_data = load_intelligent_skip_stats()
+        if skip_data:
+            total_symbols = len(skip_data)
+            total_skips = sum(
+                int((bucket or {}).get("total_skips", 0) or 0)
+                for bucket in skip_data.values()
+                if isinstance(bucket, dict)
+            )
+            return (
+                "[MARKET INTEL] No executed trades recorded yet. "
+                f"Skip history exists for {total_symbols} symbols ({total_skips} skipped candidates). "
+                "The bot is filtering setups, but it still has no closed-trade outcome data."
+            )
+        return "[MARKET INTEL] No executed trades or skip history yet. Waiting for the first completed setup."
     
     if symbols is None:
         symbols = sorted(stats.keys())
@@ -866,16 +978,79 @@ def get_intelligent_recommendation(symbol: str) -> str:
     if intel["total_trades"] == 0:
         return "First trade - use 60% normal lot size"
     
+    adjustment = get_learned_threshold_adjustment(symbol)
+    adjustment_note = ""
+    if adjustment > 0:
+        adjustment_note = f" Learn threshold +{adjustment*100:.0f}% for this symbol."
+    elif adjustment < 0:
+        adjustment_note = f" Learn threshold -{abs(adjustment)*100:.0f}% for this symbol."
+
     if intel["opportunity_score"] >= 0.85:
-        return f"✅ STRONG - {intel['base_win_rate']:.0%} WR, {intel['profit_factor']:.1f}x profit - Trade FULL size"
+        return f"✅ STRONG - {intel['base_win_rate']:.0%} WR, {intel['profit_factor']:.1f}x profit - Trade FULL size.{adjustment_note}"
     elif intel["opportunity_score"] >= 0.75:
-        return f"✓ GOOD - {intel['base_win_rate']:.0%} WR - Trade NORMAL size"
+        return f"✓ GOOD - {intel['base_win_rate']:.0%} WR - Trade NORMAL size.{adjustment_note}"
     elif intel["opportunity_score"] >= 0.65:
-        return f"~ CAUTIOUS - {intel['base_win_rate']:.0%} WR - Trade REDUCED size (70%)"
+        return f"~ CAUTIOUS - {intel['base_win_rate']:.0%} WR - Trade REDUCED size (70%).{adjustment_note}"
     elif intel["opportunity_score"] >= 0.55:
-        return f"⚠️ RISKY - {intel['base_win_rate']:.0%} WR - Trade VERY SMALL (40%)"
+        return f"⚠️ RISKY - {intel['base_win_rate']:.0%} WR - Trade VERY SMALL (40%).{adjustment_note}"
     else:
-        return f"❌ AVOID - {intel['base_win_rate']:.0%} WR - Skip or minimum size only"
+        return f"❌ AVOID - {intel['base_win_rate']:.0%} WR - Skip or minimum size only.{adjustment_note}"
+
+
+def should_allow_intelligence_direct_execution(
+    symbol: str,
+    intelligence_analysis: Dict,
+    confidence_data: Dict = None,
+) -> Tuple[bool, Dict]:
+    """
+    Decide whether intelligence learning should be allowed to override a weighted skip.
+
+    This path is only taken when intelligence already approves the setup,
+    but the weighted engine would otherwise decline.
+    """
+    if os.getenv("ENABLE_INTELLIGENCE_OVERRIDE", "true").lower() not in ("1", "true", "yes"):
+        return False, {}
+    if os.getenv("ENABLE_SMART_EXECUTION", "true").lower() not in ("1", "true", "yes"):
+        return False, {}
+    if not isinstance(intelligence_analysis, dict):
+        return False, {}
+
+    if intelligence_analysis.get("confidence", 0.0) < 0.78:
+        return False, {}
+
+    intel = calculate_precise_winning_rate(symbol)
+    if intel["total_trades"] == 0:
+        return False, {}
+
+    if intel["opportunity_score"] >= 0.82 and intel["base_win_rate"] >= 0.60 and intel["profit_factor"] >= 1.3:
+        return True, {
+            "reason": "strong_opportunity",
+            "opportunity_score": intel["opportunity_score"],
+            "base_win_rate": intel["base_win_rate"],
+        }
+
+    if intel.get("symbol_edge", 0.0) >= 0.88 and intel["profit_factor"] >= 1.25 and intel["opportunity_score"] >= 0.78:
+        return True, {
+            "reason": "strong_edge",
+            "symbol_edge": intel["symbol_edge"],
+            "profit_factor": intel["profit_factor"],
+        }
+
+    if intel["base_win_rate"] >= 0.70 and intel["profit_factor"] >= 1.4 and intel["opportunity_score"] >= 0.75:
+        return True, {
+            "reason": "exceptional_historic_edge",
+            "base_win_rate": intel["base_win_rate"],
+            "profit_factor": intel["profit_factor"],
+        }
+
+    if intel["current_streak"] == "win" and intel["win_streak"] >= 2 and intel["opportunity_score"] >= 0.72:
+        return True, {
+            "reason": "positive_momentum",
+            "win_streak": intel["win_streak"],
+            "opportunity_score": intel["opportunity_score"],
+        }
+
+    return False, {}
 
 
 def load_intelligent_skip_stats():
@@ -904,6 +1079,20 @@ def record_skip_detailed(reason: str, symbol: str, confidence: float = 0.0, anal
         confidence: Entry confidence score (0.0-1.0) if known
         analysis: Detailed analysis dict from decision function
     """
+    # Avoid recording learned block feedback loops. When a symbol is already
+    # blocked by skip pattern, we should not increment its skip history again.
+    if reason == "skip_pattern_blacklist":
+        return
+
+    # THROTTLE: Only record the same reason for the same symbol once every 5 minutes
+    # to prevent JSON lock contention and WinError 5 access denied errors.
+    cache_key = f"{symbol}:{reason}"
+    now_ts = time.time()
+    if cache_key in _SKIP_COOLDOWN_CACHE:
+        if now_ts - _SKIP_COOLDOWN_CACHE[cache_key] < 300: # 5 minute cooldown
+            return
+    _SKIP_COOLDOWN_CACHE[cache_key] = now_ts
+
     symbol_key = _symbol_key(symbol)
     asset_class = infer_asset_class(symbol_key)
     timestamp = datetime.now().isoformat()
@@ -1120,116 +1309,141 @@ def get_skip_statistics_report() -> str:
     return report
 
 
+def _is_blacklist_operational_reason(reason: str) -> bool:
+    reason = str(reason or "")
+    return reason in {"entry_error", "trade_execution_error", "trade_failed"}
+
+
+def _is_blacklist_performance_reason(reason: str) -> bool:
+    reason = str(reason or "")
+    return reason.startswith("profitability_guard_")
+
+
+def get_symbol_skip_diagnostics(symbol: str) -> Dict:
+    """
+    Summarize skip evidence for a symbol while separating normal "wait for setup"
+    filters from real operational or performance problems.
+    """
+    skip_data = load_intelligent_skip_stats()
+    exec_data = load_intelligent_stats()
+    symbol_key = _symbol_key(symbol)
+
+    bucket = skip_data.get(symbol_key, {}) if isinstance(skip_data, dict) else {}
+    if not isinstance(bucket, dict):
+        bucket = {}
+
+    exec_bucket = exec_data.get(symbol_key, {}) if isinstance(exec_data, dict) else {}
+    if not isinstance(exec_bucket, dict):
+        exec_bucket = {}
+
+    raw_total_skips = int(bucket.get("total_skips", 0) or 0)
+    raw_skip_reasons = bucket.get("skip_reasons", {}) or {}
+    skip_reasons = {}
+    if isinstance(raw_skip_reasons, dict):
+        for reason, count in raw_skip_reasons.items():
+            try:
+                skip_reasons[str(reason)] = int(count or 0)
+            except Exception:
+                skip_reasons[str(reason)] = 0
+
+    blacklist_skips = skip_reasons.get("skip_pattern_blacklist", 0)
+    effective_total_skips = max(0, raw_total_skips - blacklist_skips)
+
+    operational_skips = sum(
+        count for reason, count in skip_reasons.items() if _is_blacklist_operational_reason(reason)
+    )
+    performance_skips = sum(
+        count for reason, count in skip_reasons.items() if _is_blacklist_performance_reason(reason)
+    )
+    hard_block_skips = operational_skips + performance_skips
+    soft_filter_skips = max(0, effective_total_skips - hard_block_skips)
+
+    top_reasons = [
+        {"reason": reason, "count": count}
+        for reason, count in sorted(
+            (
+                (reason, count)
+                for reason, count in skip_reasons.items()
+                if reason != "skip_pattern_blacklist" and int(count or 0) > 0
+            ),
+            key=lambda item: item[1],
+            reverse=True,
+        )[:5]
+    ]
+
+    recent_samples = bucket.get("skip_samples", [])
+    if not isinstance(recent_samples, list):
+        recent_samples = []
+    recent_reasons = []
+    for sample in reversed(recent_samples):
+        if not isinstance(sample, dict):
+            continue
+        reason = str(sample.get("reason") or "")
+        if reason and reason != "skip_pattern_blacklist" and reason not in recent_reasons:
+            recent_reasons.append(reason)
+        if len(recent_reasons) >= 5:
+            break
+
+    executed_trades = int(exec_bucket.get("total_trades", 0) or 0)
+    win_rate = float(exec_bucket.get("win_rate", 0.0) or 0.0)
+
+    return {
+        "symbol": symbol_key,
+        "raw_total_skips": raw_total_skips,
+        "effective_total_skips": effective_total_skips,
+        "blacklist_skips": blacklist_skips,
+        "soft_filter_skips": soft_filter_skips,
+        "operational_skips": operational_skips,
+        "performance_skips": performance_skips,
+        "hard_block_skips": hard_block_skips,
+        "executed_trades": executed_trades,
+        "win_rate": win_rate,
+        "last_skip": bucket.get("last_skip"),
+        "top_reasons": top_reasons,
+        "recent_reasons": recent_reasons,
+    }
+
+
 def should_skip_symbol_entirely(symbol: str) -> Tuple[bool, str]:
     """
-    Determine if a symbol should be SKIPPED ENTIRELY based on skip history.
-    
-    Uses pattern analysis: If symbol has too many skips relative to trades,
-    the entry model is probably broken for that symbol.
-    
-    Returns:
-        (should_skip: bool, reason: str)
-        - (True, "reason") if symbol should be avoided
-        - (False, "") if symbol is tradeable
-    
-    EXAMPLE:
-        - GBPUSD: 47 skips, 3 trades (94% skip rate) → SKIP
-        - EURUSD: 8 skips, 15 trades (35% skip rate) → TRADE
+    Determine if a symbol should be hard-blocked by learning.
     """
-    skip_data = load_intelligent_skip_stats()
-    exec_data = load_intelligent_stats()
-    symbol_key = _symbol_key(symbol)
-    
-    if symbol_key not in skip_data:
-        return False, ""  # No skip history = safe to trade
-    
-    total_skips = skip_data[symbol_key].get("total_skips", 0)
-    
-    if total_skips == 0:
+    diagnostics = get_symbol_skip_diagnostics(symbol)
+
+    hard_block_skips = diagnostics["hard_block_skips"]
+    exec_count = diagnostics["executed_trades"]
+    win_rate = diagnostics["win_rate"]
+
+    if hard_block_skips <= 0:
         return False, ""
-    
-    # Get execution data
-    exec_count = 0
-    if symbol_key in exec_data:
-        exec_count = exec_data[symbol_key].get("total_trades", 0)
-    
-    skip_rate = total_skips / (total_skips + exec_count) if (total_skips + exec_count) > 0 else 0.0
-    
-    # AGGRESSIVE SKIP PATTERN: 80%+ of attempts skipped
-    if skip_rate >= 0.80 and total_skips >= 20:
-        return True, f"VERY HIGH skip rate ({skip_rate:.0%}, {total_skips} attempts). Entry model broken for {symbol}."
-    
-    # MODERATE SKIP PATTERN: 70%+ of attempts skipped with many attempts
-    if skip_rate >= 0.70 and total_skips >= 15:
-        return True, f"HIGH skip rate ({skip_rate:.0%}, {total_skips} attempts). {symbol} signals are unreliable."
-    
-    # REPEATED FAILURES: Many skips but some trades with low win rate
-    if total_skips >= 20 and exec_count > 0:
-        win_rate = exec_data[symbol_key].get("win_rate", 0)
-        if win_rate < 0.30:  # Less than 30% win rate
-            return True, f"Low performance: only {win_rate:.0%} WR ({exec_count} trades), {total_skips} skips. Avoid until signals improve."
-    
+
+    if exec_count == 0:
+        if diagnostics["operational_skips"] >= 20:
+            return (
+                True,
+                f"Repeated operational failures ({diagnostics['operational_skips']} errors, 0 executed trades). "
+                f"Pausing {symbol} until execution is stable.",
+            )
+        return False, ""
+
+    hard_block_rate = hard_block_skips / max(1, hard_block_skips + exec_count)
+
+    if diagnostics["performance_skips"] >= 15 and exec_count >= 5 and win_rate < 0.35:
+        return (
+            True,
+            f"Repeated profitability blocks ({diagnostics['performance_skips']}) with only {win_rate:.0%} WR "
+            f"across {exec_count} trades. Pausing {symbol}.",
+        )
+
+    if hard_block_rate >= 0.80 and hard_block_skips >= 25 and exec_count >= 10 and win_rate < 0.40:
+        return (
+            True,
+            f"Operational/performance failure rate is {hard_block_rate:.0%} "
+            f"({hard_block_skips} hard blocks vs {exec_count} executed trades) with {win_rate:.0%} WR. "
+            f"Pausing {symbol}.",
+        )
+
     return False, ""
-
-
-def get_learned_threshold_adjustment(symbol: str) -> float:
-    """
-    Calculate confidence threshold ADJUSTMENT based on skip patterns.
-    
-    When a symbol has many skips, it means the entry model is weak.
-    We can learn this and adjust threshold UP (require more confidence)
-    or DOWN (relax requirement if symbol eventually trades well).
-    
-    Returns:
-        threshold_modifier: float to ADD to final threshold
-        - 0.05 = add 5 percentage points to threshold (require 80% instead of 75%)
-        - -0.05 = subtract 5 percentage points (require 70% instead of 75%)
-    
-    EXAMPLE:
-        Symbol with 40 skips, 10 trades, 65% WR:
-        - Skip rate: 80%
-        - Win rate: 65% (good)
-        - Decision: Raise threshold +5% (require 80%, not 75%)
-                    because entry model is weak but results are good
-    """
-    skip_data = load_intelligent_skip_stats()
-    exec_data = load_intelligent_stats()
-    symbol_key = _symbol_key(symbol)
-    
-    if symbol_key not in skip_data:
-        return 0.0  # No skip history = no adjustment
-    
-    total_skips = skip_data[symbol_key].get("total_skips", 0)
-    
-    if total_skips < 5:
-        return 0.0  # Not enough skip history
-    
-    # Calculate skip rate
-    exec_count = 0
-    win_rate = 0.5
-    if symbol_key in exec_data:
-        exec_count = exec_data[symbol_key].get("total_trades", 0)
-        win_rate = exec_data[symbol_key].get("win_rate", 0)
-    
-    skip_rate = total_skips / (total_skips + exec_count) if (total_skips + exec_count) > 0 else 0.0
-    
-    adjustment = 0.0
-    
-    # HIGH skip rate + NO trades yet = RAISE threshold (be more cautious)
-    if skip_rate >= 0.75 and exec_count == 0:
-        adjustment = 0.10  # Raise threshold by 10% (75% → 85%)
-    # HIGH skip rate + POOR results = RAISE threshold (be more cautious)
-    elif skip_rate >= 0.70 and win_rate < 0.40:
-        adjustment = 0.08  # Raise threshold by 8%
-    # MODERATE skip rate + GOOD results = LOWER threshold slightly (reward it)
-    elif skip_rate >= 0.50 and win_rate >= 0.60 and exec_count >= 5:
-        adjustment = -0.03  # Lower threshold by 3% (symbol is improving)
-    # MANY skips but EXCELLENT results = SIGNIFICANTLY LOWER threshold
-    elif skip_rate >= 0.70 and win_rate >= 0.70 and exec_count >= 10:
-        adjustment = -0.05  # Lower threshold by 5% (it's a real gem)
-    
-    # Cap the adjustment
-    return max(-0.10, min(0.10, adjustment))
 
 
 def learn_from_repeated_skips(symbol: str) -> Dict:

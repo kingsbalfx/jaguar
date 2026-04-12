@@ -57,12 +57,26 @@ from strategy.confirmation_system import get_all_confirmations_for_pair
 from risk.market_condition import should_trade_pair_based_on_volatility, load_volatility_analysis
 from risk.correlation_manager import get_pair_correlation_risk
 from risk.position_manager import get_current_account_exposure, calculate_position_sizing
+from risk.intelligent_execution import get_learned_threshold_adjustment
 from execution.order_manager import calculate_risk_reward_for_trade
 from strategy.pre_trade_analysis import analyze_market_top_down
 from strategy.setup_confirmations import bos_setup, liquidity_sweep_or_swing, price_action_setup
+from risk.trend_dynamics import TrendDynamicsAnalyzer
 from utils.symbol_profile import canonical_symbol
 
 CIS_DECISIONS_FILE = Path(__file__).resolve().parent.parent / "data" / "cis_decisions_history.json"
+
+# ICT Correlation Mapping for SMT Divergence
+CORRELATED_PAIRS = {
+    "EURUSD": "GBPUSD",
+    "GBPUSD": "EURUSD",
+    "AUDUSD": "NZDUSD",
+    "BTCUSD": "ETHUSD",
+    "XAUUSD": "XAGUSD"
+}
+
+# Initialize Dynamics Analyzer for Market Position awareness
+dynamics_analyzer = TrendDynamicsAnalyzer()
 
 def _symbol_key(symbol: str) -> str:
     """Get normalized symbol key for consistent data tracking across brokers."""
@@ -98,11 +112,62 @@ def save_cis_decision(symbol: str, decision: Dict):
         logger.warning(f"Failed to save CIS decision: {e}")
 
 
+def check_smt_divergence(symbol: str, direction: str) -> float:
+    """
+    Checks for SMT Divergence with correlated pairs.
+    In ICT, if Pair A sweeps liquidity but Pair B fails to sweep, smart money is accumulating.
+    """
+    try:
+        correlated = CORRELATED_PAIRS.get(symbol)
+        if not correlated:
+            return 0.5
+            
+        rates_main = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M15, 0, 10)
+        rates_corr = mt5.copy_rates_from_pos(correlated, mt5.TIMEFRAME_M15, 0, 10)
+        
+        if rates_main is None or rates_corr is None:
+            return 0.5
+            
+        if direction.upper() == "BUY":
+            # Main made Lower Low, Correlated failed to make Lower Low
+            main_ll = min([r[3] for r in rates_main]) # low
+            corr_ll = min([r[3] for r in rates_corr])
+            
+            if rates_main[-1][3] <= main_ll and rates_corr[-1][3] > corr_ll:
+                return 0.9 # SMT Divergence detected
+        else:
+            # Main made Higher High, Correlated failed to make Higher High
+            main_hh = max([r[2] for r in rates_main]) # high
+            corr_hh = max([r[2] for r in rates_corr])
+            
+            if rates_main[-1][2] >= main_hh and rates_corr[-1][2] < corr_hh:
+                return 0.9
+                
+        return 0.5
+    except Exception:
+        return 0.5
+
+def get_midnight_open(symbol: str) -> float:
+    """Calculates NY Midnight Open (00:00 EST) for Power of 3 (AMD) context."""
+    try:
+        now = datetime.utcnow()
+        midnight_utc = now.replace(hour=5, minute=0, second=0, microsecond=0)
+        if now < midnight_utc:
+            midnight_utc -= timedelta(days=1)
+            
+        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 24)
+        return rates[0][1] if rates is not None else 0.0
+    except Exception:
+        return 0.0
+
 def calculate_setup_quality_score(
     symbol: str,
     timeframe: str,
+    direction: str = "BUY",
     multi_tf_analysis: Dict = None,
-    entry_price: float = 0.0
+    entry_price: float = 0.0,
+    htf_data: List = None,
+    mtf_data: List = None
 ) -> Tuple[float, Dict]:
     """
     Calculate setup quality (0-1) based on technical analysis across 7 timeframes.
@@ -130,6 +195,10 @@ def calculate_setup_quality_score(
         "pattern_strength": 0.3,        # M5 rating - Pattern precision
         "micro_entry_precision": 0.3,   # M1 rating - Exact entry candle
         "imbalance_quality": 0.0,
+        "smt_divergence": 0.5,
+        "judas_swing_context": 0.5,
+        "market_dynamics": 0.5,         # Added Dynamics Score component
+        "market_mode": "UNKNOWN",       # Label for history tracking
         "notes": []
     }
 
@@ -180,7 +249,16 @@ def calculate_setup_quality_score(
             details["notes"].append(f"Logic Rejected: Insufficient confirmations (Found {len(valid_ratings)}/2 required)")
             return 0.2, details
 
-        # Check for imbalance (FVG) quality and optimal entry zone
+        # SMT Divergence Check
+        details["smt_divergence"] = check_smt_divergence(symbol, direction)
+        if details["smt_divergence"] > 0.8:
+            details["notes"].append(f"SMT Divergence detected with {CORRELATED_PAIRS.get(symbol)}")
+
+        # Midnight Open / Judas Swing Context
+        midnight_open = get_midnight_open(symbol)
+        details["judas_swing_context"] = 0.8 if (direction == "BUY" and entry_price < midnight_open) or (direction == "SELL" and entry_price > midnight_open) else 0.4
+
+        # Check for PD Array Hierarchy (Breaker > Mitigation > FVG > OB)
         fvgs = execution_data.get("fvgs") or ltf_data.get("fvgs", [])
         fib_levels = analysis.get("MTF", {}).get("fib", {}) # Assuming MTF fib is relevant for optimal zone
 
@@ -191,6 +269,26 @@ def calculate_setup_quality_score(
             if is_premium_discount_optimal(entry_price, fib_levels, htf_trend):
                 imbalance_score_base = 0.8 # FVG present AND optimal zone
 
+        # Market Dynamics Analysis (Reversal/Continuation/Swing)
+        # Extracts candle data from multi_tf_analysis if not passed directly
+        htf_candles = htf_data or (analysis.get("HTF", {}).get("candles") if isinstance(analysis, dict) else None)
+        mtf_candles = mtf_data or (analysis.get("MTF", {}).get("candles") if isinstance(analysis, dict) else None)
+
+        displacement_val = 0.5
+        if htf_candles and mtf_candles:
+            dynamics = dynamics_analyzer.analyze_market_position(
+                htf_data=htf_candles,
+                mtf_data=mtf_candles,
+                current_price=entry_price or analysis.get("price", 0),
+                direction=direction.lower()
+            )
+            displacement_val = dynamics.get("displacement", 0.5)
+            details["market_dynamics"] = (dynamics["score"] * 0.7) + (displacement_val * 0.3)
+            details["market_mode"] = dynamics["label"]
+            details["notes"].append(f"Dynamics: {dynamics['label']} (Conf: {details['market_dynamics']:.2f})")
+        else:
+            details["notes"].append("Dynamics Analysis Skipped: Missing candle data")
+
         # Measure Order Block strength
         ob_strength = 0.3
         try:
@@ -198,14 +296,42 @@ def calculate_setup_quality_score(
         except Exception:
             pass
 
-        # Combine FVG presence, optimal zone, and OB strength
-        details["imbalance_quality"] = (imbalance_score_base * 0.6) + (ob_strength * 0.4)
+        # PD Array Priority Adjustment
+        pd_array_priority = 1.0
+        if pa.get("is_breaker"): pd_array_priority = 1.2
+        if pa.get("is_mitigation"): pd_array_priority = 1.1
+        
+        # ICT SYNERGY: An FVG created by Displacement is a "Gap and Go" (High Quality)
+        if displacement_val > 0.7 and imbalance_score_base > 0.5:
+            pd_array_priority += 0.15
+
+        details["imbalance_quality"] = ((imbalance_score_base * 0.6) + (ob_strength * 0.4)) * pd_array_priority
         if details["imbalance_quality"] > 0.7:
             details["notes"].append("Optimal entry zone (FVG + Premium/Discount) confirmed")
         elif details["imbalance_quality"] > 0.5:
             details["notes"].append("FVG present, but not perfectly optimal zone")
         else:
             details["notes"].append("No clear FVG or optimal entry zone")
+
+        # Market Dynamics Analysis (Reversal/Continuation/Swing)
+        # Extracts candle data from multi_tf_analysis if not passed directly
+        htf_candles = htf_data or (analysis.get("HTF", {}).get("candles") if analysis else None)
+        mtf_candles = mtf_data or (analysis.get("MTF", {}).get("candles") if analysis else None)
+
+        if htf_candles and mtf_candles:
+            dynamics = dynamics_analyzer.analyze_market_position(
+                htf_data=htf_candles,
+                mtf_data=mtf_candles,
+                current_price=entry_price or analysis.get("price", 0),
+                direction=direction.lower()
+            )
+            details["market_dynamics"] = dynamics["score"]
+            # Include Displacement in scoring
+            details["market_dynamics"] = (dynamics["score"] * 0.7) + (dynamics["displacement"] * 0.3)
+            details["market_mode"] = dynamics["label"]
+            details["notes"].append(f"Dynamics: {dynamics['label']} (Conf: {details['market_dynamics']:.2f})")
+        else:
+            details["notes"].append("Dynamics Analysis Skipped: Missing candle data")
 
         # BRIEF: Daily structural confirmation relative to Weekly
         d1_rating = confirmations.get("d1_rating", 0.5)
@@ -231,14 +357,18 @@ def calculate_setup_quality_score(
         # This ensures the confirmation score is properly weighted for alternative execution paths.
         # Daily/H4 are brief context. H1/M30/M15 carry analysis. M5 is execution confirmation.
 
+        # FINAL SCORE: Incorporating SMT and Power of 3 (AMD) logic
         score = (
-            details["daily_brief"] * 0.10 +
-            details["h4_brief"] * 0.10 +
-            details["entry_setup"] * 0.20 +            # H1 analysis
-            details["m30_confirmation"] * 0.20 +       # M30 analysis
-            details["mid_term_confirmation"] * 0.25 +  # M15 analysis
-            details["pattern_strength"] * 0.10 +       # M5 execution confirmation
-            details["imbalance_quality"] * 0.05
+            details["daily_brief"] * 0.05 +
+            details["h4_brief"] * 0.05 +
+            details["entry_setup"] * 0.10 +            # H1 analysis
+            details["m30_confirmation"] * 0.10 +       # M30 analysis
+            details["mid_term_confirmation"] * 0.15 +  # M15 analysis
+            details["pattern_strength"] * 0.05 +       # M5 execution confirmation
+            details["imbalance_quality"] * 0.05 +
+            details["market_dynamics"] * 0.20 +         # Dynamics/MSS influence
+            details["smt_divergence"] * 0.15 +          # Smart Money Tool
+            details["judas_swing_context"] * 0.10       # Power of 3 context
         )
 
         if score < 0.5:
@@ -436,18 +566,28 @@ def calculate_timing_score(symbol: str, timeframe: str) -> Tuple[float, Dict]:
         # Intelligent Session Analysis (UTC)
         # London: 08:00 - 16:00 | New York: 13:00 - 21:00 | Asian: 00:00 - 09:00
 
+        # Standard Sessions (UTC)
         is_london = 8 <= hour < 16
         is_ny = 13 <= hour < 21
-        is_asian = (0 <= hour < 9) or (hour >= 23)
         is_overlap = 13 <= hour < 16
 
+        # ICT Killzones (EST -> UTC)
+        # London: 2am-5am EST (7am-10am UTC)
+        # NY Open: 7am-10am EST (12pm-15pm UTC)
+        # London Close / Silver Bullet: 10am-11am EST (15pm-16pm UTC)
+        
+        is_london_kz = 7 <= hour < 10
+        is_ny_kz = 12 <= hour < 15
+        is_silver_bullet = 15 <= hour < 16
+        is_asian = (0 <= hour < 9) or (hour >= 23)
+
         if asset_class == "forex":
-            if is_overlap:
-                details["session_alignment"] = 1.0  # Gold standard for liquidity
-            elif is_london:
-                details["session_alignment"] = 0.9
-            elif is_ny:
+            if is_london_kz:
+                details["session_alignment"] = 1.0  # London Open Volatility
+            elif is_ny_kz:
                 details["session_alignment"] = 0.85
+            elif is_silver_bullet:
+                details["session_alignment"] = 0.95 # High probability ICT hour
             elif is_asian:
                 # Trade majors in Asia? Lower IQ timing
                 details["session_alignment"] = 0.65
@@ -519,6 +659,8 @@ def get_cis_decision(
     stop_loss: float = None,
     take_profit: float = None,
     multi_tf_analysis: Dict = None,
+    htf_data: List = None,
+    mtf_data: List = None
 ) -> Dict:
     """
     MAIN CIS FUNCTION: Make pre-trade decision.
@@ -576,10 +718,14 @@ def get_cis_decision(
         setup_score, setup_details = calculate_setup_quality_score(
             symbol,
             timeframe,
+            direction=direction,
             multi_tf_analysis=multi_tf_analysis,
             entry_price=entry_price,
+            htf_data=htf_data,
+            mtf_data=mtf_data
         )
         decision["component_scores"]["setup_quality"] = round(setup_score, 3)
+        decision["market_mode"] = setup_details.get("market_mode", "UNKNOWN")
         decision["reasoning"].extend([f"Setup: {note}" for note in setup_details.get("notes", [])])
 
         # 2. Market Condition
@@ -602,10 +748,19 @@ def get_cis_decision(
         confidence = (setup_score * 0.45) + (risk_score * 0.25) + (market_score * 0.15) + (timing_score * 0.15)
         decision["confidence_score"] = round(confidence, 3)
 
-        # Make final verdict
-        if confidence > 0.75:
+        # Apply learned threshold adjustments so the system improves over time
+        threshold_adjustment = get_learned_threshold_adjustment(symbol)
+        decision["learning_adjustment"] = round(threshold_adjustment, 3)
+        if threshold_adjustment != 0:
+            decision["reasoning"].append(f"Learning adaptation adjusts trade threshold by {threshold_adjustment:+.0%}")
+
+        trade_threshold = min(0.99, max(0.65, 0.75 + threshold_adjustment))
+        wait_threshold = min(0.99, max(0.55, 0.62 + threshold_adjustment))
+
+        # Strong symbols should still benefit from high edge; weak symbols get stricter gating
+        if confidence > trade_threshold:
             decision["final_verdict"] = "TRADE"
-        elif confidence > 0.62: # Raised "Wait" threshold to be more selective
+        elif confidence > wait_threshold:
             decision["final_verdict"] = "WAIT"
         else:
             decision["final_verdict"] = "AVOID"

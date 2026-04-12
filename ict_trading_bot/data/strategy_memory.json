@@ -1,0 +1,313 @@
+{
+  "setup_strategies": {
+    "liquidity": {
+      "total_trades": 13,
+      "wins": 0,
+      "losses": 13,
+      "win_rate": 0.0,
+      "avg_pnl": -0.02846153846153846,
+      "avg_confirmation": 76.78461538461539,
+      "per_symbol": {
+        "XAUUSD": {
+          "wins": 0,
+          "losses": 5,
+          "total": 5
+        },
+        "USDCAD": {
+          "wins": 0,
+          "losses": 3,
+          "total": 3
+        },
+        "DOGEUSD": {
+          "wins": 0,
+          "losses": 5,
+          "total": 5
+        }
+      }
+    },
+    "bos": {
+      "total_trades": 13,
+      "wins": 0,
+      "losses": 13,
+      "win_rate": 0.0,
+      "avg_pnl": -0.02846153846153846,
+      "avg_confirmation": 76.78461538461539,
+      "per_symbol": {
+        "XAUUSD": {
+          "wins": 0,
+          "losses": 5,
+          "total": 5
+        },
+        "USDCAD": {
+          "wins": 0,
+          "losses": 3,
+          "total": 3
+        },
+        "DOGEUSD": {
+          "wins": 0,
+          "losses": 5,
+          "total": 5
+        }
+      }
+    },
+    "fvg": {
+      "total_trades": 11,
+      "wins": 0,
+      "losses": 11,
+      "win_rate": 0.0,
+      "avg_pnl": -0.01636363636363636,
+      "avg_confirmation": 77.60000000000001,
+      "per_symbol": {
+        "XAUUSD": {
+          "wins": 0,
+          "losses": 3,
+          "total": 3
+        },
+        "USDCAD": {
+          "wins": 0,
+          "losses": 3,
+          "total": 3
+        },
+        "DOGEUSD": {
+          "wins": 0,
+          "losses": 5,
+          "total": 5
+        }
+      }
+    },
+    "order_block": {
+      "total_trades": 13,
+      "wins": 0,
+      "losses": 13,
+      "win_rate": 0.0,
+      "avg_pnl": -0.02846153846153846,
+      "avg_confirmation": 76.78461538461539,
+      "per_symbol": {
+        "XAUUSD": {
+          "wins": 0,
+          "losses": 5,
+          "total": 5
+        },
+        "USDCAD": {
+          "wins": 0,
+          "losses": 3,
+          "total": 3
+        },
+        "DOGEUSD": {
+          "wins": 0,
+          "losses": 5,
+          "total": 5
+        }
+      }
+    },
+    "price_action": {
+      "total_trades": 1,
+      "wins": 0,
+      "losses": 1,
+      "win_rate": 0.0,
+      "avg_pnl": 0.0,
+      "avg_confirmation": 96.5,
+      "per_symbol": {
+        "DOGEUSD": {
+          "wins": 0,
+          "losses": 1,
+          "total": 1
+        }
+      }
+    }
+  },
+  "execution_routes": {
+    "intelligent_alternative": {
+      "total_trades": 13,
+      "wins": 0,
+      "losses": 13,
+      "win_rate": 0.0,
+      "confirmation_types": {
+        "analysis_and_weighted_intelligence": {
+          "wins": 0,
+          "losses": 13,
+          "total": 13
+        }
+      }
+    }
+  },
+  "session_strategies": {
+    "other": {
+      "total_trades": 13,
+      "wins": 0,
+      "losses": 13,
+      "win_rate": 0.0,
+      "per_asset_class": {
+        "metals": {
+          "wins": 0,
+          "losses": 5,
+          "total": 5
+        },
+        "forex": {
+          "wins": 0,
+          "losses": 3,
+          "total": 3
+        },
+        "crypto": {
+          "wins": 0,
+          "losses": 5,
+          "total": 5
+        }
+      }
+    }
+  },
+  "asset_class_strategies": {
+    "metals": {
+      "total_trades": 5,
+      "wins": 0,
+      "losses": 5,
+      "win_rate": 0.0,
+      "best_session": "other",
+      "best_setup": "liquidity"
+    },
+    "forex": {
+      "total_trades": 3,
+      "wins": 0,
+      "losses": 3,
+      "win_rate": 0.0,
+      "best_session": "other",
+      "best_setup": "liquidity"
+    },
+    "crypto": {
+      "total_trades": 5,
+      "wins": 0,
+      "losses": 5,
+      "win_rate": 0.0,
+      "best_session": "other",
+      "best_setup": "liquidity"
+    }
+  },
+  "symbol_strategy_matrix": {
+    "XAUUSD": {
+      "best_setup": "liquidity",
+      "best_execution_route": "intelligent_alternative",
+      "best_session": "other",
+      "setup_performance": {
+        "liquidity": {
+          "wins": 0,
+          "losses": 5
+        },
+        "bos": {
+          "wins": 0,
+          "losses": 5
+        },
+        "fvg": {
+          "wins": 0,
+          "losses": 3
+        },
+        "order_block": {
+          "wins": 0,
+          "losses": 5
+        }
+      },
+      "route_performance": {
+        "intelligent_alternative": {
+          "wins": 0,
+          "losses": 5
+        }
+      },
+      "session_performance": {
+        "other": {
+          "wins": 0,
+          "losses": 5
+        }
+      },
+      "win_rate": 0.0,
+      "trades": 5,
+      "wins": 0,
+      "losses": 5,
+      "last_updated": "2026-04-10T21:05:36.141178"
+    },
+    "USDCAD": {
+      "best_setup": "liquidity",
+      "best_execution_route": "intelligent_alternative",
+      "best_session": "other",
+      "setup_performance": {
+        "liquidity": {
+          "wins": 0,
+          "losses": 3
+        },
+        "bos": {
+          "wins": 0,
+          "losses": 3
+        },
+        "fvg": {
+          "wins": 0,
+          "losses": 3
+        },
+        "order_block": {
+          "wins": 0,
+          "losses": 3
+        }
+      },
+      "route_performance": {
+        "intelligent_alternative": {
+          "wins": 0,
+          "losses": 3
+        }
+      },
+      "session_performance": {
+        "other": {
+          "wins": 0,
+          "losses": 3
+        }
+      },
+      "win_rate": 0.0,
+      "trades": 3,
+      "wins": 0,
+      "losses": 3,
+      "last_updated": "2026-04-10T21:00:54.060981"
+    },
+    "DOGEUSD": {
+      "best_setup": "liquidity",
+      "best_execution_route": "intelligent_alternative",
+      "best_session": "other",
+      "setup_performance": {
+        "liquidity": {
+          "wins": 0,
+          "losses": 5
+        },
+        "bos": {
+          "wins": 0,
+          "losses": 5
+        },
+        "fvg": {
+          "wins": 0,
+          "losses": 5
+        },
+        "order_block": {
+          "wins": 0,
+          "losses": 5
+        },
+        "price_action": {
+          "wins": 0,
+          "losses": 1
+        }
+      },
+      "route_performance": {
+        "intelligent_alternative": {
+          "wins": 0,
+          "losses": 5
+        }
+      },
+      "session_performance": {
+        "other": {
+          "wins": 0,
+          "losses": 5
+        }
+      },
+      "win_rate": 0.0,
+      "trades": 5,
+      "wins": 0,
+      "losses": 5,
+      "last_updated": "2026-04-11T06:05:18.948094"
+    }
+  },
+  "last_updated": "2026-04-11T06:05:18.948094",
+  "total_trades_tracked": 13
+}

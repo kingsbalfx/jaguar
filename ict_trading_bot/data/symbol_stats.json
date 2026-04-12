@@ -9,7 +9,7 @@
     "confidence_scores": [],
     "avg_confidence": 0.0,
     "last_updated": null,
-    "backtests_skipped": 1474,
+    "backtests_skipped": 1483,
     "backtests_required": 0
   },
   "AVAXUSD": {
@@ -48,7 +48,7 @@
     "confidence_scores": [],
     "avg_confidence": 0.0,
     "last_updated": null,
-    "backtests_skipped": 53,
+    "backtests_skipped": 119,
     "backtests_required": 0
   },
   "SOLUSD": {
@@ -106,14 +106,20 @@
   "DOGEUSD": {
     "symbol": "DOGEUSD",
     "asset_class": "crypto",
-    "total_trades": 0,
+    "total_trades": 5,
     "wins": 0,
-    "losses": 0,
+    "losses": 5,
     "win_rate": 0.0,
-    "confidence_scores": [],
-    "avg_confidence": 0.0,
-    "last_updated": null,
-    "backtests_skipped": 520,
+    "confidence_scores": [
+      7.08,
+      7.08,
+      9.26,
+      9.65,
+      9.27
+    ],
+    "avg_confidence": 8.468,
+    "last_updated": "2026-04-11T06:05:16.593959",
+    "backtests_skipped": 527,
     "backtests_required": 0
   },
   "USDJPY": {
@@ -158,27 +164,37 @@
   "USDCAD": {
     "symbol": "USDCAD",
     "asset_class": "forex",
-    "total_trades": 0,
+    "total_trades": 3,
     "wins": 0,
-    "losses": 0,
+    "losses": 3,
     "win_rate": 0.0,
-    "confidence_scores": [],
-    "avg_confidence": 0.0,
-    "last_updated": null,
-    "backtests_skipped": 668,
+    "confidence_scores": [
+      7.12,
+      7.12,
+      7.12
+    ],
+    "avg_confidence": 7.12,
+    "last_updated": "2026-04-10T21:00:51.419267",
+    "backtests_skipped": 712,
     "backtests_required": 0
   },
   "XAUUSD": {
     "symbol": "XAUUSD",
     "asset_class": "metals",
-    "total_trades": 0,
+    "total_trades": 5,
     "wins": 0,
-    "losses": 0,
+    "losses": 5,
     "win_rate": 0.0,
-    "confidence_scores": [],
-    "avg_confidence": 0.0,
-    "last_updated": null,
-    "backtests_skipped": 1123,
+    "confidence_scores": [
+      7.220000000000001,
+      7.220000000000001,
+      7.220000000000001,
+      7.2299999999999995,
+      7.2299999999999995
+    ],
+    "avg_confidence": 7.224000000000001,
+    "last_updated": "2026-04-10T21:05:33.217119",
+    "backtests_skipped": 1212,
     "backtests_required": 0
   },
   "BTCUSD": {
@@ -243,7 +259,7 @@
     "confidence_scores": [],
     "avg_confidence": 0.0,
     "last_updated": null,
-    "backtests_skipped": 1034,
+    "backtests_skipped": 1043,
     "backtests_required": 0
   },
   "NZDUSD": {
@@ -282,7 +298,7 @@
     "confidence_scores": [],
     "avg_confidence": 0.0,
     "last_updated": null,
-    "backtests_skipped": 811,
+    "backtests_skipped": 826,
     "backtests_required": 0
   },
   "XRPUSD": {
@@ -334,7 +350,7 @@
     "confidence_scores": [],
     "avg_confidence": 0.0,
     "last_updated": null,
-    "backtests_skipped": 1381,
+    "backtests_skipped": 1498,
     "backtests_required": 0
   },
   "ETHUSD": {
@@ -373,7 +389,7 @@
     "confidence_scores": [],
     "avg_confidence": 0.0,
     "last_updated": null,
-    "backtests_skipped": 146,
+    "backtests_skipped": 288,
     "backtests_required": 0
   }
 }

@@ -120,6 +120,29 @@ def calculate_entry_confidence(
     component_scores["confirmations"] = confirmations_score
 
     # ===================================
+    # COMPONENT 6: MARKET RHYTHM / REVERSAL RISK
+    # ===================================
+    market_rhythm = analysis.get("market_rhythm") or {}
+    market_rhythm_score = _score_market_rhythm(analysis, trend)
+    component_scores["market_rhythm"] = market_rhythm_score
+
+    if market_rhythm.get("should_avoid_entry"):
+        return {
+            "confidence": 0.0,
+            "execution_route": "skip",
+            "component_scores": component_scores,
+            "alternative_path": None,
+            "reasoning": (
+                f"RHYTHM REJECT: {market_rhythm.get('summary', 'Reversal risk is too high for a new entry.')} "
+                f"Reasons: {', '.join(market_rhythm.get('reasons', [])[:3]) or 'reversal pressure detected'}."
+            ),
+            "cis_timing_score": cis_timing_score,
+            "cis_setup_quality": reported_cis_setup_quality,
+            "backtest_required": False,
+            "market_rhythm": market_rhythm,
+        }
+
+    # ===================================
     # CHECK FOR INTELLIGENT ALTERNATIVE PATHS
     # ===================================
 
@@ -134,7 +157,8 @@ def calculate_entry_confidence(
             "reasoning": f"PRECISION REJECT: Establishing Topdown ({topdown_score:.0f}) and Major Trend ({trend_alignment_score:.0f}) is mandatory.",
             "cis_timing_score": cis_timing_score,
             "cis_setup_quality": reported_cis_setup_quality,
-            "backtest_required": False
+            "backtest_required": False,
+            "market_rhythm": market_rhythm,
         }
 
     # Mandatory Confirmations Check: "before accepting any two or more further confirmation"
@@ -151,7 +175,8 @@ def calculate_entry_confidence(
             "reasoning": f"PRECISION REJECT: Setup requires at least 2 confirmations (Found {confirm_count}).",
             "cis_timing_score": cis_timing_score,
             "cis_setup_quality": reported_cis_setup_quality,
-            "backtest_required": False
+            "backtest_required": False,
+            "market_rhythm": market_rhythm,
         }
 
     # --- REGIME IQ: Volume + SMA + HTF Sweeps ---
@@ -173,6 +198,13 @@ def calculate_entry_confidence(
     elif cis_timing_score < 0.4:
         regime_bonus *= 0.80
         regime_notes.append("Low Liquidity Penalty (-20%)")
+
+    confidence_adjustment = float(market_rhythm.get("confidence_adjustment", 0.0) or 0.0)
+    regime_bonus *= float(market_rhythm.get("regime_multiplier", 1.0) or 1.0)
+    if market_rhythm:
+        regime_notes.append(
+            f"Rhythm {market_rhythm.get('phase', 'unknown')} ({confidence_adjustment:+.0f} pts)"
+        )
 
     # PATH 1: Strong Structure Despite Weak Price Action
     # If: liquidity + BOS + FVG + OB all confirmed, but price_action weak
@@ -203,11 +235,12 @@ def calculate_entry_confidence(
     # WEIGHTED CONFIDENCE CALCULATION
     # ===================================
     base_confidence = (
-        (topdown_score * 0.30) +
-        (trend_alignment_score * 0.25) +
-        (price_action_score * 0.20) +
-        (setup_score * 0.15) +
-        (confirmations_score * 0.10)
+        (topdown_score * 0.27) +
+        (trend_alignment_score * 0.23) +
+        (price_action_score * 0.18) +
+        (setup_score * 0.14) +
+        (confirmations_score * 0.08) +
+        (market_rhythm_score * 0.10)
     )
 
     weighted_confidence = base_confidence * regime_bonus
@@ -218,7 +251,7 @@ def calculate_entry_confidence(
         weighted_confidence = weighted_confidence * boost_factor
 
     # Normalize to 0-100 scale
-    confidence = min(100, max(0, weighted_confidence))
+    confidence = min(100, max(0, weighted_confidence + confidence_adjustment))
 
     reasoning_add = " | ".join(regime_notes) if regime_notes else ""
 
@@ -245,6 +278,7 @@ def calculate_entry_confidence(
         "cis_timing_score": cis_timing_score,
         "cis_setup_quality": reported_cis_setup_quality,
         "backtest_required": backtest_required,
+        "market_rhythm": market_rhythm,
     }
 
 
@@ -374,6 +408,19 @@ def _score_price_action_confirmation(confirmation_flags: Dict, signal: Dict) -> 
         return 40.0  # Minimal patterns
 
     return 50.0
+
+
+def _score_market_rhythm(analysis: Dict, trend: str) -> float:
+    market_rhythm = (analysis or {}).get("market_rhythm") or {}
+    if not isinstance(market_rhythm, dict):
+        return 50.0
+
+    score = float(market_rhythm.get("entry_score", 50.0) or 50.0)
+    if market_rhythm.get("entry_bias") == "avoid":
+        return min(score, 20.0)
+    if market_rhythm.get("entry_bias") == "cautious":
+        return min(score, 60.0)
+    return max(0.0, min(score, 100.0))
 
 
 def _score_setup_structure(confirmation_flags: Dict) -> float:
@@ -716,6 +763,7 @@ def format_confidence_report(confidence_data: Dict) -> str:
         Formatted string for logging
     """
     alternative_path = confidence_data.get("alternative_path")
+    market_rhythm = confidence_data.get("market_rhythm") or {}
 
     report = f"""
     ┌─ WEIGHTED ENTRY CONFIDENCE
@@ -750,5 +798,14 @@ def format_confidence_report(confidence_data: Dict) -> str:
     ├─ Structure Score: {alternative_path.get('structure_score', 0):.0f}/100
     ├─ Recommended Action: {alternative_path.get('action', 'unknown')}
     └─ Smart Confidence: {alternative_path.get('confidence_if_direct', 0):.1f}/100"""
+
+    if market_rhythm:
+        report += (
+            f"\n\nMarket Rhythm: phase={market_rhythm.get('phase', 'unknown')}, "
+            f"bias={market_rhythm.get('entry_bias', 'unknown')}, "
+            f"cont={market_rhythm.get('continuation_score', 0):.1f}, "
+            f"rev={market_rhythm.get('reversal_score', 0):.1f}, "
+            f"comp={market_rhythm.get('compression_score', 0):.1f}"
+        )
 
     return report.strip()

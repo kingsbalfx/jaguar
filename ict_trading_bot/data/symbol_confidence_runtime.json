@@ -1,0 +1,42 @@
+{
+  "XAUUSD": {
+    "symbol": "XAUUSD",
+    "asset_class": "metals",
+    "wins": 0,
+    "losses": 5,
+    "avg_confirmation": 7.224000000000001,
+    "recent_scores": [
+      7.220000000000001,
+      7.220000000000001,
+      7.220000000000001,
+      7.2299999999999995,
+      7.2299999999999995
+    ]
+  },
+  "USDCAD": {
+    "symbol": "USDCAD",
+    "asset_class": "forex",
+    "wins": 0,
+    "losses": 3,
+    "avg_confirmation": 7.12,
+    "recent_scores": [
+      7.12,
+      7.12,
+      7.12
+    ]
+  },
+  "DOGEUSD": {
+    "symbol": "DOGEUSD",
+    "asset_class": "crypto",
+    "wins": 0,
+    "losses": 5,
+    "avg_confirmation": 8.468,
+    "recent_scores": [
+      7.08,
+      7.08,
+      9.26,
+      9.65,
+      9.27
+    ]
+  }
+}
