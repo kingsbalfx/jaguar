@@ -2009,6 +2009,8 @@ while True:
     except Exception as e:
         set_connection(False, str(e), None)
         bot_log("main_loop_error", f"Error in main loop: {e}", {"error": str(e)})
-        traceback.print_exc()
-        time.sleep(5)
+        time.sleep(1) # Fast loop restart on error
         continue
+    
+    # Adaptive Scanning Speed (1-5 seconds)
+    time.sleep(max(1, min(5, float(os.getenv("BOT_SCAN_INTERVAL", "2")))))

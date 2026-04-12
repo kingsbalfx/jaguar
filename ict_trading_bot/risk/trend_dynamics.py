@@ -99,12 +99,13 @@ class TrendDynamicsAnalyzer:
         bodies = [abs(c['close'] - c['open']) for c in candles]
         ranges = [c['high'] - c['low'] for c in candles]
         
-        # Displacement if last body is large and body accounts for most of the range
+        # ENHANCED: Stricter displacement requires momentum expansion
         last_body = bodies[-1]
         last_range = ranges[-1]
         avg_body = sum(bodies[:-1]) / (len(bodies) - 1) if len(bodies) > 1 else bodies[0]
         
-        if last_body > (avg_body * 1.5) and (last_body / last_range if last_range > 0 else 0) > 0.7:
+        # Body must be 2x recent average and > 80% of candle range (clean move)
+        if last_body > (avg_body * 2.0) and (last_body / last_range if last_range > 0 else 0) > 0.8:
             return 0.9
         return 0.5
 

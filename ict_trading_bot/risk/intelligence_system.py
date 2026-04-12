@@ -35,7 +35,7 @@ CIS OUTPUTS:
 - Performance metrics (historical decision success rate)
 
 PHILOSOPHY:
-- Conservative: Require multiple confirmations
+- Active Execution: High-precision triggers lead to direct, fast orders.
 - Adaptive: Learn from past decisions (track win rate per pair)
 - Risk-aware: Refuse bad risk-reward ratios
 - Transparent: Show reasoning for every decision
@@ -63,6 +63,14 @@ from strategy.pre_trade_analysis import analyze_market_top_down
 from strategy.setup_confirmations import bos_setup, liquidity_sweep_or_swing, price_action_setup
 from risk.trend_dynamics import TrendDynamicsAnalyzer
 from utils.symbol_profile import canonical_symbol
+
+# Error Handling & Retry Logic Configuration
+MAX_RETRIES = 3
+RETRY_DELAY = 1  # Seconds
+
+# ICT Sequence Logic Gating
+MIN_DISPLACEMENT_SCORE = 0.65
+MIN_CONFIRMATIONS_REQUIRED = 2
 
 CIS_DECISIONS_FILE = Path(__file__).resolve().parent.parent / "data" / "cis_decisions_history.json"
 
@@ -196,6 +204,8 @@ def calculate_setup_quality_score(
         "micro_entry_precision": 0.3,   # M1 rating - Exact entry candle
         "imbalance_quality": 0.0,
         "smt_divergence": 0.5,
+        "rsi_alignment": 0.5,
+        "volatility_quality": 0.5,
         "judas_swing_context": 0.5,
         "market_dynamics": 0.5,         # Added Dynamics Score component
         "market_mode": "UNKNOWN",       # Label for history tracking
@@ -219,36 +229,61 @@ def calculate_setup_quality_score(
         mtf_data = analysis.get("MTF", {})
         ltf_data = analysis.get("LTF", {})
         execution_data = analysis.get("EXECUTION", {})
+        
+        # =========================================================================
+        # ICT SEQUENCE GATE (PRECISION + SEQUENCE + CONTEXT)
+        # Sequence: 1. PD Zone -> 2. Liquidity Sweep -> 3. Displacement -> 4. FVG/OB
+        # =========================================================================
+        
+        # 1. PD ARRAY HIERARCHY (Premium vs Discount)
+        fib_levels = mtf_data.get("fib", {})
+        in_pd_zone = is_premium_discount_optimal(entry_price, fib_levels, htf_trend)
+        
+        if not in_pd_zone:
+            details["notes"].append("Logic Reject: Price NOT in optimal Discount/Premium zone.")
+            return 0.15, details
 
-        # LOGICAL GATE: Market must follow topdown analysis and major trend
-        if htf_trend == "unknown" or htf_trend == "range":
-            details["notes"].append("Logic Error: Setup lacks macro directional established trend.")
-            return 0.1, details
-
-        # Map available data to structural hierarchy (Weekly/Daily/H4)
-        details["weekly_structure"] = 0.8 if htf_trend in ("bullish", "bearish") else 0.5
-        details["daily_brief"] = 0.7 if mtf_data.get("trend") == htf_trend else 0.4
-        details["h4_brief"] = 0.7 if ltf_data.get("trend") == htf_trend else 0.4
-
-        # TRUE STRUCTURAL REFERENCE (daily brief is the macro proxy here)
-        w1_rating = confirmations.get("w1_rating", confirmations.get("d1_rating", 0.5))
-        details["weekly_structure"] = w1_rating
-        # Use setup confirmations for logic-based scoring
-        bos = bos_setup(analysis, htf_trend)
-        liq = liquidity_sweep_or_swing(analysis.get("price", 0), analysis, "buy" if htf_trend == "bullish" else "sell")
-        pa = price_action_setup(analysis, htf_trend)
-
-        if bos["confirmed"]: details["notes"].append("BOS alignment detected")
-        if liq["confirmed"]: details["notes"].append("Liquidity sweep confirmed")
-        if pa["confirmed"]: details["notes"].append("Bullish/Bearish price action found")
-
-        # Confirmation Logic Check: Require 2+ confirmations beyond macro structure
-        # Ratings above 0.6 are considered "passed"
-        valid_ratings = [v for k, v in confirmations.items() if k.endswith("_rating") and isinstance(v, (int, float)) and v > 0.6]
-        if len(valid_ratings) < 2:
-            details["notes"].append(f"Logic Rejected: Insufficient confirmations (Found {len(valid_ratings)}/2 required)")
+        # 2. LIQUIDITY SWEEP (Previous Highs/Lows, Equal Highs/Lows)
+        liq = liquidity_sweep_or_swing(entry_price or analysis.get("price", 0), analysis, "buy" if direction == "BUY" else "sell")
+        if not liq["confirmed"]:
+            details["notes"].append("Logic Reject: No Liquidity Sweep detected (Missing Sequence Step).")
             return 0.2, details
 
+        # Check RSI for overbought/oversold confluence (Volatility/Momentum)
+        rsi_val = mtf_data.get("rsi", 50)
+        if direction == "BUY":
+            details["rsi_alignment"] = 0.9 if rsi_val < 45 else 0.5
+            if rsi_val > 70: details["rsi_alignment"] = 0.2 # Avoid buying overbought
+        else:
+            details["rsi_alignment"] = 0.9 if rsi_val > 55 else 0.5
+            if rsi_val < 30: details["rsi_alignment"] = 0.2 # Avoid selling oversold
+
+        vol_data = load_volatility_analysis().get(symbol, {})
+        details["volatility_quality"] = 0.8 if vol_data.get("market_condition") in ("stable", "consolidating") else 0.4
+
+        # LOGICAL GATE: Market must follow topdown analysis and major trend
+        # HH/HL = Bullish, LL/LH = Bearish
+        if htf_trend == "unknown" or htf_trend == "range":
+            details["notes"].append("Logic Reject: No established Trend Context.")
+            return 0.1, details
+
+        w1_rating = confirmations.get("w1_rating", confirmations.get("d1_rating", 0.5))
+        details["weekly_structure"] = w1_rating
+
+        # 3. DISPLACEMENT CONFIRMATION (Strong Candle Expansion)
+        htf_candles = htf_data or (analysis.get("HTF", {}).get("candles") if isinstance(analysis, dict) else None)
+        mtf_candles = mtf_data or (analysis.get("MTF", {}).get("candles") if isinstance(analysis, dict) else None)
+        dynamics = dynamics_analyzer.analyze_market_position(
+            htf_data=htf_candles, mtf_data=mtf_candles, current_price=entry_price, direction=direction.lower()
+        ) if htf_candles and mtf_candles else {"displacement": 0.5, "score": 0.5, "label": "UNKNOWN"}
+        
+        displacement_val = dynamics.get("displacement", 0.5)
+        if displacement_val < MIN_DISPLACEMENT_SCORE:
+            details["notes"].append(f"Logic Reject: Weak Displacement ({displacement_val:.2f}). Needs strong expansion.")
+            return 0.3, details
+
+        # 4. FVG / OB CONFIRMATION (Confirmation Layer)
+        # Ratings above 0.6 are considered "passed"
         # SMT Divergence Check
         details["smt_divergence"] = check_smt_divergence(symbol, direction)
         if details["smt_divergence"] > 0.8:
@@ -313,31 +348,11 @@ def calculate_setup_quality_score(
         else:
             details["notes"].append("No clear FVG or optimal entry zone")
 
-        # Market Dynamics Analysis (Reversal/Continuation/Swing)
-        # Extracts candle data from multi_tf_analysis if not passed directly
-        htf_candles = htf_data or (analysis.get("HTF", {}).get("candles") if analysis else None)
-        mtf_candles = mtf_data or (analysis.get("MTF", {}).get("candles") if analysis else None)
-
-        if htf_candles and mtf_candles:
-            dynamics = dynamics_analyzer.analyze_market_position(
-                htf_data=htf_candles,
-                mtf_data=mtf_candles,
-                current_price=entry_price or analysis.get("price", 0),
-                direction=direction.lower()
-            )
-            details["market_dynamics"] = dynamics["score"]
-            # Include Displacement in scoring
-            details["market_dynamics"] = (dynamics["score"] * 0.7) + (dynamics["displacement"] * 0.3)
-            details["market_mode"] = dynamics["label"]
-            details["notes"].append(f"Dynamics: {dynamics['label']} (Conf: {details['market_dynamics']:.2f})")
-        else:
-            details["notes"].append("Dynamics Analysis Skipped: Missing candle data")
-
-        # BRIEF: Daily structural confirmation relative to Weekly
-        d1_rating = confirmations.get("d1_rating", 0.5)
-        details["daily_brief"] = d1_rating
-        if d1_rating < w1_rating - 0.2:
-            details["notes"].append(f"D1 brief: Diverges from W1 structure ({d1_rating:.2f} vs {w1_rating:.2f})")
+        # Confirmation Logic Check: Require 2+ confirmations
+        valid_ratings = [v for k, v in confirmations.items() if k.endswith("_rating") and isinstance(v, (int, float)) and v > 0.6]
+        if len(valid_ratings) < MIN_CONFIRMATIONS_REQUIRED:
+            details["notes"].append(f"Logic Reject: Insufficient confirmations ({len(valid_ratings)}/{MIN_CONFIRMATIONS_REQUIRED})")
+            return 0.35, details
 
         # BRIEF: 4-hour intraday structure alignment
         h4_rating = confirmations.get("h4_rating", 0.5)
@@ -352,23 +367,19 @@ def calculate_setup_quality_score(
         details["pattern_strength"] = confirmations.get("m5_rating", 0.5) # M5 pattern precision
         details["micro_entry_precision"] = confirmations.get("m1_rating", 0.5) # M1 micro entry
 
-
-        # Composite score: Weighted alignment between structural hierarchy and analytical confirmation.
-        # This ensures the confirmation score is properly weighted for alternative execution paths.
-        # Daily/H4 are brief context. H1/M30/M15 carry analysis. M5 is execution confirmation.
-
-        # FINAL SCORE: Incorporating SMT and Power of 3 (AMD) logic
+        # FINAL SETUP SCORE: Heavy weight on Displacement and Market Dynamics
+        # Total Weight = 1.0
         score = (
-            details["daily_brief"] * 0.05 +
+            details["weekly_structure"] * 0.05 +
             details["h4_brief"] * 0.05 +
-            details["entry_setup"] * 0.10 +            # H1 analysis
-            details["m30_confirmation"] * 0.10 +       # M30 analysis
-            details["mid_term_confirmation"] * 0.15 +  # M15 analysis
-            details["pattern_strength"] * 0.05 +       # M5 execution confirmation
-            details["imbalance_quality"] * 0.05 +
-            details["market_dynamics"] * 0.20 +         # Dynamics/MSS influence
-            details["smt_divergence"] * 0.15 +          # Smart Money Tool
-            details["judas_swing_context"] * 0.10       # Power of 3 context
+            details["entry_setup"] * 0.10 +
+            details["mid_term_confirmation"] * 0.10 +  
+            details["imbalance_quality"] * 0.10 +      # Displacement/FVG
+            details["market_dynamics"] * 0.25 +        # MSS/Displacement Factor
+            details["smt_divergence"] * 0.10 +         
+            details["rsi_alignment"] * 0.10 +          # RSI Confluence
+            details["volatility_quality"] * 0.10 +     # Regime check
+            details["judas_swing_context"] * 0.10       
         )
 
         if score < 0.5:
@@ -571,26 +582,22 @@ def calculate_timing_score(symbol: str, timeframe: str) -> Tuple[float, Dict]:
         is_ny = 13 <= hour < 21
         is_overlap = 13 <= hour < 16
 
-        # ICT Killzones (EST -> UTC)
-        # London: 2am-5am EST (7am-10am UTC)
-        # NY Open: 7am-10am EST (12pm-15pm UTC)
-        # London Close / Silver Bullet: 10am-11am EST (15pm-16pm UTC)
-        
+        # ICT Killzones (UTC)
         is_london_kz = 7 <= hour < 10
         is_ny_kz = 12 <= hour < 15
         is_silver_bullet = 15 <= hour < 16
-        is_asian = (0 <= hour < 9) or (hour >= 23)
+        is_asia_kz = 0 <= hour < 5
 
         if asset_class == "forex":
             if is_london_kz:
-                details["session_alignment"] = 1.0  # London Open Volatility
+                details["session_alignment"] = 1.0  # London Killzone
+                details["notes"].append("London Killzone Active: Peak Liquidity")
             elif is_ny_kz:
                 details["session_alignment"] = 0.85
             elif is_silver_bullet:
                 details["session_alignment"] = 0.95 # High probability ICT hour
-            elif is_asian:
-                # Trade majors in Asia? Lower IQ timing
-                details["session_alignment"] = 0.65
+            elif is_asia_kz:
+                details["session_alignment"] = 0.80 # Asia Killzone
             else:
                 details["session_alignment"] = 0.4
         elif asset_class == "metals":
