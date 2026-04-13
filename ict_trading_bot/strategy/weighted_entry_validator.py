@@ -126,6 +126,14 @@ def calculate_entry_confidence(
     market_rhythm_score = _score_market_rhythm(analysis, trend)
     component_scores["market_rhythm"] = market_rhythm_score
 
+    cis_final_verdict = ""
+    cis_confidence_score = 0.5
+    if cis_decision and isinstance(cis_decision, dict):
+        cis_final_verdict = str(cis_decision.get("final_verdict", "")).upper()
+        cis_confidence_score = float(cis_decision.get("confidence_score", 0.5) or 0.5)
+        component_scores["cis_confidence"] = round(cis_confidence_score * 100, 1)
+        component_scores["cis_verdict"] = 90.0 if cis_final_verdict == "TRADE" else 55.0 if cis_final_verdict == "WAIT" else 20.0
+
     if market_rhythm.get("should_avoid_entry"):
         return {
             "confidence": 0.0,
@@ -252,6 +260,12 @@ def calculate_entry_confidence(
 
     # Normalize to 0-100 scale
     confidence = min(100, max(0, weighted_confidence + confidence_adjustment))
+
+    if cis_final_verdict == "WAIT":
+        confidence = max(0, confidence - 4)
+        regime_notes.append("CIS WAIT caution applied (-4 points)")
+    elif cis_final_verdict == "TRADE":
+        confidence = min(100, confidence + (cis_confidence_score - 0.5) * 10.0)
 
     reasoning_add = " | ".join(regime_notes) if regime_notes else ""
 

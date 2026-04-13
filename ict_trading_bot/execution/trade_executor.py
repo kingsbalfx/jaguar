@@ -2,6 +2,7 @@ try:
     import MetaTrader5 as mt5
 except Exception:
     mt5 = None
+import time
 from datetime import datetime
 
 
@@ -161,11 +162,28 @@ def execute_trade(
         attempts.append({k: v for k, v in request.items() if k != "type_filling"})
 
     success_retcodes = _success_retcodes()
+    retryable_retcodes = {
+        getattr(mt5, "TRADE_RETCODE_REQUOTE", -1),
+        getattr(mt5, "TRADE_RETCODE_PRICE_OFF", -2),
+        getattr(mt5, "TRADE_RETCODE_BROKER_BUSY", -3),
+        getattr(mt5, "TRADE_RETCODE_TIMEOUT", -4),
+        getattr(mt5, "TRADE_RETCODE_INVALID_PRICE", -5),
+    }
+
+    max_attempts = 3
+    attempt_count = 0
     for attempt in attempts:
+        attempt_count += 1
         result = mt5.order_send(attempt)
-        if result is not None and getattr(result, "retcode", None) in success_retcodes:
+        retcode = getattr(result, "retcode", None) if result is not None else None
+        if result is not None and retcode in success_retcodes:
             request = attempt
             break
+
+        if retcode in retryable_retcodes and attempt_count < max_attempts:
+            print(f"[{datetime.now()}] Retryable MT5 retcode={retcode}, retrying ({attempt_count}/{max_attempts})...")
+            time.sleep(0.4)
+            continue
 
     if result is None or getattr(result, "retcode", None) not in success_retcodes:
         msg = getattr(result, "comment", "unknown MT5 error")

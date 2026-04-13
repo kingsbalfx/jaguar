@@ -168,6 +168,187 @@ def get_midnight_open(symbol: str) -> float:
     except Exception:
         return 0.0
 
+
+def _normalize_direction(direction: str) -> str:
+    return str(direction or "").strip().upper()
+
+
+def _is_buy_direction(direction: str) -> bool:
+    return _normalize_direction(direction) == "BUY"
+
+
+def _market_structure_description(analysis: Dict, direction: str) -> str:
+    trend = analysis.get("overall_trend") or analysis.get("trend") or "unknown"
+    if _is_buy_direction(direction):
+        return "Bullish HH/HL" if trend == "bullish" else "Bearish" if trend == "bearish" else "Neutral"
+    return "Bearish LL/LH" if trend == "bearish" else "Bullish" if trend == "bullish" else "Neutral"
+
+
+def _session_alignment_value(hour: int, asset_class: str) -> float:
+    if asset_class == "forex":
+        if 7 <= hour < 10:
+            return 1.0
+        if 12 <= hour < 15:
+            return 0.95
+        if 13 <= hour < 16:
+            return 0.90
+        if 0 <= hour < 5:
+            return 0.80
+        if 8 <= hour < 16 or 13 <= hour < 21:
+            return 0.75
+        return 0.45
+    if asset_class == "metals":
+        if 13 <= hour < 16:
+            return 1.0
+        if 12 <= hour < 21:
+            return 0.95
+        if 7 <= hour < 16:
+            return 0.85
+        return 0.35
+    if asset_class == "crypto":
+        if 7 <= hour < 10 or 12 <= hour < 15:
+            return 0.95
+        return 0.85
+    return 0.6
+
+
+def _confirm_displacement(analysis: Dict, entry_price: float, direction: str) -> bool:
+    execution = (analysis or {}).get("EXECUTION") or {}
+    recent_candles = execution.get("recent_candles") or []
+    if len(recent_candles) < 2:
+        return False
+
+    last = recent_candles[-1]
+    prev = recent_candles[-2]
+    body = abs(float(last.get("close", 0.0)) - float(last.get("open", 0.0)))
+    candle_range = max(float(last.get("high", 0.0)) - float(last.get("low", 0.0)), 1e-9)
+    momentum = body / candle_range >= 0.5
+
+    if not momentum:
+        return False
+
+    if _normalize_direction(direction) == "BUY":
+        return float(last.get("close", 0.0)) > float(prev.get("high", 0.0))
+    return float(last.get("close", 0.0)) < float(prev.get("low", 0.0))
+
+
+def _confirm_retrace(entry_price: float, analysis: Dict, direction: str) -> bool:
+    mtf_data = (analysis or {}).get("MTF") or {}
+    ltf_data = (analysis or {}).get("LTF") or {}
+    execution_data = (analysis or {}).get("EXECUTION") or {}
+    trend = (analysis or {}).get("overall_trend", "unknown")
+
+    if is_premium_discount_optimal(entry_price or 0.0, mtf_data.get("fib", {}), trend):
+        return True
+
+    fvgs = execution_data.get("fvgs") or ltf_data.get("fvgs", []) or mtf_data.get("fvgs", [])
+    for fvg in fvgs or []:
+        if not isinstance(fvg, dict):
+            continue
+        low = fvg.get("low")
+        high = fvg.get("high")
+        if low is None or high is None:
+            continue
+        if float(low) <= entry_price <= float(high):
+            return True
+
+    order_blocks = mtf_data.get("order_blocks", []) or ltf_data.get("order_blocks", [])
+    for ob in order_blocks or []:
+        if not isinstance(ob, dict):
+            continue
+        low = ob.get("low")
+        high = ob.get("high")
+        if low is None or high is None:
+            continue
+        if float(low) <= entry_price <= float(high):
+            return True
+
+    return False
+
+
+def evaluate_ict_sequence(
+    symbol: str,
+    direction: str,
+    analysis: Dict,
+    entry_price: float,
+) -> Dict:
+    direction_label = _normalize_direction(direction)
+    trend = (analysis or {}).get("overall_trend", "unknown")
+    sequence = {
+        "market_structure": False,
+        "liquidity_zones_identified": False,
+        "liquidity_sweep_confirmed": False,
+        "displacement_confirmed": False,
+        "fvg_or_ob": False,
+        "retrace_to_fvg_or_zone": False,
+        "sequence_score": 0.0,
+        "standalone_approval": False,
+        "steps": [],
+    }
+
+    if trend in ("bullish", "bearish"):
+        structure = bos_setup(analysis, direction_label)
+        sequence["market_structure"] = bool(structure.get("confirmed"))
+        sequence["steps"].append(
+            f"Market Structure: {'PASS' if sequence['market_structure'] else 'FAIL'}"
+        )
+    else:
+        sequence["steps"].append("Market Structure: FAIL")
+
+    mtf_liquidity = (analysis or {}).get("MTF", {}).get("liquidity")
+    ltf_liquidity = (analysis or {}).get("LTF", {}).get("liquidity")
+    sequence["liquidity_zones_identified"] = bool(mtf_liquidity or ltf_liquidity)
+    sequence["steps"].append(
+        f"Liquidity Zones: {'PASS' if sequence['liquidity_zones_identified'] else 'FAIL'}"
+    )
+
+    sequence["liquidity_sweep_confirmed"] = bool(
+        liquidity_sweep_or_swing(entry_price or 0.0, analysis, direction_label).get("confirmed")
+    )
+    sequence["steps"].append(
+        f"Liquidity Sweep: {'PASS' if sequence['liquidity_sweep_confirmed'] else 'FAIL'}"
+    )
+
+    sequence["displacement_confirmed"] = _confirm_displacement(analysis, entry_price or 0.0, direction_label)
+    sequence["steps"].append(
+        f"Displacement: {'PASS' if sequence['displacement_confirmed'] else 'FAIL'}"
+    )
+
+    fvgs = (analysis or {}).get("EXECUTION", {}).get("fvgs") or (analysis or {}).get("LTF", {}).get("fvgs", []) or (analysis or {}).get("MTF", {}).get("fvgs", [])
+    order_blocks = (analysis or {}).get("MTF", {}).get("order_blocks", []) or (analysis or {}).get("LTF", {}).get("order_blocks", [])
+    sequence["fvg_or_ob"] = bool(
+        any(isinstance(fvg, dict) and fvg.get("low") is not None and fvg.get("high") is not None for fvg in fvgs or [])
+        or any(isinstance(ob, dict) and ob.get("low") is not None and ob.get("high") is not None for ob in order_blocks or [])
+    )
+    sequence["steps"].append(
+        f"FVG/OB Marked: {'PASS' if sequence['fvg_or_ob'] else 'FAIL'}"
+    )
+
+    sequence["retrace_to_fvg_or_zone"] = _confirm_retrace(entry_price or 0.0, analysis, direction_label)
+    sequence["steps"].append(
+        f"Retrace: {'PASS' if sequence['retrace_to_fvg_or_zone'] else 'FAIL'}"
+    )
+
+    passed_steps = sum(
+        1 for key in [
+            "market_structure",
+            "liquidity_zones_identified",
+            "liquidity_sweep_confirmed",
+            "displacement_confirmed",
+            "fvg_or_ob",
+            "retrace_to_fvg_or_zone",
+        ]
+        if sequence.get(key)
+    )
+    sequence["sequence_score"] = round(passed_steps / 6.0, 3)
+    sequence["standalone_approval"] = passed_steps == 6
+    sequence["steps"].append(
+        f"Standalone Approval: {'PASS' if sequence['standalone_approval'] else 'FAIL'}"
+    )
+
+    return sequence
+
+
 def calculate_setup_quality_score(
     symbol: str,
     timeframe: str,
@@ -185,209 +366,224 @@ def calculate_setup_quality_score(
     - D1 (Daily): BRIEF - Confirmation of weekly structure
     - H4 (4-Hour): BRIEF - Intraday structure alignment
     - H1 (Hourly): Entry setup valid? (impulse/pullback pattern)
-    - M15 (15-min): Setup confirmation? (mid-term confirmation)
-    - M5 (5-min): Exact entry point? (precise timing)
-    - M1 (1-min): Micro-entry precision? (exact candle placement)
-
-    Returns:
-        (score: float 0-1, details: {breakdown of all 7 timeframe components})
+    - M15 (15-min): Mid-term confirmation
+    - M5 (5-min): Pattern precision
+    - M1 (1-min): Micro entry candle precision
     """
     score = 0.5
     details = {
-        "weekly_structure": 0.3,       # W1 rating - TRUE STRUCTURAL REFERENCE
-        "daily_brief": 0.3,             # D1 rating - BRIEF, structural confirmation
-        "h4_brief": 0.3,                # H4 rating - BRIEF, intraday structure
-        "entry_setup": 0.3,             # H1 rating - Entry setup quality
-        "m30_confirmation": 0.3,         # M30 rating - Analysis confirmation
-        "mid_term_confirmation": 0.3,   # M15 rating - Mid-term confirmation
-        "pattern_strength": 0.3,        # M5 rating - Pattern precision
-        "micro_entry_precision": 0.3,   # M1 rating - Exact entry candle
+        "weekly_structure": 0.3,
+        "daily_brief": 0.3,
+        "h4_brief": 0.3,
+        "entry_setup": 0.3,
+        "m30_confirmation": 0.3,
+        "mid_term_confirmation": 0.3,
+        "pattern_strength": 0.3,
+        "micro_entry_precision": 0.3,
+        "structure_confirmation": 0.0,
+        "pd_zone": 0.0,
+        "liquidity_sweep": 0.0,
+        "displacement_strength": 0.0,
         "imbalance_quality": 0.0,
+        "sequence_score": 0.0,
+        "sequence_data": {},
         "smt_divergence": 0.5,
         "rsi_alignment": 0.5,
         "volatility_quality": 0.5,
         "judas_swing_context": 0.5,
-        "market_dynamics": 0.5,         # Added Dynamics Score component
-        "market_mode": "UNKNOWN",       # Label for history tracking
+        "market_dynamics": 0.5,
+        "market_mode": "UNKNOWN",
         "notes": []
     }
 
     try:
-        # Use pre_trade_analysis to get technical context
         analysis = multi_tf_analysis or analyze_market_top_down(symbol, entry_price or 0.0)
         if not analysis:
             details["notes"].append("Market analysis failed")
             return score, details
 
-        # Get confirmations from confirmation system using the same timeframe snapshot.
-        confirmations = get_all_confirmations_for_pair(symbol, timeframe, analysis=analysis)
+        confirmations = get_all_confirmations_for_pair(symbol, timeframe, analysis=analysis) or {}
         if not confirmations:
             details["notes"].append("No confirmations available")
 
-        # Extract trends for structural confirmation
-        htf_trend = analysis.get("overall_trend", "unknown")
-        mtf_data = analysis.get("MTF", {})
-        ltf_data = analysis.get("LTF", {})
-        execution_data = analysis.get("EXECUTION", {})
-        
-        # =========================================================================
-        # ICT SEQUENCE GATE (PRECISION + SEQUENCE + CONTEXT)
-        # Sequence: 1. PD Zone -> 2. Liquidity Sweep -> 3. Displacement -> 4. FVG/OB
-        # =========================================================================
-        
-        # 1. PD ARRAY HIERARCHY (Premium vs Discount)
-        fib_levels = mtf_data.get("fib", {})
-        in_pd_zone = is_premium_discount_optimal(entry_price, fib_levels, htf_trend)
-        
-        if not in_pd_zone:
-            details["notes"].append("Logic Reject: Price NOT in optimal Discount/Premium zone.")
-            return 0.15, details
+        direction_label = _normalize_direction(direction)
+        direction_lower = direction_label.lower()
 
-        # 2. LIQUIDITY SWEEP (Previous Highs/Lows, Equal Highs/Lows)
-        liq = liquidity_sweep_or_swing(entry_price or analysis.get("price", 0), analysis, "buy" if direction == "BUY" else "sell")
-        if not liq["confirmed"]:
-            details["notes"].append("Logic Reject: No Liquidity Sweep detected (Missing Sequence Step).")
+        htf_trend = analysis.get("overall_trend", "unknown")
+        mtf_data = analysis.get("MTF", {}) or {}
+        ltf_data = analysis.get("LTF", {}) or {}
+        execution_data = analysis.get("EXECUTION", {}) or {}
+
+        entry_price = entry_price or analysis.get("price", 0.0)
+        fib_levels = mtf_data.get("fib", {}) or analysis.get("MTF", {}).get("fib", {})
+
+        if not is_premium_discount_optimal(entry_price, fib_levels, htf_trend):
+            details["pd_zone"] = 0.2
+            details["notes"].append("Price is not in a strong premium/discount entry zone.")
             return 0.2, details
 
-        # Check RSI for overbought/oversold confluence (Volatility/Momentum)
-        rsi_val = mtf_data.get("rsi", 50)
-        if direction == "BUY":
+        details["pd_zone"] = 1.0
+        details["notes"].append("Premium/Discount entry zone confirmed.")
+
+        structure = bos_setup(analysis, direction_lower)
+        details["structure_confirmation"] = 1.0 if structure.get("confirmed") else 0.0
+        if structure.get("confirmed"):
+            details["notes"].append("Break of Structure (BOS) confirmed.")
+        else:
+            details["notes"].append("No reliable BOS structure confirmed.")
+
+        liquidity = liquidity_sweep_or_swing(entry_price, analysis, direction_lower)
+        details["liquidity_sweep"] = 1.0 if liquidity.get("confirmed") else 0.0
+        if liquidity.get("confirmed"):
+            details["notes"].append("Liquidity sweep / swing confirmed.")
+        else:
+            details["notes"].append("No liquidity sweep or swing confirmed.")
+            return 0.25, details
+
+        pa = price_action_setup(analysis, direction_lower)
+        if pa.get("confirmed"):
+            details["notes"].append("Price action confirmation is supportive.")
+        else:
+            details["notes"].append("Price action confirmation is weak.")
+
+        sequence_data = evaluate_ict_sequence(symbol, direction_lower, analysis, entry_price or 0.0)
+        details["sequence_data"] = sequence_data
+        details["sequence_score"] = sequence_data.get("sequence_score", 0.0)
+        details["notes"].append(
+            f"ICT sequence score: {details['sequence_score']:.2f} ({'PASS' if sequence_data.get('standalone_approval') else 'INCOMPLETE'})."
+        )
+        if sequence_data.get("standalone_approval"):
+            details["notes"].append("Standalone ICT sequence approval is satisfied.")
+        else:
+            details["notes"].append("Standalone ICT sequence approval is not fully satisfied.")
+            if details["sequence_score"] < 0.60:
+                details["notes"].append("ICT sequence incomplete – using conservative setup quality.")
+                return 0.35, details
+
+        rsi_val = mtf_data.get("rsi", mtf_data.get("rsi_value", 50))
+        try:
+            rsi_val = float(rsi_val)
+        except Exception:
+            rsi_val = 50.0
+
+        if direction_label == "BUY":
             details["rsi_alignment"] = 0.9 if rsi_val < 45 else 0.5
-            if rsi_val > 70: details["rsi_alignment"] = 0.2 # Avoid buying overbought
+            if rsi_val > 70:
+                details["rsi_alignment"] = 0.2
+                details["notes"].append("RSI is overbought for BUY.")
         else:
             details["rsi_alignment"] = 0.9 if rsi_val > 55 else 0.5
-            if rsi_val < 30: details["rsi_alignment"] = 0.2 # Avoid selling oversold
+            if rsi_val < 30:
+                details["rsi_alignment"] = 0.2
+                details["notes"].append("RSI is oversold for SELL.")
 
-        vol_data = load_volatility_analysis().get(symbol, {})
-        details["volatility_quality"] = 0.8 if vol_data.get("market_condition") in ("stable", "consolidating") else 0.4
+        vol_data = load_volatility_analysis().get(_symbol_key(symbol), {})
+        condition = vol_data.get("market_condition", "stable")
+        details["volatility_quality"] = 0.85 if condition in ("stable", "consolidating") else 0.5
+        if condition == "volatile":
+            details["notes"].append("Volatile market condition: prefer strong confirmation.")
 
-        # LOGICAL GATE: Market must follow topdown analysis and major trend
-        # HH/HL = Bullish, LL/LH = Bearish
-        if htf_trend == "unknown" or htf_trend == "range":
-            details["notes"].append("Logic Reject: No established Trend Context.")
-            return 0.1, details
+        if htf_trend in ("unknown", "range"):
+            details["notes"].append("Market structure is not sufficiently clean.")
+            return 0.2, details
 
-        w1_rating = confirmations.get("w1_rating", confirmations.get("d1_rating", 0.5))
+        d1_rating = confirmations.get("d1_rating", 0.5)
+        w1_rating = confirmations.get("w1_rating", d1_rating)
         details["weekly_structure"] = w1_rating
 
-        # 3. DISPLACEMENT CONFIRMATION (Strong Candle Expansion)
         htf_candles = htf_data or (analysis.get("HTF", {}).get("candles") if isinstance(analysis, dict) else None)
         mtf_candles = mtf_data or (analysis.get("MTF", {}).get("candles") if isinstance(analysis, dict) else None)
-        dynamics = dynamics_analyzer.analyze_market_position(
-            htf_data=htf_candles, mtf_data=mtf_candles, current_price=entry_price, direction=direction.lower()
-        ) if htf_candles and mtf_candles else {"displacement": 0.5, "score": 0.5, "label": "UNKNOWN"}
-        
-        displacement_val = dynamics.get("displacement", 0.5)
-        if displacement_val < MIN_DISPLACEMENT_SCORE:
-            details["notes"].append(f"Logic Reject: Weak Displacement ({displacement_val:.2f}). Needs strong expansion.")
-            return 0.3, details
-
-        # 4. FVG / OB CONFIRMATION (Confirmation Layer)
-        # Ratings above 0.6 are considered "passed"
-        # SMT Divergence Check
-        details["smt_divergence"] = check_smt_divergence(symbol, direction)
-        if details["smt_divergence"] > 0.8:
-            details["notes"].append(f"SMT Divergence detected with {CORRELATED_PAIRS.get(symbol)}")
-
-        # Midnight Open / Judas Swing Context
-        midnight_open = get_midnight_open(symbol)
-        details["judas_swing_context"] = 0.8 if (direction == "BUY" and entry_price < midnight_open) or (direction == "SELL" and entry_price > midnight_open) else 0.4
-
-        # Check for PD Array Hierarchy (Breaker > Mitigation > FVG > OB)
-        fvgs = execution_data.get("fvgs") or ltf_data.get("fvgs", [])
-        fib_levels = analysis.get("MTF", {}).get("fib", {}) # Assuming MTF fib is relevant for optimal zone
-
-        imbalance_score_base = 0.3 # Base score if no FVG
-        if fvgs:
-            imbalance_score_base = 0.6 # FVG present
-            # Check if price is in optimal premium/discount zone
-            if is_premium_discount_optimal(entry_price, fib_levels, htf_trend):
-                imbalance_score_base = 0.8 # FVG present AND optimal zone
-
-        # Market Dynamics Analysis (Reversal/Continuation/Swing)
-        # Extracts candle data from multi_tf_analysis if not passed directly
-        htf_candles = htf_data or (analysis.get("HTF", {}).get("candles") if isinstance(analysis, dict) else None)
-        mtf_candles = mtf_data or (analysis.get("MTF", {}).get("candles") if isinstance(analysis, dict) else None)
-
-        displacement_val = 0.5
+        dynamics = {"displacement": 0.5, "score": 0.5, "label": "UNKNOWN"}
         if htf_candles and mtf_candles:
             dynamics = dynamics_analyzer.analyze_market_position(
                 htf_data=htf_candles,
                 mtf_data=mtf_candles,
-                current_price=entry_price or analysis.get("price", 0),
-                direction=direction.lower()
+                current_price=entry_price,
+                direction=direction_lower,
             )
-            displacement_val = dynamics.get("displacement", 0.5)
-            details["market_dynamics"] = (dynamics["score"] * 0.7) + (displacement_val * 0.3)
-            details["market_mode"] = dynamics["label"]
-            details["notes"].append(f"Dynamics: {dynamics['label']} (Conf: {details['market_dynamics']:.2f})")
-        else:
-            details["notes"].append("Dynamics Analysis Skipped: Missing candle data")
 
-        # Measure Order Block strength
+        displacement_val = dynamics.get("displacement", 0.5)
+        details["displacement_strength"] = displacement_val
+        if displacement_val < MIN_DISPLACEMENT_SCORE:
+            details["notes"].append("Weak displacement detected - needs stronger impulse.")
+            return 0.3, details
+
+        details["market_dynamics"] = (dynamics.get("score", 0.5) * 0.7) + (displacement_val * 0.3)
+        details["market_mode"] = dynamics.get("label", "UNKNOWN")
+        details["notes"].append(f"Displacement confirmed: {details['market_dynamics']:.2f}.")
+
+        details["smt_divergence"] = check_smt_divergence(symbol, direction_label)
+        if details["smt_divergence"] > 0.8:
+            details["notes"].append("SMT divergence adds confidence.")
+
+        midnight_open = get_midnight_open(symbol)
+        details["judas_swing_context"] = 0.8 if (direction_label == "BUY" and entry_price < midnight_open) or (direction_label == "SELL" and entry_price > midnight_open) else 0.4
+
+        fvgs = execution_data.get("fvgs") or ltf_data.get("fvgs", []) or mtf_data.get("fvgs", [])
         ob_strength = 0.3
         try:
             ob_strength = measure_order_block_strength(symbol, timeframe)
         except Exception:
             pass
 
-        # PD Array Priority Adjustment
+        imbalance_score = 0.3
+        if fvgs:
+            imbalance_score = 0.65
+            if details["pd_zone"] > 0.7:
+                imbalance_score = 0.85
+
         pd_array_priority = 1.0
-        if pa.get("is_breaker"): pd_array_priority = 1.2
-        if pa.get("is_mitigation"): pd_array_priority = 1.1
-        
-        # ICT SYNERGY: An FVG created by Displacement is a "Gap and Go" (High Quality)
-        if displacement_val > 0.7 and imbalance_score_base > 0.5:
+        if pa.get("is_breaker"):
+            pd_array_priority = 1.2
+        if pa.get("is_mitigation"):
+            pd_array_priority = 1.1
+        if displacement_val > 0.7 and imbalance_score > 0.5:
             pd_array_priority += 0.15
 
-        details["imbalance_quality"] = ((imbalance_score_base * 0.6) + (ob_strength * 0.4)) * pd_array_priority
+        details["imbalance_quality"] = min(1.0, ((imbalance_score * 0.6) + (ob_strength * 0.4)) * pd_array_priority)
         if details["imbalance_quality"] > 0.7:
-            details["notes"].append("Optimal entry zone (FVG + Premium/Discount) confirmed")
+            details["notes"].append("High quality imbalance zone detected.")
         elif details["imbalance_quality"] > 0.5:
-            details["notes"].append("FVG present, but not perfectly optimal zone")
+            details["notes"].append("Acceptable imbalance zone.")
         else:
-            details["notes"].append("No clear FVG or optimal entry zone")
+            details["notes"].append("Weak imbalance zone.")
 
-        # Confirmation Logic Check: Require 2+ confirmations
         valid_ratings = [v for k, v in confirmations.items() if k.endswith("_rating") and isinstance(v, (int, float)) and v > 0.6]
         if len(valid_ratings) < MIN_CONFIRMATIONS_REQUIRED:
-            details["notes"].append(f"Logic Reject: Insufficient confirmations ({len(valid_ratings)}/{MIN_CONFIRMATIONS_REQUIRED})")
+            details["notes"].append(f"Insufficient confirmations ({len(valid_ratings)}/{MIN_CONFIRMATIONS_REQUIRED}).")
             return 0.35, details
 
-        # BRIEF: 4-hour intraday structure alignment
         h4_rating = confirmations.get("h4_rating", 0.5)
         details["h4_brief"] = h4_rating
         if h4_rating < d1_rating - 0.2:
-            details["notes"].append(f"H4 brief: Diverges from D1 structure ({h4_rating:.2f} vs {d1_rating:.2f})")
+            details["notes"].append(f"H4 structure diverges from D1 ({h4_rating:.2f} vs {d1_rating:.2f}).")
 
-        # Update entry setup and confirmation details based on confirmations
-        details["entry_setup"] = confirmations.get("h1_rating", 0.5) # H1 entry setup quality
-        details["m30_confirmation"] = confirmations.get("m30_rating", 0.5) # M30 analysis confirmation
-        details["mid_term_confirmation"] = confirmations.get("m15_rating", 0.5) # M15 confirmation
-        details["pattern_strength"] = confirmations.get("m5_rating", 0.5) # M5 pattern precision
-        details["micro_entry_precision"] = confirmations.get("m1_rating", 0.5) # M1 micro entry
+        details["entry_setup"] = confirmations.get("h1_rating", 0.5)
+        details["m30_confirmation"] = confirmations.get("m30_rating", 0.5)
+        details["mid_term_confirmation"] = confirmations.get("m15_rating", 0.5)
+        details["pattern_strength"] = confirmations.get("m5_rating", 0.5)
+        details["micro_entry_precision"] = confirmations.get("m1_rating", 0.5)
 
-        # FINAL SETUP SCORE: Heavy weight on Displacement and Market Dynamics
-        # Total Weight = 1.0
         score = (
             details["weekly_structure"] * 0.05 +
             details["h4_brief"] * 0.05 +
-            details["entry_setup"] * 0.10 +
-            details["mid_term_confirmation"] * 0.10 +  
-            details["imbalance_quality"] * 0.10 +      # Displacement/FVG
-            details["market_dynamics"] * 0.25 +        # MSS/Displacement Factor
-            details["smt_divergence"] * 0.10 +         
-            details["rsi_alignment"] * 0.10 +          # RSI Confluence
-            details["volatility_quality"] * 0.10 +     # Regime check
-            details["judas_swing_context"] * 0.10       
+            details["entry_setup"] * 0.12 +
+            details["mid_term_confirmation"] * 0.12 +
+            details["imbalance_quality"] * 0.12 +
+            details["market_dynamics"] * 0.18 +
+            details["sequence_score"] * 0.15 +
+            details["smt_divergence"] * 0.06 +
+            details["rsi_alignment"] * 0.07 +
+            details["volatility_quality"] * 0.05 +
+            details["judas_swing_context"] * 0.03
         )
 
         if score < 0.5:
-            details["notes"].append("Low quality setup - multiple confirmations missing")
+            details["notes"].append("Low quality setup - too many missing sequence steps.")
         elif score > 0.75:
-            details["notes"].append("High quality setup - strong multi-timeframe alignment")
+            details["notes"].append("High quality ICT setup with a strong sequence.")
         else:
-            details["notes"].append("Moderate setup quality - proceed with caution")
+            details["notes"].append("Moderate quality setup - wait for cleaner evidence.")
 
         return min(1.0, score), details
 
@@ -450,16 +646,40 @@ def calculate_market_condition_score(symbol: str) -> Tuple[float, Dict]:
             if volatility_data.get("volatility_trend") == "increasing":
                 details["notes"].append("Expansion detected: looking for momentum breakout")
 
-            # Session considerations (rough)
+            # Session considerations (killzones and overlap)
             hour = datetime.utcnow().hour
-            if hour in [8, 9, 13, 14, 15]:  # London/NY overlap
-                details["session_impact"] = 0.2  # Positive
-            elif hour in [0, 1, 2]:  # Asian session
-                details["session_impact"] = 0.0  # Neutral
+            if 7 <= hour < 10:
+                details["session_impact"] = 0.25
+                details["notes"].append("London killzone active.")
+            elif 12 <= hour < 15:
+                details["session_impact"] = 0.22
+                details["notes"].append("New York killzone active.")
+            elif 0 <= hour < 5:
+                details["session_impact"] = 0.15
+                details["notes"].append("Asia session detected.")
+            elif 13 <= hour < 16:
+                details["session_impact"] = 0.20
+                details["notes"].append("London/New York overlap.")
             else:
-                details["session_impact"] = -0.1  # Slow hours
+                details["session_impact"] = -0.05
+                details["notes"].append("Lower liquidity session.")
 
-            score = min(1.0, details["volatility_score"] + details["session_impact"])
+            details["position_size_adjustment"] = adjustments.get("position_size_adjustment", 1.0)
+            details["confidence_adjustment"] = adjustments.get("confidence_adjustment", 0.0)
+
+            if condition == "volatile" and details["session_impact"] > 0:
+                details["session_impact"] -= 0.05
+                details["notes"].append("High volatility during killzone requires extra caution.")
+
+            score = min(
+                1.0,
+                max(
+                    0.0,
+                    details["volatility_score"]
+                    + details["session_impact"]
+                    + details["confidence_adjustment"],
+                ),
+            )
             details["overall"] = score
             details["notes"].append(f"Market: {condition}, Volatility: {vol_index:.2f}")
 
@@ -733,6 +953,9 @@ def get_cis_decision(
         )
         decision["component_scores"]["setup_quality"] = round(setup_score, 3)
         decision["market_mode"] = setup_details.get("market_mode", "UNKNOWN")
+        decision["ict_sequence"] = setup_details.get("sequence_data", {})
+        if decision["ict_sequence"].get("standalone_approval"):
+            decision["reasoning"].append("ICT sequence fully satisfied for the proposed setup.")
         decision["reasoning"].extend([f"Setup: {note}" for note in setup_details.get("notes", [])])
 
         # 2. Market Condition
@@ -783,14 +1006,17 @@ def get_cis_decision(
             decision["red_flags"].append("Poor trade timing")
 
         # Positioning
-        if decision["final_verdict"] == "TRADE":
+        if decision["final_verdict"] in ("TRADE", "WAIT"):
             try:
-                decision["position_size"] = calculate_position_sizing(symbol, risk_percent=2.0)
-            except:
+                position_size = calculate_position_sizing(symbol, risk_percent=2.0)
+                if not position_size or position_size <= 0:
+                    position_size = 0.01
+                if decision["final_verdict"] == "WAIT":
+                    position_size = max(0.01, position_size * 0.70)
+                decision["position_size"] = round(position_size, 2)
+            except Exception:
                 decision["position_size"] = 0.01
 
-            decision["position_size"] = 0.01 # Fallback position size
-            # Stop loss sizing
             if entry_price and stop_loss:
                 decision["stop_loss_size"] = abs(entry_price - stop_loss) * 10000  # in pips
 

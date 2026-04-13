@@ -859,6 +859,7 @@ def build_hybrid_trade_decision(
     trend,
     confirmation_flags,
     confirmation_summary,
+    cis_decision=None,
 ):
     weighted_route = confidence_data.get("execution_route", "skip")
     weighted_pass = not should_skip_signal(weighted_route)
@@ -1374,6 +1375,25 @@ while True:
                 entry_price=price,
                 multi_tf_analysis=analysis,
             )
+            signal["cis_decision"] = cis_decision
+
+            if cis_decision.get("final_verdict") == "AVOID":
+                record_skip(
+                    "cis_avoid",
+                    original_symbol,
+                    confidence=cis_decision.get("confidence_score", 0.0),
+                    analysis={"cis": cis_decision},
+                )
+                bot_log(
+                    "cis_reject",
+                    f"[{original_symbol}] CIS rejected trade: {cis_decision.get('confidence_score', 0.0):.2f}.",
+                    {
+                        "symbol": original_symbol,
+                        "cis": cis_decision,
+                    },
+                    persist=False,
+                )
+                continue
 
             # ============================================================
             # WEIGHTED ENTRY VALIDATION (Replaces Hard-Gate Filtering)
@@ -1455,6 +1475,7 @@ while True:
                 trend=trend,
                 confirmation_flags=confirmation_flags,
                 confirmation_summary=confirmation_summary,
+                cis_decision=cis_decision,
             )
 
             if hybrid_decision["weighted_intelligence_pass"]:
@@ -1493,6 +1514,30 @@ while True:
             signal["weighted_confidence_details"] = confidence_data
             signal["hybrid_decision"] = hybrid_decision
             signal["execution_route"] = hybrid_decision["effective_execution_route"]
+
+            cis_wait = cis_decision.get("final_verdict") == "WAIT"
+            if cis_wait:
+                cis_confidence = float(cis_decision.get("confidence_score", 0.0) or 0.0)
+                if confirmation_score_value < 85 or cis_confidence < 0.70:
+                    record_skip(
+                        "cis_wait",
+                        original_symbol,
+                        confidence=round(confirmation_score_value / 100.0, 2),
+                        analysis={"cis": cis_decision, "hybrid": hybrid_decision},
+                    )
+                    bot_log(
+                        "cis_wait_reject",
+                        f"[{original_symbol}] CIS asked to wait; candidate lacked enough execution confidence ({confirmation_score_value:.1f}) or CIS confidence ({cis_confidence:.2f}).",
+                        {
+                            "symbol": original_symbol,
+                            "cis": cis_decision,
+                            "hybrid_decision": hybrid_decision,
+                        },
+                        persist=False,
+                    )
+                    continue
+                record_stage("cis_wait_pass", original_symbol)
+                signal["cis_wait"] = True
 
             bot_log(
                 "hybrid_trade_decision",
@@ -1741,6 +1786,22 @@ while True:
             )
 
             lot = lot_intelligent  # Use intelligent lot sizing
+
+            cis_position_size = cis_decision.get("position_size")
+            if isinstance(cis_position_size, (int, float)) and cis_position_size > 0:
+                if cis_position_size < lot:
+                    lot = cis_position_size
+                    bot_log(
+                        "cis_position_size_cap",
+                        f"[{original_symbol}] CIS position sizing capped lot to {lot:.2f}.",
+                        {
+                            "symbol": original_symbol,
+                            "cis_position_size": cis_position_size,
+                            "computed_lot": lot_intelligent,
+                        },
+                        persist=False,
+                    )
+
             session = get_trading_session()
             setup_types = extract_setup_types(signal)
             strategy_adaptation = get_strategy_adaptation(
@@ -1776,6 +1837,22 @@ while True:
                 continue
 
             lot *= float(strategy_adaptation.get("lot_multiplier", 1.0) or 1.0)
+
+            if signal.get("cis_wait"):
+                old_lot = lot
+                lot = max(0.01, round(lot * 0.75, 2))
+                if lot < old_lot:
+                    bot_log(
+                        "cis_wait_reduced_lot",
+                        f"[{original_symbol}] CIS WAIT reduced execution lot from {old_lot:.2f} to {lot:.2f}.",
+                        {
+                            "symbol": original_symbol,
+                            "original_lot": old_lot,
+                            "reduced_lot": lot,
+                            "cis": cis_decision,
+                        },
+                        persist=False,
+                    )
 
             # Log intelligent decisions
             bot_log(
