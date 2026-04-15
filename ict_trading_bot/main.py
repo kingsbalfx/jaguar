@@ -763,9 +763,13 @@ def build_classic_trade_analysis(
     score = float((confirmation_summary or {}).get("score", 0.0))
     min_score = float((confirmation_summary or {}).get("min_score", 0.0))
     asset_class = (confirmation_summary or {}).get("asset_class", "other")
+    liquidity_ok = _confirmation_passed((confirmation_flags or {}).get("liquidity_setup"))
+    bos_ok = _confirmation_passed((confirmation_flags or {}).get("bos"))
+    displacement_ok = _confirmation_passed((confirmation_flags or {}).get("displacement"))
+    fvg_ok = _confirmation_passed((confirmation_flags or {}).get("fvg")) or bool((signal or {}).get("valid_fvg"))
     structure_hits = sum(
         1
-        for name in ("liquidity_setup", "bos", "price_action")
+        for name in ("liquidity_setup", "bos", "displacement", "fvg")
         if _confirmation_passed((confirmation_flags or {}).get(name))
     )
     topdown_ok = trend in ("bullish", "bearish")
@@ -804,9 +808,14 @@ def build_classic_trade_analysis(
     if not direction_ok:
         result["factors"].append("Classic analysis rejected: signal direction is incomplete")
         return result
+    if not (liquidity_ok and bos_ok and displacement_ok and fvg_ok and order_block_ok):
+        result["factors"].append(
+            "Classic analysis rejected: strict ICT core requires liquidity sweep, BOS, displacement, valid FVG, and order block."
+        )
+        return result
 
     result["factors"].append(f"Classic score {score:.1f}/{min_score:.1f} across {len(met_flags)} confirmations")
-    result["factors"].append(f"Structure confirmations: {structure_hits}/3")
+    result["factors"].append(f"Structure confirmations: {structure_hits}/4")
 
     if score < min_score:
         result["factors"].append("Classic analysis rejected: weighted confirmation score is below the asset-class minimum")
@@ -818,8 +827,8 @@ def build_classic_trade_analysis(
         )
         return result
 
-    if structure_hits < 2:
-        result["factors"].append("Classic analysis rejected: not enough structure agreement (need at least 2 of 3)")
+    if structure_hits < 4:
+        result["factors"].append("Classic analysis rejected: strict structure agreement is incomplete")
         return result
 
     confidence = min(
@@ -830,7 +839,7 @@ def build_classic_trade_analysis(
     direct_ready = (
         FOUR_CONFIRMATION_DIRECT_EXECUTION
         and len(met_flags) >= FOUR_CONFIRMATION_DIRECT_MIN_COUNT
-        and structure_hits >= 2
+        and structure_hits >= 4
     )
 
     if direct_ready:
@@ -881,7 +890,14 @@ def build_hybrid_trade_decision(
 
     intelligence_override = False
     intelligence_override_meta = {}
-    if not weighted_intelligence_pass and intelligence_pass and ENABLE_INTELLIGENCE_OVERRIDE and ENABLE_SMART_EXECUTION:
+    if (
+        not weighted_intelligence_pass
+        and intelligence_pass
+        and weighted_route != "skip"
+        and not confidence_data.get("missing_core")
+        and ENABLE_INTELLIGENCE_OVERRIDE
+        and ENABLE_SMART_EXECUTION
+    ):
         intelligence_override, intelligence_override_meta = should_allow_intelligence_direct_execution(
             symbol,
             intelligence_analysis,
@@ -1377,16 +1393,16 @@ while True:
             )
             signal["cis_decision"] = cis_decision
 
-            if cis_decision.get("final_verdict") == "AVOID":
+            if cis_decision.get("final_verdict") != "TRADE":
                 record_skip(
-                    "cis_avoid",
+                    f"cis_{str(cis_decision.get('final_verdict', 'reject')).lower()}",
                     original_symbol,
                     confidence=cis_decision.get("confidence_score", 0.0),
                     analysis={"cis": cis_decision},
                 )
                 bot_log(
                     "cis_reject",
-                    f"[{original_symbol}] CIS rejected trade: {cis_decision.get('confidence_score', 0.0):.2f}.",
+                    f"[{original_symbol}] CIS blocked trade with verdict {cis_decision.get('final_verdict')}: {cis_decision.get('confidence_score', 0.0):.2f}.",
                     {
                         "symbol": original_symbol,
                         "cis": cis_decision,
@@ -1421,6 +1437,10 @@ while True:
             confirmation_flags = {
                 "liquidity_setup": liquidity_state,
                 "bos": bos_state,
+                "displacement": {
+                    "confirmed": bool(liquidity_state.get("displacement")),
+                    "score": float(liquidity_state.get("displacement_score", 0.0) or 0.0),
+                },
                 "price_action": price_action_state,
                 "fvg": {
                     "confirmed": bool(signal.get("fvg")),
@@ -1514,30 +1534,6 @@ while True:
             signal["weighted_confidence_details"] = confidence_data
             signal["hybrid_decision"] = hybrid_decision
             signal["execution_route"] = hybrid_decision["effective_execution_route"]
-
-            cis_wait = cis_decision.get("final_verdict") == "WAIT"
-            if cis_wait:
-                cis_confidence = float(cis_decision.get("confidence_score", 0.0) or 0.0)
-                if confirmation_score_value < 85 or cis_confidence < 0.70:
-                    record_skip(
-                        "cis_wait",
-                        original_symbol,
-                        confidence=round(confirmation_score_value / 100.0, 2),
-                        analysis={"cis": cis_decision, "hybrid": hybrid_decision},
-                    )
-                    bot_log(
-                        "cis_wait_reject",
-                        f"[{original_symbol}] CIS asked to wait; candidate lacked enough execution confidence ({confirmation_score_value:.1f}) or CIS confidence ({cis_confidence:.2f}).",
-                        {
-                            "symbol": original_symbol,
-                            "cis": cis_decision,
-                            "hybrid_decision": hybrid_decision,
-                        },
-                        persist=False,
-                    )
-                    continue
-                record_stage("cis_wait_pass", original_symbol)
-                signal["cis_wait"] = True
 
             bot_log(
                 "hybrid_trade_decision",
@@ -1706,7 +1702,10 @@ while True:
             order_type = choose_order_type(
                 price,
                 signal.get("fvg"),
-                mode="auto"
+                mode="auto",
+                direction=direction,
+                candles=(analysis.get("EXECUTION") or {}).get("recent_candles"),
+                timing_score=(cis_decision.get("component_scores") or {}).get("timing"),
             )
 
             # ----------------------------

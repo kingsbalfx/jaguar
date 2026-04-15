@@ -24,11 +24,11 @@ def build_strategy_profile() -> Dict[str, object]:
         "count_fundamentals_as_confirmation": os.getenv("COUNT_FUNDAMENTALS_AS_CONFIRMATION", "false").lower() in ("1", "true", "yes"),
         "default_rr_ratio": float(os.getenv("DEFAULT_RR_RATIO", "3.0")),
         "min_rr_ratio": float(os.getenv("MIN_RR_RATIO", "2.0")),
-        "relax_liquidity_rule": os.getenv("RELAX_LIQUIDITY_RULE", "false").lower() in ("1", "true", "yes"),
+        "relax_liquidity_rule": False,
         "liquidity_tolerance_ratio": float(os.getenv("LIQUIDITY_TOLERANCE_RATIO", "0.0015")),
-        "relax_fvg_requirement": os.getenv("RELAX_FVG_REQUIREMENT", "false").lower() in ("1", "true", "yes"),
+        "relax_fvg_requirement": False,
         "entry_fib_buffer_ratio": float(os.getenv("ENTRY_FIB_BUFFER_RATIO", "0.08")),
-        "allow_ltf_trend_fallback": os.getenv("ALLOW_LTF_TREND_FALLBACK", "false").lower() in ("1", "true", "yes"),
+        "allow_ltf_trend_fallback": False,
         "news_filter_strict": os.getenv("NEWS_FILTER_STRICT", "false").lower() in ("1", "true", "yes"),
         "rule_quality_required": os.getenv("RULE_QUALITY_REQUIRED", "false").lower() in ("1", "true", "yes"),
     }
@@ -138,8 +138,9 @@ def evaluate_backtest_approval(report_path: str = None, force_required: bool = F
     drawdown = float(metrics.get("max_drawdown", 0.0))
     occurrences = int(report.get("occurrences", metrics.get("trades", 0)))
 
+    # Rule 18: Require 100+ trades for real metrics approval
     approved = (
-        occurrences >= min_occurrences
+        occurrences >= 100
         and
         win_rate >= min_win_rate
         and profit_factor >= min_profit_factor
@@ -148,6 +149,10 @@ def evaluate_backtest_approval(report_path: str = None, force_required: bool = F
     )
 
     failed_checks = []
+    if occurrences < 100:
+        failed_checks.append(
+            f"real_metric_trades {occurrences} < required 100"
+        )
     if occurrences < min_occurrences:
         failed_checks.append(
             f"occurrences {occurrences} < required {min_occurrences}"
@@ -193,7 +198,7 @@ def evaluate_backtest_approval(report_path: str = None, force_required: bool = F
 
 
 def ensure_backtest_approval(symbols=None, report_path: str = None) -> Tuple[bool, Dict[str, object]]:
-    auto_generate = os.getenv("AUTO_GENERATE_BACKTEST_APPROVAL", "true").lower() in ("1", "true", "yes")
+    auto_generate = os.getenv("AUTO_GENERATE_BACKTEST_APPROVAL", "false").lower() in ("1", "true", "yes")
     report_path = _resolve_report_path(report_path)
     refresh_minutes = int(os.getenv("BACKTEST_REFRESH_MINUTES", "240"))
 
@@ -228,7 +233,7 @@ def ensure_setup_backtest_approval(
     setup_hash = setup_signature_hash(setup_signature)
     resolved_report_key = f"{report_key or symbol}_{setup_hash}"
     report_path = _resolve_report_path(report_key=resolved_report_key)
-    auto_generate = os.getenv("AUTO_GENERATE_BACKTEST_APPROVAL", "true").lower() in ("1", "true", "yes")
+    auto_generate = os.getenv("AUTO_GENERATE_BACKTEST_APPROVAL", "false").lower() in ("1", "true", "yes")
     refresh_minutes = int(os.getenv("BACKTEST_REFRESH_MINUTES", "240"))
     account_login = str(os.getenv("MT5_ACCOUNT_LOGIN") or "").strip()
     account_label = f" account={account_login}" if account_login else ""

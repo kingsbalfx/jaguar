@@ -16,7 +16,8 @@ from ict_concepts.fvg import detect_fvg_from_df
 from ict_concepts.liquidity import detect_liquidity_zones
 from risk.sl_tp_engine import calculate_sl_tp
 from strategy.entry_model import check_entry
-from strategy.setup_confirmations import bos_setup, liquidity_sweep_or_swing, price_action_setup
+from strategy.setup_confirmations import bos_setup, evaluate_confirmation_quality, liquidity_sweep_or_swing, price_action_setup
+from utils.sessions import in_london_session, in_newyork_session
 from utils.symbol_profile import build_symbol_profile_snapshot, get_entry_profile
 
 RATE_COLUMNS = [
@@ -60,11 +61,11 @@ def _profile_snapshot():
         "count_fundamentals_as_confirmation": os.getenv("COUNT_FUNDAMENTALS_AS_CONFIRMATION", "false").lower() in ("1", "true", "yes"),
         "default_rr_ratio": float(os.getenv("DEFAULT_RR_RATIO", "3.0")),
         "min_rr_ratio": float(os.getenv("MIN_RR_RATIO", "2.0")),
-        "relax_liquidity_rule": os.getenv("RELAX_LIQUIDITY_RULE", "false").lower() in ("1", "true", "yes"),
+        "relax_liquidity_rule": False,
         "liquidity_tolerance_ratio": float(os.getenv("LIQUIDITY_TOLERANCE_RATIO", "0.0015")),
-        "relax_fvg_requirement": os.getenv("RELAX_FVG_REQUIREMENT", "false").lower() in ("1", "true", "yes"),
+        "relax_fvg_requirement": False,
         "entry_fib_buffer_ratio": float(os.getenv("ENTRY_FIB_BUFFER_RATIO", "0.08")),
-        "allow_ltf_trend_fallback": os.getenv("ALLOW_LTF_TREND_FALLBACK", "false").lower() in ("1", "true", "yes"),
+        "allow_ltf_trend_fallback": False,
         "news_filter_strict": os.getenv("NEWS_FILTER_STRICT", "false").lower() in ("1", "true", "yes"),
         "rule_quality_required": os.getenv("RULE_QUALITY_REQUIRED", "false").lower() in ("1", "true", "yes"),
     }
@@ -98,13 +99,42 @@ def _swings_from_df(df):
     swings = []
     if df is None or len(df) < 5:
         return swings
+    average_range = float((df["high"] - df["low"]).mean())
+    average_volume = float(df.get("tick_volume", pd.Series([0.0] * len(df))).mean())
     for i in range(2, len(df) - 2):
-        high = df.iloc[i]["high"]
-        low = df.iloc[i]["low"]
+        row = df.iloc[i]
+        high = row["high"]
+        low = row["low"]
+        candle_range = float(row["high"] - row["low"])
+        volume = float(row.get("tick_volume", 0.0))
+        weight = min(
+            3.0,
+            ((candle_range / max(average_range, 1e-9)) * 0.6)
+            + ((volume / max(average_volume, 1e-9)) * 0.4 if average_volume > 0 else 0.4),
+        )
+        strength = "strong" if weight >= 1.2 else "weak"
         if high > df.iloc[i - 1]["high"] and high > df.iloc[i + 1]["high"]:
-            swings.append({"type": "high", "price": float(high), "index": int(i)})
+            swings.append(
+                {
+                    "type": "high",
+                    "price": float(high),
+                    "index": int(i),
+                    "time": row["time"],
+                    "weight": round(weight, 3),
+                    "strength": strength,
+                }
+            )
         if low < df.iloc[i - 1]["low"] and low < df.iloc[i + 1]["low"]:
-            swings.append({"type": "low", "price": float(low), "index": int(i)})
+            swings.append(
+                {
+                    "type": "low",
+                    "price": float(low),
+                    "index": int(i),
+                    "time": row["time"],
+                    "weight": round(weight, 3),
+                    "strength": strength,
+                }
+            )
     return swings
 
 
@@ -137,34 +167,46 @@ def _order_blocks_from_df(symbol, timeframe, df):
     if df is None or len(df) < 5:
         return obs
     for i in range(2, len(df) - 2):
-        hi = float(df.iloc[i]["high"])
-        lo = float(df.iloc[i]["low"])
-        prev_hi = float(df.iloc[i - 1]["high"])
-        prev_lo = float(df.iloc[i - 1]["low"])
-        next_hi = float(df.iloc[i + 1]["high"])
-        next_lo = float(df.iloc[i + 1]["low"])
-        if hi > prev_hi and hi > next_hi:
-            obs.append(
-                {
-                    "type": "bearish",
-                    "high": prev_hi,
-                    "low": prev_lo,
-                    "index": int(i),
-                    "timeframe": timeframe,
-                    "id": f"{symbol}|{timeframe}|bearish|{i}",
-                }
-            )
-        if lo < prev_lo and lo < next_lo:
-            obs.append(
-                {
-                    "type": "bullish",
-                    "high": prev_hi,
-                    "low": prev_lo,
-                    "index": int(i),
-                    "timeframe": timeframe,
-                    "id": f"{symbol}|{timeframe}|bullish|{i}",
-                }
-            )
+        current = df.iloc[i]
+        previous = df.iloc[i - 1]
+        body = abs(float(current["close"]) - float(current["open"]))
+        candle_range = max(float(current["high"]) - float(current["low"]), 1e-9)
+        displacement = body / candle_range
+        average_volume = float(df.iloc[max(0, i - 10) : i]["tick_volume"].mean()) if "tick_volume" in df.columns else 0.0
+        volume_boost = float(current.get("tick_volume", 0.0)) >= max(average_volume * 1.15, 1.0)
+
+        if float(current["close"]) > float(current["open"]):
+            prior_low = float(df.iloc[max(0, i - 4) : i]["low"].min())
+            liquidity_sweep = float(current["low"]) < prior_low
+            order_type = "bullish"
+        else:
+            prior_high = float(df.iloc[max(0, i - 4) : i]["high"].max())
+            liquidity_sweep = float(current["high"]) > prior_high
+            order_type = "bearish"
+
+        institutional_footprint = displacement >= 0.70 and volume_boost and liquidity_sweep
+        if not institutional_footprint:
+            continue
+
+        quality = min(
+            1.0,
+            (displacement * 0.55) + (0.20 if volume_boost else 0.0) + (0.25 if liquidity_sweep else 0.0),
+        )
+        obs.append(
+            {
+                "type": order_type,
+                "high": float(previous["high"]),
+                "low": float(previous["low"]),
+                "index": int(i),
+                "timeframe": timeframe,
+                "id": f"{symbol}|{timeframe}|{order_type}|{i}",
+                "displacement": round(displacement, 3),
+                "liquidity_sweep_confirmed": liquidity_sweep,
+                "volume_boost": volume_boost,
+                "institutional_footprint": institutional_footprint,
+                "quality": round(quality, 3),
+            }
+        )
     return obs
 
 
@@ -179,6 +221,8 @@ def _recent_candles_from_df(df, bars=4):
                 "high": float(candle["high"]),
                 "low": float(candle["low"]),
                 "close": float(candle["close"]),
+                "volume": float(candle.get("tick_volume", 0.0)),
+                "time": candle.get("time"),
             }
         )
     return candles
@@ -225,12 +269,13 @@ def _analysis_from_frames(symbol, price, frames, profile):
         if df is None or len(df) < 20:
             return None
         swings = _swings_from_df(df)
+        timeframe_trend = _trend_from_swings(swings)
         analysis[timeframe] = {
-            "trend": _trend_from_swings(swings),
+            "trend": timeframe_trend,
             "fib": _fib_from_df(df),
             "fvgs": [
                 {**fvg, "timeframe": timeframe}
-                for fvg in detect_fvg_from_df(df)
+                for fvg in detect_fvg_from_df(df, trend=timeframe_trend)
             ],
             "order_blocks": _order_blocks_from_df(symbol, timeframe, df),
             "liquidity": detect_liquidity_zones(swings),
@@ -276,7 +321,20 @@ def _rule_quality_from_context(signal, daily_trend):
     return score >= 3
 
 
-def _simulate_outcome(direction, entry, sl, tp, future_df):
+def _simulate_outcome(direction, entry, sl, tp, future_df, symbol=""):
+    spread_pips = float(os.getenv("BACKTEST_SPREAD_PIPS", "1.0"))
+    slippage_pips = float(os.getenv("BACKTEST_SLIPPAGE_PIPS", "0.2"))
+    partial_fill_chance = float(os.getenv("BACKTEST_PARTIAL_FILL_CHANCE", "0.15"))
+    pip_size = 0.01 if "JPY" in str(symbol) else 0.0001
+    spread_cost = spread_pips * pip_size
+    slippage_cost = slippage_pips * pip_size
+
+    if direction == "buy":
+        effective_entry = entry + spread_cost + slippage_cost
+    else:
+        effective_entry = entry - spread_cost - slippage_cost
+
+    reward_multiplier = 0.85 if partial_fill_chance > 0 else 1.0
     for offset, (_, candle) in enumerate(future_df.iterrows(), start=1):
         high = float(candle["high"])
         low = float(candle["low"])
@@ -284,15 +342,15 @@ def _simulate_outcome(direction, entry, sl, tp, future_df):
             if low <= sl:
                 return -1.0, offset
             if high >= tp:
-                risk = abs(entry - sl)
-                reward = abs(tp - entry)
+                risk = abs(effective_entry - sl)
+                reward = abs(tp - effective_entry) * reward_multiplier
                 return reward / risk if risk else 0.0, offset
         else:
             if high >= sl:
                 return -1.0, offset
             if low <= tp:
-                risk = abs(sl - entry)
-                reward = abs(entry - tp)
+                risk = abs(sl - effective_entry)
+                reward = abs(effective_entry - tp) * reward_multiplier
                 return reward / risk if risk else 0.0, offset
     return 0.0, len(future_df)
 
@@ -333,6 +391,9 @@ def run_strategy_backtest(symbols):
         i = warmup_bars
         while i < len(ltf_df) - lookahead_bars:
             current_time = ltf_df.iloc[i]["time"]
+            if not (in_london_session(current_time) or in_newyork_session(current_time)):
+                i += step_bars
+                continue
             price = float(ltf_df.iloc[i]["close"])
             sliced = {
                 timeframe: df[df["time"] <= current_time].tail(warmup_bars).reset_index(drop=True)
@@ -385,9 +446,15 @@ def run_strategy_backtest(symbols):
                 continue
 
             confirmation_flags = {
-                "liquidity_setup": liquidity_state["confirmed"],
-                "bos": bos_state["confirmed"],
-                "price_action": price_action_state["confirmed"],
+                "liquidity_setup": liquidity_state,
+                "bos": bos_state,
+                "displacement": {
+                    "confirmed": bool(liquidity_state.get("displacement")),
+                    "score": float(liquidity_state.get("displacement_score", 0.0) or 0.0),
+                },
+                "price_action": price_action_state,
+                "fvg": {"confirmed": bool(signal.get("fvg"))},
+                "order_block_confirmed": bool(signal.get("htf_ob")),
                 "smt": smt_ok,
                 "rule_quality": rule_ok,
                 "ml": ml_ok,
@@ -395,7 +462,11 @@ def run_strategy_backtest(symbols):
             if profile["count_fundamentals_as_confirmation"]:
                 confirmation_flags["fundamentals"] = True
 
-            if sum(1 for passed in confirmation_flags.values() if passed) < profile["min_extra_confirmations"]:
+            confirmation_summary = evaluate_confirmation_quality(confirmation_flags, symbol=symbol)
+            if not confirmation_summary["core_ready"]:
+                i += step_bars
+                continue
+            if not confirmation_summary["passed"]:
                 i += step_bars
                 continue
 
@@ -406,7 +477,7 @@ def run_strategy_backtest(symbols):
 
             sl, tp = calculate_sl_tp(direction=direction, entry_price=price, htf_ob=htf_ob)
             future_df = ltf_df.iloc[i + 1 : i + 1 + lookahead_bars]
-            result, bars_held = _simulate_outcome(direction, price, sl, tp, future_df)
+            result, bars_held = _simulate_outcome(direction, price, sl, tp, future_df, symbol=symbol)
 
             trade = {
                 "symbol": symbol,
@@ -417,7 +488,7 @@ def run_strategy_backtest(symbols):
                 "result": result,
                 "opened_at": current_time.isoformat(),
                 "bars_held": bars_held,
-                "confirmations": [name for name, passed in confirmation_flags.items() if passed],
+                "confirmations": confirmation_summary.get("met_flags", []),
             }
             all_trades.append(trade)
             symbol_trades.append(trade)

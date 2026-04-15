@@ -1,5 +1,6 @@
 from ict_concepts.smt import detect_smt
 
+
 def smt_confirmed(signal, correlated_data):
     """
     correlated_data example:
@@ -20,7 +21,11 @@ def smt_confirmed(signal, correlated_data):
     except Exception:
         return True
 
-    if smt is None:
+    if not isinstance(smt, dict):
         return True
 
-    return smt == signal["direction"]
+    if not smt.get("confirmed"):
+        return True
+
+    signal_direction = str(signal.get("direction") or "").lower()
+    return smt.get("direction") == signal_direction

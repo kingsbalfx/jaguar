@@ -22,6 +22,7 @@ from strategy.setup_confirmations import (
     liquidity_sweep_or_swing,
     price_action_setup,
 )
+from utils.sessions import in_london_session, in_newyork_session
 from utils.symbol_profile import get_backtest_thresholds, infer_asset_class, related_symbols
 
 
@@ -257,6 +258,9 @@ def run_setup_occurrence_backtest(symbol: str, target_signature: Dict[str, objec
         i = warmup_bars
         while i < len(ltf_df) - lookahead_bars:
             current_time = ltf_df.iloc[i]["time"]
+            if not (in_london_session(current_time) or in_newyork_session(current_time)):
+                i += step_bars
+                continue
             price = float(ltf_df.iloc[i]["close"])
             sliced = {
                 timeframe: df[df["time"] <= current_time].tail(warmup_bars).reset_index(drop=True)
@@ -310,22 +314,24 @@ def run_setup_occurrence_backtest(symbol: str, target_signature: Dict[str, objec
             }
 
             confirmation_flags = {
-                "liquidity_setup": liquidity_state["confirmed"],
-                "bos": bos_state["confirmed"],
-                "price_action": price_action_state["confirmed"],
+                "liquidity_setup": liquidity_state,
+                "bos": bos_state,
+                "displacement": {
+                    "confirmed": bool(liquidity_state.get("displacement")),
+                    "score": float(liquidity_state.get("displacement_score", 0.0) or 0.0),
+                },
+                "fvg": {"confirmed": bool(signal.get("fvg"))},
+                "order_block_confirmed": bool(signal.get("htf_ob")),
+                "price_action": price_action_state,
                 "smt": smt_ok,
                 "rule_quality": rule_ok,
                 "ml": ml_ok,
             }
-            extra_confirmations = sum(1 for passed in confirmation_flags.values() if passed)
-            if extra_confirmations < int(profile.get("min_extra_confirmations", 3)):
-                i += step_bars
-                continue
             confirmation_summary = evaluate_confirmation_quality(
                 confirmation_flags,
                 symbol=candidate_symbol,
             )
-            if not confirmation_summary["passed"]:
+            if not confirmation_summary["core_ready"] or not confirmation_summary["passed"]:
                 i += step_bars
                 continue
             signal["confirmation_summary"] = confirmation_summary
@@ -353,7 +359,7 @@ def run_setup_occurrence_backtest(symbol: str, target_signature: Dict[str, objec
 
             sl, tp = calculate_sl_tp(direction=direction, entry_price=price, htf_ob=htf_ob)
             future_df = ltf_df.iloc[i + 1 : i + 1 + lookahead_bars]
-            result, bars_held = _simulate_outcome(direction, price, sl, tp, future_df)
+            result, bars_held = _simulate_outcome(direction, price, sl, tp, future_df, symbol=candidate_symbol)
 
             trade = {
                 "symbol": candidate_symbol,

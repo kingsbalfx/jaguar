@@ -13,46 +13,140 @@ def _require_mt5():
         )
 
 
-def detect_fvg_from_df(df):
+def _avg_range(df, end_index, lookback=14):
+    start = max(0, end_index - lookback + 1)
+    window = df.iloc[start : end_index + 1]
+    if window.empty:
+        return 0.0
+    ranges = (window["high"] - window["low"]).astype(float)
+    return float(ranges.mean()) if len(ranges) else 0.0
+
+
+def _fill_progress(candidate, candle):
+    low = float(candidate["low"])
+    high = float(candidate["high"])
+    gap_size = max(float(candidate["gap_size"]), 1e-9)
+
+    if candidate["type"] == "bullish":
+        future_low = float(candle["low"])
+        if future_low >= high:
+            return 0.0
+        penetrated = high - max(future_low, low)
+        return max(0.0, min(1.0, penetrated / gap_size))
+
+    future_high = float(candle["high"])
+    if future_high <= low:
+        return 0.0
+    penetrated = min(future_high, high) - low
+    return max(0.0, min(1.0, penetrated / gap_size))
+
+
+def _mitigation_state(df, start_index, candidate):
+    best_fill_ratio = 0.0
+    mitigation_index = None
+
+    for j in range(start_index + 1, len(df)):
+        fill_ratio = _fill_progress(candidate, df.iloc[j])
+        if fill_ratio > best_fill_ratio:
+            best_fill_ratio = fill_ratio
+            mitigation_index = int(j)
+        if fill_ratio >= 1.0:
+            break
+
+    return {
+        "fill_ratio": round(best_fill_ratio, 3),
+        "mitigated": best_fill_ratio >= 1.0,
+        "partially_mitigated": 0.0 < best_fill_ratio < 1.0,
+        "mitigation_index": mitigation_index,
+    }
+
+
+def detect_fvg_from_df(df, trend=None, min_gap_ratio=0.12, min_body_ratio=0.55):
     fvgs = []
 
-    # Defensive: require enough rows and necessary columns
     if df is None or len(df) < 3:
         return fvgs
-    if not set(["high", "low"]).issubset(df.columns):
+    if not set(["high", "low", "open", "close"]).issubset(df.columns):
         return fvgs
 
     for i in range(2, len(df)):
         try:
-            c1 = df.iloc[i-2]
-            c2 = df.iloc[i-1]
+            c1 = df.iloc[i - 2]
+            c2 = df.iloc[i - 1]
             c3 = df.iloc[i]
 
-            # Bullish FVG
-            if c1['high'] < c3['low']:
-                fvgs.append({
-                    "type": "bullish",
-                    "low": float(c1['high']),
-                    "high": float(c3['low']),
-                    "index": int(i)
-                })
+            middle_open = float(c2["open"])
+            middle_close = float(c2["close"])
+            middle_high = float(c2["high"])
+            middle_low = float(c2["low"])
+            middle_range = max(middle_high - middle_low, 1e-9)
+            middle_body_ratio = abs(middle_close - middle_open) / middle_range
+            displacement_ok = middle_body_ratio >= min_body_ratio
 
-            # Bearish FVG
-            if c1['low'] > c3['high']:
-                fvgs.append({
-                    "type": "bearish",
-                    "high": float(c1['low']),
-                    "low": float(c3['high']),
-                    "index": int(i)
-                })
+            average_range = max(_avg_range(df, i), 1e-9)
+
+            candidates = []
+            high1 = float(c1["high"])
+            low1 = float(c1["low"])
+            high3 = float(c3["high"])
+            low3 = float(c3["low"])
+
+            if high1 < low3:
+                candidates.append(
+                    {
+                        "type": "bullish",
+                        "low": high1,
+                        "high": low3,
+                        "reference_low": low1,
+                        "reference_high": high3,
+                    }
+                )
+
+            if low1 > high3:
+                candidates.append(
+                    {
+                        "type": "bearish",
+                        "low": high3,
+                        "high": low1,
+                        "reference_low": low3,
+                        "reference_high": high1,
+                    }
+                )
+
+            for candidate in candidates:
+                gap_size = float(candidate["high"]) - float(candidate["low"])
+                size_ratio = gap_size / average_range
+                size_ok = size_ratio >= min_gap_ratio
+                context_aligned = trend is None or trend == candidate["type"]
+                mitigation = _mitigation_state(df, i, {**candidate, "gap_size": gap_size})
+                quality = min(
+                    1.0,
+                    (size_ratio * 0.55) + (middle_body_ratio * 0.35) + (0.10 if context_aligned else 0.0),
+                )
+
+                record = {
+                    **candidate,
+                    "index": int(i),
+                    "gap_size": round(gap_size, 6),
+                    "gap_ratio": round(size_ratio, 3),
+                    "middle_body_ratio": round(middle_body_ratio, 3),
+                    "displacement_ok": displacement_ok,
+                    "size_ok": size_ok,
+                    "context_aligned": context_aligned,
+                    "quality": round(quality, 3),
+                    **mitigation,
+                    "active": not mitigation["mitigated"],
+                }
+
+                if size_ok and displacement_ok and context_aligned:
+                    fvgs.append(record)
         except Exception:
-            # skip malformed rows
             continue
 
     return fvgs
 
 
-def detect_fvgs(symbol, timeframe, bars=200):
+def detect_fvgs(symbol, timeframe, bars=200, trend=None):
     _require_mt5()
     tf = _tf_to_mt5(timeframe)
     rates = mt5.copy_rates_from_pos(symbol, tf, 0, bars)
@@ -60,12 +154,11 @@ def detect_fvgs(symbol, timeframe, bars=200):
         return []
 
     df = pd.DataFrame(rates)
-    # make sure numeric columns exist
-    for col in ['high', 'low']:
+    for col in ["high", "low", "open", "close"]:
         if col not in df.columns:
             return []
 
-    fvgs = detect_fvg_from_df(df)
+    fvgs = detect_fvg_from_df(df, trend=trend)
     for fvg in fvgs:
         fvg["timeframe"] = timeframe
     return fvgs
@@ -74,12 +167,12 @@ def detect_fvgs(symbol, timeframe, bars=200):
 def _tf_to_mt5(tf):
     _require_mt5()
     mapping = {
-        'M1': mt5.TIMEFRAME_M1,
-        'M5': mt5.TIMEFRAME_M5,
-        'M15': mt5.TIMEFRAME_M15,
-        'M30': mt5.TIMEFRAME_M30,
-        'H1': mt5.TIMEFRAME_H1,
-        'H4': mt5.TIMEFRAME_H4,
-        'D1': mt5.TIMEFRAME_D1,
+        "M1": mt5.TIMEFRAME_M1,
+        "M5": mt5.TIMEFRAME_M5,
+        "M15": mt5.TIMEFRAME_M15,
+        "M30": mt5.TIMEFRAME_M30,
+        "H1": mt5.TIMEFRAME_H1,
+        "H4": mt5.TIMEFRAME_H4,
+        "D1": mt5.TIMEFRAME_D1,
     }
     return mapping.get(tf, tf)

@@ -60,6 +60,7 @@ from risk.position_manager import get_current_account_exposure, calculate_positi
 from risk.intelligent_execution import get_learned_threshold_adjustment
 from execution.order_manager import calculate_risk_reward_for_trade
 from strategy.pre_trade_analysis import analyze_market_top_down
+from utils.sessions import in_london_session, in_newyork_session, in_asia_session
 from strategy.setup_confirmations import bos_setup, liquidity_sweep_or_swing, price_action_setup
 from risk.trend_dynamics import TrendDynamicsAnalyzer
 from utils.symbol_profile import canonical_symbol
@@ -69,8 +70,8 @@ MAX_RETRIES = 3
 RETRY_DELAY = 1  # Seconds
 
 # ICT Sequence Logic Gating
-MIN_DISPLACEMENT_SCORE = 0.65
-MIN_CONFIRMATIONS_REQUIRED = 2
+MIN_DISPLACEMENT_SCORE = 0.70
+MIN_CONFIRMATIONS_REQUIRED = 4
 
 CIS_DECISIONS_FILE = Path(__file__).resolve().parent.parent / "data" / "cis_decisions_history.json"
 
@@ -440,6 +441,11 @@ def calculate_setup_quality_score(
             details["notes"].append("No liquidity sweep or swing confirmed.")
             return 0.25, details
 
+        # Requirement 18: Block trade if no liquidity sweep
+        if not liquidity.get("confirmed"):
+            details["notes"].append("BLOCK: Strict liquidity sweep requirement failed.")
+            return 0.0, details
+
         pa = price_action_setup(analysis, direction_lower)
         if pa.get("confirmed"):
             details["notes"].append("Price action confirmation is supportive.")
@@ -797,16 +803,19 @@ def calculate_timing_score(symbol: str, timeframe: str) -> Tuple[float, Dict]:
         # Intelligent Session Analysis (UTC)
         # London: 08:00 - 16:00 | New York: 13:00 - 21:00 | Asian: 00:00 - 09:00
 
-        # Standard Sessions (UTC)
-        is_london = 8 <= hour < 16
-        is_ny = 13 <= hour < 21
-        is_overlap = 13 <= hour < 16
+        is_london = in_london_session()
+        is_ny = in_newyork_session()
+        
+        # Requirement: "intelligence should only follow this" (London or NY)
+        if not (is_london or is_ny):
+            details["session_alignment"] = 0.0
+            details["notes"].append("Non-Killzone Session: Intelligence blocks execution outside London/NY.")
+            return 0.0, details
 
-        # ICT Killzones (UTC)
+        is_overlap = is_london and is_ny
         is_london_kz = 7 <= hour < 10
         is_ny_kz = 12 <= hour < 15
         is_silver_bullet = 15 <= hour < 16
-        is_asia_kz = 0 <= hour < 5
 
         if asset_class == "forex":
             if is_london_kz:
@@ -815,9 +824,7 @@ def calculate_timing_score(symbol: str, timeframe: str) -> Tuple[float, Dict]:
             elif is_ny_kz:
                 details["session_alignment"] = 0.85
             elif is_silver_bullet:
-                details["session_alignment"] = 0.95 # High probability ICT hour
-            elif is_asia_kz:
-                details["session_alignment"] = 0.80 # Asia Killzone
+                details["session_alignment"] = 0.95  # High probability ICT hour
             else:
                 details["session_alignment"] = 0.4
         elif asset_class == "metals":
@@ -828,13 +835,12 @@ def calculate_timing_score(symbol: str, timeframe: str) -> Tuple[float, Dict]:
             elif is_london:
                 details["session_alignment"] = 0.8
             else:
-                details["session_alignment"] = 0.3  # Metals dead in Asia
+                details["session_alignment"] = 0.3
         elif asset_class == "crypto":
-            # Crypto is 24/7, but NY/London volume is higher for quality
             if is_overlap or is_ny or is_london:
                 details["session_alignment"] = 0.95
             else:
-                details["session_alignment"] = 0.85 # Stronger weight for Asia than FX
+                details["session_alignment"] = 0.65
         else:
             details["session_alignment"] = 0.5
 
@@ -938,6 +944,7 @@ def get_cis_decision(
         "reasoning": [],
         "red_flags": [],
         "entry_checklist": [],
+        "history_count": 0
     }
 
     try:
@@ -951,9 +958,23 @@ def get_cis_decision(
             htf_data=htf_data,
             mtf_data=mtf_data
         )
+        
+        # Strict Liquidity Block
+        if not setup_details.get("liquidity_sweep"):
+            decision["final_verdict"] = "AVOID"
+            decision["reasoning"].append("CRITICAL BLOCK: Setup requires a confirmed liquidity sweep.")
+            return decision
+
+        sequence_data = setup_details.get("sequence_data", {})
+        if not sequence_data.get("standalone_approval"):
+            decision["final_verdict"] = "AVOID"
+            decision["ict_sequence"] = sequence_data
+            decision["reasoning"].append("CRITICAL BLOCK: Full ICT sequence is incomplete.")
+            return decision
+
         decision["component_scores"]["setup_quality"] = round(setup_score, 3)
         decision["market_mode"] = setup_details.get("market_mode", "UNKNOWN")
-        decision["ict_sequence"] = setup_details.get("sequence_data", {})
+        decision["ict_sequence"] = sequence_data
         if decision["ict_sequence"].get("standalone_approval"):
             decision["reasoning"].append("ICT sequence fully satisfied for the proposed setup.")
         decision["reasoning"].extend([f"Setup: {note}" for note in setup_details.get("notes", [])])
@@ -978,6 +999,10 @@ def get_cis_decision(
         confidence = (setup_score * 0.45) + (risk_score * 0.25) + (market_score * 0.15) + (timing_score * 0.15)
         decision["confidence_score"] = round(confidence, 3)
 
+        # Load trade history count for 100+ trade requirement
+        history = load_cis_history().get(_symbol_key(symbol), {}).get("trades", [])
+        decision["history_count"] = len(history)
+
         # Apply learned threshold adjustments so the system improves over time
         threshold_adjustment = get_learned_threshold_adjustment(symbol)
         decision["learning_adjustment"] = round(threshold_adjustment, 3)
@@ -994,6 +1019,13 @@ def get_cis_decision(
             decision["final_verdict"] = "WAIT"
         else:
             decision["final_verdict"] = "AVOID"
+
+        # Intelligence should prefer London/NewYork hours unless override is enabled.
+        if not (in_london_session() or in_newyork_session()):
+            if decision["final_verdict"] == "TRADE":
+                decision["final_verdict"] = "AVOID"
+                decision["reasoning"].append("BLOCK: Intelligence system only executes during London/NewYork sessions.")
+                decision["confidence_score"] = 0.0
 
         # Red flags
         if setup_score < 0.5:

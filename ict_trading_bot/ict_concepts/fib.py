@@ -24,11 +24,19 @@ def fib_dealing_range(high, low):
 
 
 def in_discount(price, fib):
-    return fib["0.0"] <= price <= fib["0.25"]
+    return fib["0.0"] <= price <= fib["0.5"]
 
 
 def in_premium(price, fib):
-    return fib["0.75"] <= price <= fib["1.0"]
+    return fib["0.5"] <= price <= fib["1.0"]
+
+
+def discount_zone(fib):
+    return float(fib["0.0"]), float(fib["0.5"])
+
+
+def premium_zone(fib):
+    return float(fib["0.5"]), float(fib["1.0"])
 
 
 def calculate_fib_levels(symbol, timeframe, bars=200):

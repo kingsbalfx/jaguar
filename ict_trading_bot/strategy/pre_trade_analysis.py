@@ -44,6 +44,7 @@ def _fetch_recent_candles(symbol, timeframe, bars=32):
 
     candles = []
     for candle in rates[-bars:]:
+        candle_time = candle["time"] if "time" in candle.dtype.names else None
         candles.append(
             {
                 "open": float(candle["open"]),
@@ -51,6 +52,7 @@ def _fetch_recent_candles(symbol, timeframe, bars=32):
                 "low": float(candle["low"]),
                 "close": float(candle["close"]),
                 "volume": float(candle["tick_volume"]),
+                "time": candle_time,
             }
         )
     return candles
@@ -103,7 +105,7 @@ def _analyze_timeframe(symbol, timeframe, price, recent_candle_count, atr_period
         fib = {}
 
     try:
-        fvgs = detect_fvgs(symbol, timeframe=timeframe) or []
+        fvgs = detect_fvgs(symbol, timeframe=timeframe, trend=trend) or []
     except Exception:
         fvgs = []
 
@@ -189,7 +191,8 @@ def _detect_htf_liquidity_sweep(symbol, htf_tf, price, direction):
     swings = get_swings(symbol, timeframe=htf_tf)
     liquidity = detect_liquidity_zones(swings) or {"EQL": [], "EQH": []}
     from strategy.liquidity_filter import liquidity_taken
-    return liquidity_taken(price, liquidity, direction)
+    recent_candles = _fetch_recent_candles(symbol, htf_tf, bars=8)
+    return liquidity_taken(price, liquidity, direction, recent_candles=recent_candles)
 
 def analyze_market_top_down(
     symbol,
@@ -229,7 +232,7 @@ def analyze_market_top_down(
     execution_state = analysis[execution_tf]
 
     overall_trend = _majority_trend([h1_state, m30_state, m15_state])
-    if overall_trend not in ("bullish", "bearish") and os.getenv("ALLOW_LTF_TREND_FALLBACK", "true").lower() in ("1", "true", "yes"):
+    if overall_trend not in ("bullish", "bearish") and os.getenv("ALLOW_LTF_TREND_FALLBACK", "false").lower() in ("1", "true", "yes"):
         execution_trend = execution_state.get("trend")
         if execution_trend in ("bullish", "bearish"):
             overall_trend = execution_trend
