@@ -242,6 +242,10 @@ def analyze_market_top_down(
     # HTF Sweep Check
     htf_sweep = _detect_htf_liquidity_sweep(symbol, htf, price, "buy" if overall_trend == "bullish" else "sell")
 
+    # Micro timeframes for sniper timing (M5/M1)
+    m5_candles = execution_state.get("recent_candles") if execution_tf == "M5" else _fetch_recent_candles(symbol, "M5", bars=16)
+    m1_candles = _fetch_recent_candles(symbol, "M1", bars=32)
+
     return {
         "overall_trend": overall_trend,
         "topdown": {
@@ -274,6 +278,8 @@ def analyze_market_top_down(
         "MTF": m30_state,
         "LTF": m15_state,
         "EXECUTION": execution_state,
+        "m5_candles": m5_candles,
+        "m1_candles": m1_candles,
         "htf_sweep": htf_sweep,
         "volume_alignment": execution_state["volume_boost"],
         "sma_alignment": execution_state["above_sma"] if overall_trend == "bullish" else not execution_state["above_sma"],

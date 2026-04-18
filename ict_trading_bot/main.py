@@ -27,7 +27,7 @@ from execution.order_router import choose_order_type
 # STRATEGY & ANALYSIS
 # =====================================================
 from strategy.pre_trade_analysis import analyze_market_top_down
-from strategy.entry_model import check_entry, explain_entry_failure
+from strategy.entry_model import hybrid_entry_model, explain_hybrid_failure, entry_debug_snapshot
 from strategy.weighted_entry_validator import (
     calculate_entry_confidence,
     should_execute_immediately,
@@ -88,7 +88,7 @@ from backtest.setup_occurrence import build_setup_signature
 # =====================================================
 # SESSION FILTER
 # =====================================================
-from utils.sessions import in_london_session, in_newyork_session, trading_session_open
+from utils.sessions import in_london_session, in_newyork_session, trading_session_open, asset_trading_open
 
 # =====================================================
 # PORTFOLIO + DASHBOARD
@@ -102,7 +102,7 @@ from dashboard.bridge import (
 )
 from utils.mt5_credentials import fetch_mt5_credentials_signature
 import time
-import traceback
+import traceback, datetime
 import os
 from pathlib import Path
 from bot_state import (
@@ -130,11 +130,48 @@ if (
     os.getenv("MULTI_ACCOUNT_ENABLED", "false").lower() in ("1", "true", "yes", "on")
     and os.getenv("MULTI_ACCOUNT_CHILD", "false").lower() not in ("1", "true", "yes", "on")
 ):
+    # Ensure storage directories exist per bot
+    data_dir = Path(__file__).resolve().parent / "data"
+    if not data_dir.exists():
+        data_dir.mkdir(exist_ok=True)
+
+if (
+    os.getenv("MULTI_ACCOUNT_ENABLED", "false").lower() in ("1", "true", "yes", "on")
+    and os.getenv("MULTI_ACCOUNT_CHILD", "false").lower() not in ("1", "true", "yes", "on")
+):
     from multi_account_runner import main as run_multi_account_supervisor
 
     run_multi_account_supervisor()
     sys.exit(0)
 
+# =====================================================
+# FRIDAY STRATEGY LOGIC
+# =====================================================
+def is_friday_drain_session():
+    """Detects Friday afternoon (EST/UTC) where liquidity drops and reversals happen."""
+    now = datetime.datetime.now(datetime.UTC)
+    # Friday = 4 (0=Mon...4=Fri)
+    if now.weekday() == 4:
+        # After 16:00 UTC (12:00 PM EST)
+        if now.hour >= 16:
+            return True
+    return False
+
+def get_bot_storage_path(base_name):
+    """Ensures each bot instance uses its own file to prevent JSON lock/Access Denied errors."""
+    # CRITICAL: Use BOT_ID (which includes MT5 Login) for local file naming to prevent process clashes (WinError 5).
+    bot_id = os.getenv("BOT_ID") or os.getenv("ACCOUNT_LOGIN") or "default_bot"
+    data_dir = Path(__file__).resolve().parent / "data"
+    if not data_dir.exists():
+        data_dir.mkdir(parents=True, exist_ok=True)
+    
+    safe_id = "".join([c if c.isalnum() else "_" for c in str(bot_id)])
+    return str(data_dir / f"{base_name}_{safe_id}.json")
+
+# Set Bot-Specific Tracking Paths BEFORE any strategy imports
+os.environ["SKIP_TRACKING_PATH"] = get_bot_storage_path("intelligent_skip_tracking")
+os.environ["STATS_STORAGE_PATH"] = get_bot_storage_path("intelligent_execution_stats")
+os.environ["CONFIDENCE_STORAGE_PATH"] = get_bot_storage_path("symbol_confidence_runtime")
 
 def bot_log(event, message, payload=None, persist=True):
     entry = payload or {}
@@ -667,7 +704,7 @@ ANALYSIS_RESCUE_REQUIRES_INTELLIGENCE = os.getenv(
     "true",
 ).lower() in ("1", "true", "yes")
 ALLOW_RELAXED_TOPDOWN = os.getenv("ALLOW_RELAXED_TOPDOWN", "false").lower() in ("1", "true", "yes")
-ENABLE_INTELLIGENCE_OVERRIDE = os.getenv("ENABLE_INTELLIGENCE_OVERRIDE", "true").lower() in ("1", "true", "yes")
+ENABLE_INTELLIGENCE_OVERRIDE = os.getenv("ENABLE_INTELLIGENCE_OVERRIDE", "false").lower() in ("1", "true", "yes")
 ENABLE_SMART_EXECUTION = os.getenv("ENABLE_SMART_EXECUTION", "true").lower() in ("1", "true", "yes")
 
 
@@ -1170,11 +1207,27 @@ while True:
 
         for symbol in VALID_SYMBOLS:
 
+            # Define original_symbol early to prevent scope errors
+            original_symbol = next((k for k, v in RESOLVED_MAP.items() if v == symbol), symbol)
+            record_stage("seen", original_symbol)
+
             # -----------------------------
             # SESSION FILTER (HARD RULE)
             # -----------------------------
-            original_symbol = next((k for k, v in RESOLVED_MAP.items() if v == symbol), symbol)
-            record_stage("seen", original_symbol)
+            # Friday Strategy: Skip new trades or reduce risk on Friday afternoon for FX/Indices
+            if is_friday_drain_session():
+                asset_class = infer_asset_class(original_symbol)
+                if asset_class in ("forex", "metals", "indices"):
+                    record_skip("friday_drain", original_symbol)
+                    bot_log_throttled(
+                        "friday_drain",
+                        original_symbol,
+                        f"[{original_symbol}] Friday Drain active. Skipping new {asset_class} entries.",
+                        {"symbol": original_symbol},
+                        persist=False,
+                        cooldown=3600
+                    )
+                    continue
 
             # ===================================
             # SKIP ENTIRELY FILTER (LEARNED FROM SKIP PATTERNS)
@@ -1213,6 +1266,20 @@ while True:
                 )
                 continue
 
+            asset_class = infer_asset_class(original_symbol)
+            if not asset_trading_open(asset_class):
+                record_skip("market_closed", original_symbol, analysis={"asset_class": asset_class})
+                bot_log_throttled(
+                    "market_closed",
+                    original_symbol,
+                    f"[{original_symbol}] Market closed for asset_class={asset_class}. Skipping until next session.",
+                    {"symbol": original_symbol, "asset_class": asset_class},
+                    persist=False,
+                    cooldown=900,
+                    signature=f"{asset_class}",
+                )
+                continue
+
             # -----------------------------
             # FUNDAMENTALS / NEWS FILTER
             # -----------------------------
@@ -1228,7 +1295,20 @@ while True:
             # -----------------------------
             # LIVE MARKET DATA
             # -----------------------------
-            price = get_price(symbol)
+            try:
+                price = get_price(symbol)
+            except Exception as price_error:
+                record_skip("price_unavailable", original_symbol, analysis={"error": str(price_error)})
+                bot_log_throttled(
+                    "price_unavailable",
+                    original_symbol,
+                    f"[{original_symbol}] Price unavailable: {price_error}",
+                    {"symbol": original_symbol, "resolved_symbol": symbol, "error": str(price_error)},
+                    persist=False,
+                    cooldown=300,
+                    signature=str(price_error),
+                )
+                continue
             atr = 0.0012
             atr_threshold = 0.002
 
@@ -1307,58 +1387,13 @@ while True:
             m15_state = analysis.get("LTF", {})
             execution_state = analysis.get("EXECUTION", {})
             entry_fib_levels = m15_state.get("fib") or m30_state.get("fib", {})
-            entry_fvgs = execution_state.get("fvgs") or m15_state.get("fvgs", {})
-            entry_order_blocks = m15_state.get("order_blocks") or m30_state.get("order_blocks", {})
+            entry_fvgs = execution_state.get("fvgs") or m15_state.get("fvgs") or []
+            entry_order_blocks = m15_state.get("order_blocks") or m30_state.get("order_blocks") or []
             entry_atr = execution_state.get("atr") or m15_state.get("atr") or m30_state.get("atr")
-            try:
-                signal = check_entry(
-                    trend=trend,
-                    price=price,
-                    fib_levels=entry_fib_levels,
-                    fvgs=entry_fvgs,
-                    htf_order_blocks=entry_order_blocks,
-                    symbol=original_symbol,
-                    atr=entry_atr,
-                )
-            except Exception as e:
-                print("Entry model error, skipping symbol:", e)
-                record_skip("entry_error", original_symbol)
-                continue
 
-            if not isinstance(signal, dict) or not signal:
-                entry_reason = explain_entry_failure(
-                    trend=trend,
-                    price=price,
-                    fib_levels=entry_fib_levels,
-                    fvgs=entry_fvgs,
-                    htf_order_blocks=entry_order_blocks,
-                    symbol=original_symbol,
-                    atr=entry_atr,
-                )
-                record_skip(f"entry_{entry_reason}", original_symbol)
-                bot_log_throttled(
-                    "entry_wait",
-                    original_symbol,
-                    f"[{original_symbol}] Waiting for entry, not executing yet: {humanize_reason(entry_reason)}.",
-                    {
-                        "symbol": original_symbol,
-                        "entry_reason": entry_reason,
-                        "trend": trend,
-                        "price": price,
-                    },
-                    persist=False,
-                    cooldown=300,
-                    signature=entry_reason,
-                )
-                continue
-            record_stage("entry", original_symbol)
-
-            # attach symbol and direction (use original name mapping if available)
-            signal["symbol"] = original_symbol
-            signal["direction"] = direction
-            signal["trend"] = trend
-            signal["market_rhythm"] = market_rhythm
-
+            # -----------------------------
+            # STRICT SETUP CONFIRMATIONS (pre-entry)
+            # -----------------------------
             liquidity_state = liquidity_sweep_or_swing(price, analysis, direction)
             if liquidity_state["confirmed"]:
                 record_stage("liquidity_setup", original_symbol)
@@ -1377,6 +1412,88 @@ while True:
             else:
                 record_skip("price_action", original_symbol)
 
+            swings_for_sl = (
+                (execution_state.get("swings") or [])
+                or (m15_state.get("swings") or [])
+                or (m30_state.get("swings") or [])
+            )
+            swing_lows = [
+                swing.get("price")
+                for swing in (swings_for_sl or [])
+                if isinstance(swing, dict) and swing.get("type") == "low"
+            ]
+            swing_highs = [
+                swing.get("price")
+                for swing in (swings_for_sl or [])
+                if isinstance(swing, dict) and swing.get("type") == "high"
+            ]
+            swing_low = swing_lows[-1] if swing_lows else None
+            swing_high = swing_highs[-1] if swing_highs else None
+
+            # -----------------------------
+            # ENTRY MODEL (DISPLACEMENT + REJECTION ENTRY + SNIPER)
+            # -----------------------------
+            market_data = {
+                "symbol": original_symbol,
+                "trend": trend,
+                "price": price,
+                "atr": entry_atr,
+                "market_condition": market_rhythm.get("market_condition"),
+                "trend_strength": market_rhythm.get("trend_strength"),
+                "liquidity_sweep": bool(liquidity_state.get("confirmed")),
+                "bos": bool(bos_state.get("confirmed")),
+                "displacement": float(liquidity_state.get("displacement_score", 0.0) or 0.0),
+                "fvgs": entry_fvgs,
+                "htf_order_blocks": entry_order_blocks,
+                "candles": execution_state.get("recent_candles") or [],
+                "m5_candles": analysis.get("m5_candles") or execution_state.get("recent_candles") or [],
+                "m1_candles": analysis.get("m1_candles") or [],
+                "swing_low": swing_low,
+                "swing_high": swing_high,
+            }
+
+            try:
+                signal = hybrid_entry_model(market_data)
+            except Exception as e:
+                record_skip("entry_error", original_symbol)
+                bot_log_throttled(
+                    "entry_error",
+                    original_symbol,
+                    f"[{original_symbol}] Entry model error: {e}",
+                    {"symbol": original_symbol, "error": str(e)},
+                    persist=False,
+                    cooldown=300,
+                    signature=str(e),
+                )
+                continue
+
+            if not isinstance(signal, dict) or not signal:
+                entry_reason = explain_hybrid_failure(market_data)
+                record_skip(f"entry_{entry_reason}", original_symbol, analysis=entry_debug_snapshot(market_data))
+                bot_log_throttled(
+                    "entry_wait",
+                    original_symbol,
+                    f"[{original_symbol}] Waiting for entry, not executing yet: {humanize_reason(entry_reason)}.",
+                    {
+                        "symbol": original_symbol,
+                        "entry_reason": entry_reason,
+                        "trend": trend,
+                        "price": price,
+                        "debug": entry_debug_snapshot(market_data),
+                    },
+                    persist=False,
+                    cooldown=240,
+                    signature=entry_reason,
+                )
+                continue
+            record_stage("entry", original_symbol)
+
+            # attach symbol and direction (use original name mapping if available)
+            signal["symbol"] = original_symbol
+            signal["direction"] = direction
+            signal["trend"] = trend
+            signal["market_rhythm"] = market_rhythm
+
             signal["setup_context"] = {
                 "liquidity": liquidity_state,
                 "bos": bos_state,
@@ -1393,23 +1510,18 @@ while True:
             )
             signal["cis_decision"] = cis_decision
 
-            if cis_decision.get("final_verdict") != "TRADE":
-                record_skip(
-                    f"cis_{str(cis_decision.get('final_verdict', 'reject')).lower()}",
+            cis_verdict = str(cis_decision.get("final_verdict") or "UNKNOWN").upper()
+            if cis_verdict != "TRADE":
+                # Advisory-only: CIS no longer blocks execution. It only provides context/risk hints.
+                bot_log_throttled(
+                    "cis_advisory",
                     original_symbol,
-                    confidence=cis_decision.get("confidence_score", 0.0),
-                    analysis={"cis": cis_decision},
-                )
-                bot_log(
-                    "cis_reject",
-                    f"[{original_symbol}] CIS blocked trade with verdict {cis_decision.get('final_verdict')}: {cis_decision.get('confidence_score', 0.0):.2f}.",
-                    {
-                        "symbol": original_symbol,
-                        "cis": cis_decision,
-                    },
+                    f"[{original_symbol}] CIS advisory verdict {cis_verdict} (confidence {cis_decision.get('confidence_score', 0.0):.2f}).",
+                    {"symbol": original_symbol, "cis": cis_decision},
                     persist=False,
+                    cooldown=300,
+                    signature=f"{cis_verdict}:{cis_decision.get('confidence_score', 0.0):.2f}",
                 )
-                continue
 
             # ============================================================
             # WEIGHTED ENTRY VALIDATION (Replaces Hard-Gate Filtering)
@@ -1671,7 +1783,7 @@ while True:
             # PORTFOLIO RISK ALLOCATION
             # ----------------------------
             open_positions = get_open_positions()
-            allowed_risk = allocate_risk(symbol, open_positions)
+            allowed_risk = allocate_risk(symbol, open_positions, direction=direction)
 
             # Implement IQ Sizing based on Account balance and Execution Route
             account_info = get_account_snapshot()

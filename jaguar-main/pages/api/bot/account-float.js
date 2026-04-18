@@ -67,7 +67,19 @@ export default async function handler(req, res) {
     .maybeSingle();
 
   const role = (profile?.role || "user").toLowerCase();
-  const adminScope = role === "admin" && req.query.scope === "all";
+  const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.SUPER_ADMIN_EMAIL || "").toLowerCase();
+  const userEmail = (session.user.email || "").toLowerCase();
+  const isAdminEmail = adminEmail && userEmail === adminEmail;
+
+  if (isAdminEmail && role !== "admin") {
+    try {
+      await supabaseAdmin.from("profiles").update({ role: "admin" }).eq("id", session.user.id);
+    } catch {
+      // allow override even if profile update fails
+    }
+  }
+
+  const adminScope = (role === "admin" || isAdminEmail) && req.query.scope === "all";
 
   const { data, error } = await supabaseAdmin
     .from("bot_logs")

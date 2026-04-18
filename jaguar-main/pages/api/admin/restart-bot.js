@@ -31,7 +31,19 @@ export default async function handler(req, res) {
       .maybeSingle();
 
     const role = (profile?.role || "user").toLowerCase();
-    if (role !== "admin") {
+    const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.SUPER_ADMIN_EMAIL || "").toLowerCase();
+    const userEmail = (session.user.email || "").toLowerCase();
+    const isAdminEmail = adminEmail && userEmail === adminEmail;
+
+    if (isAdminEmail && role !== "admin") {
+      try {
+        await supabaseAdmin.from("profiles").update({ role: "admin" }).eq("id", userId);
+      } catch {
+        // allow override even if profile update fails
+      }
+    }
+
+    if (role !== "admin" && !isAdminEmail) {
       return res.status(403).json({ error: "forbidden" });
     }
 

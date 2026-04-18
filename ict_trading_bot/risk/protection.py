@@ -6,18 +6,22 @@ from utils.persistent_json import load_json_file, save_json_file
 from utils.symbol_profile import canonical_symbol, infer_asset_class
 
 TRADE_MEMORY = {}
-SYMBOL_CONFIDENCE_FILE = Path(__file__).resolve().parent.parent / "data" / "symbol_confidence_runtime.json"
+
+def _get_confidence_file() -> Path:
+    env_path = os.getenv("CONFIDENCE_STORAGE_PATH")
+    if env_path: return Path(env_path)
+    return Path(__file__).resolve().parent.parent / "data" / "symbol_confidence_runtime.json"
 
 
 def _load_symbol_confidence():
     """Load persistent symbol confidence memory from disk."""
-    return load_json_file(SYMBOL_CONFIDENCE_FILE, {})
+    return load_json_file(_get_confidence_file(), {})
 
 
 def _save_symbol_confidence(data):
     """Persist symbol confidence memory so restart/network issues do not wipe it."""
     try:
-        save_json_file(SYMBOL_CONFIDENCE_FILE, data)
+        save_json_file(_get_confidence_file(), data)
     except Exception:
         pass
 

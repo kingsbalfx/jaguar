@@ -33,7 +33,7 @@ def _liquidity_sweep_present(df, idx, order_type):
     return float(current["high"]) > prior_high and float(current["close"]) < float(current["open"])
 
 
-def _build_order_block(df, idx, timeframe, symbol=None):
+def _build_order_block(df, idx, timeframe, symbol=None, lookahead_bars=200):
     if idx < 1:
         return None
 
@@ -63,10 +63,21 @@ def _build_order_block(df, idx, timeframe, symbol=None):
         + (0.25 if liquidity_sweep else 0.0),
     )
 
+    block_high = float(previous["high"])
+    block_low = float(previous["low"])
+    future = df.iloc[idx + 1 : min(len(df), idx + 1 + max(10, int(lookahead_bars)))]
+    mitigated = False
+    if not future.empty and {"high", "low"}.issubset(future.columns):
+        try:
+            touched = (future["low"].astype(float) <= block_high) & (future["high"].astype(float) >= block_low)
+            mitigated = bool(touched.any())
+        except Exception:
+            mitigated = False
+
     block = {
         "type": order_type,
-        "high": float(previous["high"]),
-        "low": float(previous["low"]),
+        "high": block_high,
+        "low": block_low,
         "index": int(idx),
         "timeframe": timeframe,
         "displacement": round(displacement, 3),
@@ -74,6 +85,8 @@ def _build_order_block(df, idx, timeframe, symbol=None):
         "volume_boost": volume_boost,
         "institutional_footprint": institutional_footprint,
         "quality": round(quality, 3),
+        "mitigated": mitigated,
+        "fresh": not mitigated,
     }
     if symbol:
         block["id"] = f"{symbol}|{timeframe}|{order_type}|{idx}"

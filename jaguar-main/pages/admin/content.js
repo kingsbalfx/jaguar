@@ -306,10 +306,10 @@ export default function Content() {
           Use this for manual uploads or previews. The content manager above is preferred.
         </p>
         <div className="mt-4 grid md:grid-cols-2 gap-4">
-          <Uploader bucket={DEFAULT_BUCKET} folder="videos" />
+          <Uploader bucket={DEFAULT_BUCKET} folder="videos" allowSegmentSelect />
           <div>
-            <Uploader bucket={DEFAULT_BUCKET} folder="images" />
-            <Uploader bucket={DEFAULT_BUCKET} folder="docs" />
+            <Uploader bucket={DEFAULT_BUCKET} folder="images" allowSegmentSelect />
+            <Uploader bucket={DEFAULT_BUCKET} folder="docs" allowSegmentSelect />
           </div>
         </div>
         <div className="mt-6">

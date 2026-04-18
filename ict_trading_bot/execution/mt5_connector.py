@@ -201,14 +201,17 @@ def get_open_positions():
     if positions is None:
         return []
 
+    buy_type = getattr(mt5, "POSITION_TYPE_BUY", 0)
     out = []
     for p in positions:
         try:
+            direction = "buy" if getattr(p, "type", buy_type) == buy_type else "sell"
             out.append({
                 "symbol": p.symbol,
                 "volume": p.volume,
                 "price": p.price_open,
                 "profit": p.profit,
+                "direction": direction,
                 # risk placeholder (should be computed by risk manager)
                 "risk": 0.5
             })

@@ -390,6 +390,32 @@ def analyze_market_rhythm(analysis: Dict, trend: str) -> Dict:
         f"bias {entry_bias}."
     )
 
+    # Simple regime classification for downstream filters (entry / SL behavior).
+    execution_state = _safe_state(analysis, "EXECUTION")
+    execution_candles = _recent_candles(execution_state, limit=6)
+    execution_atr = _safe_float(execution_state.get("atr"))
+    avg_range = (
+        sum(_candle_metrics(candle)["range"] for candle in execution_candles) / len(execution_candles)
+        if execution_candles
+        else 0.0
+    )
+    range_expansion = bool(execution_atr > 0 and avg_range > execution_atr * 1.20)
+    if phase == "compression" or compression_score >= 60:
+        market_condition = "consolidating"
+    elif phase == "healthy_pullback":
+        market_condition = "pullback"
+    elif range_expansion:
+        market_condition = "volatile"
+    else:
+        market_condition = "normal"
+
+    # ENHANCED: Boost trend strength if we are in a healthy pullback but aligned with HTF
+    base_strength = continuation_score / 100.0
+    if phase == "healthy_pullback" and aligned_timeframes >= 2:
+        base_strength = max(base_strength, 0.65)
+        
+    trend_strength = round(max(0.0, min(1.0, base_strength)), 3)
+
     return {
         "phase": phase,
         "entry_bias": entry_bias,
@@ -404,6 +430,8 @@ def analyze_market_rhythm(analysis: Dict, trend: str) -> Dict:
         "opposing_timeframes": opposing_timeframes,
         "should_avoid_entry": should_avoid_entry,
         "summary": summary,
+        "market_condition": market_condition,
+        "trend_strength": trend_strength,
         "reasons": reasons,
         "timeframe_breakdown": timeframe_breakdown,
         "management_plan": _build_management_plan(phase),

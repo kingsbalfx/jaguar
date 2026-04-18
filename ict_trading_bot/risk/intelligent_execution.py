@@ -57,8 +57,21 @@ from risk.intelligent_sync import sync_intelligent_stats_to_supabase, sync_trade
 from utils.persistent_json import load_json_file, save_json_file, update_json_file
 from utils.symbol_profile import canonical_symbol, infer_asset_class
 
-INTELLIGENT_STATS_FILE = Path(__file__).resolve().parent.parent / "data" / "intelligent_execution_stats.json"
-INTELLIGENT_SKIP_FILE = Path(__file__).resolve().parent.parent / "data" / "intelligent_skip_tracking.json"
+# Dynamic Path Resolution: Prevents WinError 5 by using bot-specific files
+def _get_stats_file() -> Path:
+    env_path = os.getenv("STATS_STORAGE_PATH")
+    if env_path: return Path(env_path)
+    return Path(__file__).resolve().parent.parent / "data" / "intelligent_execution_stats.json"
+
+def _get_skip_file() -> Path:
+    env_path = os.getenv("SKIP_TRACKING_PATH")
+    if env_path: return Path(env_path)
+    return Path(__file__).resolve().parent.parent / "data" / "intelligent_skip_tracking.json"
+
+
+def intelligence_support_only() -> bool:
+    """When enabled, intelligence is advisory-only (no hard blocks, no execution gating)."""
+    return os.getenv("INTELLIGENCE_SUPPORT_ONLY", "true").lower() in ("1", "true", "yes", "on")
 
 # Global cache to prevent disk hammering and lock contention
 _SKIP_COOLDOWN_CACHE = {}
@@ -66,7 +79,7 @@ _SKIP_COOLDOWN_CACHE = {}
 
 def load_intelligent_stats():
     """Load comprehensive execution intelligence from disk."""
-    stats = load_json_file(INTELLIGENT_STATS_FILE, {})
+    stats = load_json_file(_get_stats_file(), {})
     
     # If local stats are empty, attempt to restore from Supabase to ensure continuity
     # This prevents the record from 'refreshing' if the local data folder is cleared
@@ -76,6 +89,7 @@ def load_intelligent_stats():
             cloud_stats = load_intelligent_stats_from_supabase()
             if cloud_stats:
                 stats = cloud_stats
+                print(f"[INTEL] Restored storage from Supabase for identity: {os.getenv('PERSISTENT_BOT_ID')}")
                 save_intelligent_stats(stats) # Cache recovered data locally
         except Exception:
             pass
@@ -85,7 +99,7 @@ def load_intelligent_stats():
 def save_intelligent_stats(stats):
     """Save comprehensive execution statistics to disk."""
     try:
-        save_json_file(INTELLIGENT_STATS_FILE, stats)
+        save_json_file(_get_stats_file(), stats)
     except Exception as e:
         print(f"[WARNING] Failed to save intelligent stats: {e}")
 
@@ -566,6 +580,7 @@ def should_take_trade(
     
     Returns: (should_trade, {analysis})
     """
+    support_only = intelligence_support_only()
     normalized_score = _normalize_confirmation_score(confirmation_score)
     intel = calculate_precise_winning_rate(symbol)
     asset_class = infer_asset_class(symbol)
@@ -612,6 +627,7 @@ def should_take_trade(
         "factors": [],
         "learning_notes": [],
         "self_upgrade": False,
+        "support_only": support_only,
     }
 
     if route_threshold is not None:
@@ -629,10 +645,16 @@ def should_take_trade(
             analysis["confidence"] = 0.60
         else:
             analysis["factors"].append("New symbol + low confirmation = SKIP")
+            if support_only:
+                analysis["learning_notes"].append("Support-only: intelligence would skip, but execution is not blocked")
+                return True, analysis
             return False, analysis
     elif intel["base_win_rate"] < 0.40:
         if legacy_score < 6.5:
             analysis["factors"].append(f"Poor win rate ({intel['base_win_rate']:.1%}) + low confirmation = SKIP")
+            if support_only:
+                analysis["learning_notes"].append("Support-only: intelligence would skip, but execution is not blocked")
+                return True, analysis
             return False, analysis
         analysis["factors"].append(f"Poor win rate ({intel['base_win_rate']:.1%}) but HIGH confirmation = TRY")
         analysis["confidence"] = 0.55
@@ -648,6 +670,9 @@ def should_take_trade(
             analysis["confidence"] = 0.70
         else:
             analysis["factors"].append("Good win rate but LOW confirmation = SKIP")
+            if support_only:
+                analysis["learning_notes"].append("Support-only: intelligence would skip, but execution is not blocked")
+                return True, analysis
             return False, analysis
 
     if route_threshold is not None:
@@ -728,7 +753,10 @@ def should_take_trade(
         analysis["confidence"] *= 0.7
         if analysis["confidence"] < final_threshold:
             analysis["decision"] = False
-            analysis["factors"].append("🚨 CRITICAL: Blocked by losing streak protection (Stationary Discipline)")
+            analysis["factors"].append("CRITICAL: Losing-streak protection would block this trade")
+            if support_only:
+                analysis["learning_notes"].append("Support-only: losing-streak protection would block, but execution is not blocked")
+                return True, analysis
             return False, analysis
 
     if intel["current_streak"] == "win" and intel["win_streak"] >= 2:
@@ -750,6 +778,8 @@ def should_take_trade(
             f"FINAL: Skip - only {analysis['confidence']:.0%} confidence (need {final_threshold:.0%})"
         )
 
+    if support_only:
+        return True, analysis
     return analysis["decision"], analysis
 
 
@@ -877,7 +907,7 @@ def record_trade_outcome(
         return stats
 
     # Save locally and capture result for sync
-    updated_stats = update_json_file(INTELLIGENT_STATS_FILE, updater, default={})
+    updated_stats = update_json_file(_get_stats_file(), updater, default={})
     
     # DUALITY: Trigger background sync to Supabase
     sync_intelligent_stats_to_supabase(updated_stats)
@@ -913,7 +943,7 @@ def get_market_intelligence_report(symbols: List[str] = None) -> str:
         symbols = sorted([s for s in symbols if s in stats])
     
     report = "\n" + "=" * 100 + "\n"
-    report += "[INTELLIGENT EXECUTION MARKET INTELLIGENCE REPORT]\n"
+    report += "[MARKET INTELLIGENCE SUPPORT REPORT]\n"
     report += "=" * 100 + "\n\n"
     
     # Summary row
@@ -940,13 +970,13 @@ def get_market_intelligence_report(symbols: List[str] = None) -> str:
         exp = f"{intel['expectancy']:.2f}"
         rating = intel["risk_rating"]
         
-        # Color coding by performance
+        # Advisory labels (no execution commands here)
         if intel["opportunity_score"] >= 0.80:
-            status = "🟢"  # Green - trade it
+            status = "GOOD"
         elif intel["opportunity_score"] >= 0.60:
-            status = "🟡"  # Yellow - cautious
+            status = "CAUTION"
         else:
-            status = "🔴"  # Red - avoid
+            status = "AVOID"
         
         report += f"{symbol:<10} {intel['total_trades']:<8} {wl:<12} {w_pct:<8} {rating:<12} {opp_score:<12} {exp:<10} {status}\n"
     
@@ -955,17 +985,17 @@ def get_market_intelligence_report(symbols: List[str] = None) -> str:
         portfolio_wr = f"{total_wins}/{total_trades} = {total_wins/total_trades*100:.1f}%"
         report += f"{'PORTFOLIO':<10} {total_trades:<8} {total_wins:<2}-{total_trades-total_wins:<2} {portfolio_wr:<36}\n"
     
-    report += "\n[TOP OPPORTUNITIES - Trade These]\n"
+    report += "\n[TOP OPPORTUNITIES - Advisory Watchlist]\n"
     all_opportunities.sort(key=lambda x: x[1], reverse=True)
     for symbol, score in all_opportunities[:5]:
         intel = calculate_precise_winning_rate(symbol)
-        report += f"  🟢 {symbol}: Opportunity {score:.2f} (WR: {intel['base_win_rate']:.1%}, Predict: {intel['prediction_accuracy']:.0%})\n"
+        report += f"  - {symbol}: Opportunity {score:.2f} (WR: {intel['base_win_rate']:.1%}, Predict: {intel['prediction_accuracy']:.0%})\n"
     
-    report += "\n[CAUTION SYMBOLS - Trade Smaller Or Skip]\n"
+    report += "\n[CAUTION SYMBOLS - Advisory]\n"
     for symbol, score in all_opportunities[-3:]:
         if score < 0.65:
             intel = calculate_precise_winning_rate(symbol)
-            report += f"  🔴 {symbol}: Opportunity {score:.2f} (WR: {intel['base_win_rate']:.1%}, Risk: {intel['risk_rating']})\n"
+            report += f"  - {symbol}: Opportunity {score:.2f} (WR: {intel['base_win_rate']:.1%}, Risk: {intel['risk_rating']})\n"
     
     report += "\n" + "=" * 100 + "\n"
     return report
@@ -976,7 +1006,7 @@ def get_intelligent_recommendation(symbol: str) -> str:
     intel = calculate_precise_winning_rate(symbol)
     
     if intel["total_trades"] == 0:
-        return "First trade - use 60% normal lot size"
+        return "First trade: suggested size 60% of normal (advisory)"
     
     adjustment = get_learned_threshold_adjustment(symbol)
     adjustment_note = ""
@@ -986,15 +1016,15 @@ def get_intelligent_recommendation(symbol: str) -> str:
         adjustment_note = f" Learn threshold -{abs(adjustment)*100:.0f}% for this symbol."
 
     if intel["opportunity_score"] >= 0.85:
-        return f"✅ STRONG - {intel['base_win_rate']:.0%} WR, {intel['profit_factor']:.1f}x profit - Trade FULL size.{adjustment_note}"
+        return f"STRONG - {intel['base_win_rate']:.0%} WR, {intel['profit_factor']:.1f}x PF - Suggested size 100%.{adjustment_note}"
     elif intel["opportunity_score"] >= 0.75:
-        return f"✓ GOOD - {intel['base_win_rate']:.0%} WR - Trade NORMAL size.{adjustment_note}"
+        return f"GOOD - {intel['base_win_rate']:.0%} WR - Suggested size 85%.{adjustment_note}"
     elif intel["opportunity_score"] >= 0.65:
-        return f"~ CAUTIOUS - {intel['base_win_rate']:.0%} WR - Trade REDUCED size (70%).{adjustment_note}"
+        return f"CAUTION - {intel['base_win_rate']:.0%} WR - Suggested size 70%.{adjustment_note}"
     elif intel["opportunity_score"] >= 0.55:
-        return f"⚠️ RISKY - {intel['base_win_rate']:.0%} WR - Trade VERY SMALL (40%).{adjustment_note}"
+        return f"RISKY - {intel['base_win_rate']:.0%} WR - Suggested size 40%.{adjustment_note}"
     else:
-        return f"❌ AVOID - {intel['base_win_rate']:.0%} WR - Skip or minimum size only.{adjustment_note}"
+        return f"AVOID - {intel['base_win_rate']:.0%} WR - Suggested action: skip.{adjustment_note}"
 
 
 def should_allow_intelligence_direct_execution(
@@ -1055,13 +1085,13 @@ def should_allow_intelligence_direct_execution(
 
 def load_intelligent_skip_stats():
     """Load persistent skip tracking data from disk - SURVIVES NETWORK DISRUPTION."""
-    return load_json_file(INTELLIGENT_SKIP_FILE, {})
+    return load_json_file(_get_skip_file(), {})
 
 
 def save_intelligent_skip_stats(skip_data):
     """Save skip statistics to disk - PERSISTENT even if system crashes or network goes down."""
     try:
-        save_json_file(INTELLIGENT_SKIP_FILE, skip_data)
+        save_json_file(_get_skip_file(), skip_data)
     except Exception as e:
         print(f"[WARNING] Failed to save skip tracking: {e}")
 
@@ -1133,7 +1163,7 @@ def record_skip_detailed(reason: str, symbol: str, confidence: float = 0.0, anal
         s["last_skip"] = timestamp
         return skip_data
 
-    update_json_file(INTELLIGENT_SKIP_FILE, updater, default={})
+    update_json_file(_get_skip_file(), updater, default={})
 
 
 def get_skip_pattern_analysis(symbol: str) -> Dict:
@@ -1408,6 +1438,8 @@ def should_skip_symbol_entirely(symbol: str) -> Tuple[bool, str]:
     """
     Determine if a symbol should be hard-blocked by learning.
     """
+    if intelligence_support_only():
+        return False, ""
     diagnostics = get_symbol_skip_diagnostics(symbol)
 
     hard_block_skips = diagnostics["hard_block_skips"]

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
+import AccountFloatPanel from "../../components/AccountFloatPanel";
 
 export const getServerSideProps = async (ctx) => {
   try {
@@ -22,7 +23,19 @@ export const getServerSideProps = async (ctx) => {
       .maybeSingle();
 
     const role = (profile?.role || "user").toLowerCase();
-    if (role !== "admin") {
+    const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.SUPER_ADMIN_EMAIL || "").toLowerCase();
+    const userEmail = (session.user.email || "").toLowerCase();
+    const isAdminEmail = adminEmail && userEmail === adminEmail;
+
+    if (isAdminEmail && role !== "admin") {
+      try {
+        await supabaseAdmin.from("profiles").update({ role: "admin" }).eq("id", userId);
+      } catch (e) {
+        // non-blocking: allow admin email override even if profile update fails
+      }
+    }
+
+    if (role !== "admin" && !isAdminEmail) {
       return { redirect: { destination: "/", permanent: false } };
     }
 
@@ -160,7 +173,7 @@ export default function Settings() {
       setPassword("");
       setSubmissionsStatus({
         type: "success",
-        message: "Submission activated and set as current bot credentials.",
+        message: "Submission activated. Bot credentials updated; the bot should auto-reconnect within ~15 seconds.",
       });
     } catch (err) {
       setSubmissionsStatus({ type: "error", message: err.message || "Activation failed." });
@@ -192,7 +205,10 @@ export default function Settings() {
       await Promise.all([loadCredentials(), loadBotStatus()]);
       setPassword("");
       setHasPassword(true);
-      setStatus({ type: "success", message: "MT5 credentials saved. Restart the bot to reconnect." });
+      setStatus({
+        type: "success",
+        message: "MT5 credentials saved. Bot will auto-reconnect within ~15 seconds (or use Restart Bot).",
+      });
     } catch (err) {
       setStatus({ type: "error", message: err.message || "Failed to save credentials." });
     } finally {
@@ -423,6 +439,10 @@ export default function Settings() {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="mt-8">
+        <AccountFloatPanel admin />
       </div>
 
       <div className="mt-8 bg-black/30 rounded-lg p-5 border border-white/5">
