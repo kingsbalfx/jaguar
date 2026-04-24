@@ -51,51 +51,29 @@ def calculate_entry_confidence(
     has_fvg = _confirmation_passed(confirmation_flags.get("fvg")) or bool(signal.get("valid_fvg"))
     has_order_block = _confirmation_passed(confirmation_flags.get("order_block_confirmed")) or bool(signal.get("valid_order_block"))
 
-    component_scores["core_liquidity"] = 100.0 if has_liquidity else 0.0
-    component_scores["core_bos"] = 100.0 if has_bos else 0.0
-    component_scores["core_displacement"] = round(min(100.0, displacement_score * 100.0), 1)
-    component_scores["core_fvg"] = 100.0 if has_fvg else 0.0
-    component_scores["core_order_block"] = 100.0 if has_order_block else 0.0
+    component_scores["core_liquidity"] = 100.0 if has_liquidity else 20.0  # Soft penalty instead of 0
+    component_scores["core_bos"] = 100.0 if has_bos else 20.0  # Soft penalty instead of 0
+    component_scores["core_displacement"] = round(min(100.0, displacement_score * 100.0), 1)  # Already gradient
+    component_scores["core_fvg"] = 100.0 if has_fvg else 15.0  # Soft penalty instead of 0
+    component_scores["core_order_block"] = 100.0 if has_order_block else 15.0  # Soft penalty instead of 0
 
-    missing_core = []
+    # Remove hard rejection for missing core - convert to penalties
+    core_penalty = 0.0
     if not has_liquidity:
-        missing_core.append("liquidity_sweep")
+        core_penalty += 15.0
     if not has_bos:
-        missing_core.append("bos")
+        core_penalty += 15.0
     if not has_displacement:
-        missing_core.append("displacement")
+        core_penalty += 10.0  # Displacement is gradient, but add penalty if below threshold
     if not has_fvg:
-        missing_core.append("valid_fvg")
+        core_penalty += 10.0
     if not has_order_block:
-        missing_core.append("valid_order_block")
+        core_penalty += 10.0
 
+    # Convert market rhythm caution to penalty instead of hard block
+    market_rhythm_penalty = 0.0
     if market_rhythm.get("should_avoid_entry"):
-        return {
-            "confidence": 0.0,
-            "execution_route": "skip",
-            "component_scores": component_scores,
-            "alternative_path": None,
-            "reasoning": market_rhythm.get("summary", "Market rhythm rejects new entries."),
-            "cis_timing_score": cis_timing_score,
-            "cis_setup_quality": cis_setup_quality,
-            "backtest_required": False,
-            "market_rhythm": market_rhythm,
-            "missing_core": missing_core,
-        }
-
-    if missing_core:
-        return {
-            "confidence": 0.0,
-            "execution_route": "skip",
-            "component_scores": component_scores,
-            "alternative_path": None,
-            "reasoning": f"STRICT ICT REJECT: missing {', '.join(missing_core)}.",
-            "cis_timing_score": cis_timing_score,
-            "cis_setup_quality": cis_setup_quality,
-            "backtest_required": False,
-            "market_rhythm": market_rhythm,
-            "missing_core": missing_core,
-        }
+        market_rhythm_penalty = 25.0  # Significant penalty but not total rejection
 
     topdown_score = _score_topdown(analysis, trend)
     trend_alignment_score = _score_trend_alignment(analysis, trend)
@@ -115,19 +93,12 @@ def calculate_entry_confidence(
         }
     )
 
-    if topdown_score < 70 or trend_alignment_score < 70:
-        return {
-            "confidence": 0.0,
-            "execution_route": "skip",
-            "component_scores": component_scores,
-            "alternative_path": None,
-            "reasoning": "STRICT ICT REJECT: higher-timeframe structure is not aligned.",
-            "cis_timing_score": cis_timing_score,
-            "cis_setup_quality": cis_setup_quality,
-            "backtest_required": False,
-            "market_rhythm": market_rhythm,
-            "missing_core": [],
-        }
+    # Convert topdown and trend alignment to penalties instead of hard blocks
+    structure_penalty = 0.0
+    if topdown_score < 70:
+        structure_penalty += (70 - topdown_score) * 0.5  # Penalty proportional to deficit
+    if trend_alignment_score < 70:
+        structure_penalty += (70 - trend_alignment_score) * 0.5  # Penalty proportional to deficit
 
     base_confidence = (
         (topdown_score * 0.24)
@@ -137,6 +108,10 @@ def calculate_entry_confidence(
         + (confirmation_score * 0.08)
         + (market_rhythm_score * 0.10)
     )
+
+    # Apply all penalties
+    total_penalty = core_penalty + market_rhythm_penalty + structure_penalty
+    base_confidence -= total_penalty
 
     if cis_decision:
         cis_verdict = str(cis_decision.get("final_verdict", "")).upper()
@@ -161,7 +136,7 @@ def calculate_entry_confidence(
         "cis_setup_quality": cis_setup_quality,
         "backtest_required": backtest_required,
         "market_rhythm": market_rhythm,
-        "missing_core": [],
+        "missing_core": [],  # Keep for compatibility but no longer used for rejection
     }
 
 
@@ -267,17 +242,22 @@ def _score_market_rhythm(analysis: Dict) -> float:
 
 
 def _determine_execution_route(confidence: float, force_backtest: bool) -> Tuple[str, bool, str]:
-    if confidence >= 85:
+    # Lower thresholds for new bots with few trades to force initial trading
+    elite_threshold = 75 if force_backtest else 85
+    standard_threshold = 60 if force_backtest else 70
+    conservative_threshold = 50 if force_backtest else 60
+
+    if confidence >= elite_threshold:
         if force_backtest:
-            return "standard_validated", True, "High-confidence setup, but 100+ real CIS trades are required before direct execution."
+            return "standard_validated", True, f"High-confidence setup ({confidence:.1f}), but backtest validation required for new bot."
         return "elite", False, f"Elite confidence ({confidence:.1f}) with full structural alignment."
 
-    if confidence >= 70:
+    if confidence >= standard_threshold:
         if force_backtest:
-            return "standard_validated", True, "Strong setup, but direct execution is blocked until 100+ real CIS trades exist."
+            return "standard_validated", True, f"Strong setup ({confidence:.1f}), but backtest validation required for new bot."
         return "standard", False, f"Standard confidence ({confidence:.1f}) with strict ICT alignment."
 
-    if confidence >= 60:
+    if confidence >= conservative_threshold:
         return "conservative", True, f"Conservative confidence ({confidence:.1f}); backtest validation required."
 
     return "skip", False, f"Confidence too low ({confidence:.1f}); skip the setup."

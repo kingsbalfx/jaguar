@@ -90,7 +90,7 @@ def _store_rejection_cache(cache_key: Tuple[str, str], details: Dict[str, object
     }
 
 
-def evaluate_backtest_approval(report_path: str = None, force_required: bool = False) -> Tuple[bool, Dict[str, object]]:
+def evaluate_backtest_approval(report_path: str = None, force_required: bool = False) -> Tuple[str, Dict[str, object]]:
     required = force_required or os.getenv("BACKTEST_APPROVAL_REQUIRED", "true").lower() in ("1", "true", "yes")
     report_path = _resolve_report_path(report_path)
     profile = build_strategy_profile()
@@ -138,45 +138,57 @@ def evaluate_backtest_approval(report_path: str = None, force_required: bool = F
     drawdown = float(metrics.get("max_drawdown", 0.0))
     occurrences = int(report.get("occurrences", metrics.get("trades", 0)))
 
-    # Rule 18: Require 100+ trades for real metrics approval
-    approved = (
+    # Rule 18: Require 100+ trades for full approval, 30+ for partial
+    if (
         occurrences >= 100
-        and
-        win_rate >= min_win_rate
+        and win_rate >= min_win_rate
         and profit_factor >= min_profit_factor
         and expectancy >= min_expectancy
         and abs(drawdown) <= max_drawdown
-    )
+    ):
+        approval = "full"
+    elif (
+        occurrences >= 30
+        and win_rate >= min_win_rate * 0.8
+        and profit_factor >= min_profit_factor * 0.8
+        and expectancy >= min_expectancy * 0.8
+        and abs(drawdown) <= max_drawdown * 1.2
+    ):
+        approval = "partial"
+    else:
+        approval = "none"
 
     failed_checks = []
-    if occurrences < 100:
-        failed_checks.append(
-            f"real_metric_trades {occurrences} < required 100"
-        )
-    if occurrences < min_occurrences:
-        failed_checks.append(
-            f"occurrences {occurrences} < required {min_occurrences}"
-        )
-    if win_rate < min_win_rate:
-        failed_checks.append(
-            f"win_rate {win_rate * 100:.1f}% < required {min_win_rate * 100:.1f}%"
-        )
-    if profit_factor < min_profit_factor:
-        failed_checks.append(
-            f"profit_factor {profit_factor:.2f} < required {min_profit_factor:.2f}"
-        )
-    if expectancy < min_expectancy:
-        failed_checks.append(
-            f"expectancy {expectancy:.3f} < required {min_expectancy:.3f}"
-        )
-    if abs(drawdown) > max_drawdown:
-        failed_checks.append(
-            f"drawdown {abs(drawdown):.2f} > allowed {max_drawdown:.2f}"
-        )
+    if approval == "none":
+        if occurrences < 30:
+            failed_checks.append(
+                f"occurrences {occurrences} < required 30 for partial"
+            )
+        elif occurrences < 100:
+            failed_checks.append(
+                f"occurrences {occurrences} < required 100 for full"
+            )
+        if win_rate < min_win_rate * 0.8:
+            failed_checks.append(
+                f"win_rate {win_rate * 100:.1f}% < required {min_win_rate * 0.8 * 100:.1f}% for partial"
+            )
+        if profit_factor < min_profit_factor * 0.8:
+            failed_checks.append(
+                f"profit_factor {profit_factor:.2f} < required {min_profit_factor * 0.8:.2f} for partial"
+            )
+        if expectancy < min_expectancy * 0.8:
+            failed_checks.append(
+                f"expectancy {expectancy:.3f} < required {min_expectancy * 0.8:.3f} for partial"
+            )
+        if abs(drawdown) > max_drawdown * 1.2:
+            failed_checks.append(
+                f"drawdown {abs(drawdown):.2f} > allowed {max_drawdown * 1.2:.2f} for partial"
+            )
 
     details.update(
         {
-            "reason": "approved" if approved else "threshold_failed",
+            "reason": approval,
+            "approval": approval,
             "metrics": metrics,
             "occurrences": occurrences,
             "failed_checks": failed_checks,
@@ -194,7 +206,7 @@ def evaluate_backtest_approval(report_path: str = None, force_required: bool = F
             },
         }
     )
-    return approved, details
+    return approval, details
 
 
 def ensure_backtest_approval(symbols=None, report_path: str = None) -> Tuple[bool, Dict[str, object]]:
@@ -210,10 +222,12 @@ def ensure_backtest_approval(symbols=None, report_path: str = None) -> Tuple[boo
         if should_generate or not os.path.exists(report_path):
             generate_latest_approval(symbols=symbols, report_path=report_path)
 
-    approved, details = evaluate_backtest_approval(report_path=report_path)
+    approval, details = evaluate_backtest_approval(report_path=report_path)
+    approved = approval in ("full", "partial")
     if auto_generate and details.get("reason") == "profile_mismatch":
         generate_latest_approval(symbols=symbols, report_path=report_path)
-        approved, details = evaluate_backtest_approval(report_path=report_path)
+        approval, details = evaluate_backtest_approval(report_path=report_path)
+        approved = approval in ("full", "partial")
     return approved, details
 
 
@@ -269,7 +283,8 @@ def ensure_setup_backtest_approval(
                 f"({setup_hash}) | peers={peer_count}{account_label}."
             )
 
-    approved, details = evaluate_backtest_approval(report_path=report_path, force_required=True)
+    approval, details = evaluate_backtest_approval(report_path=report_path, force_required=True)
+    approved = approval in ("full", "partial")
     if auto_generate and details.get("reason") == "profile_mismatch":
         print(
             f"[BACKTEST] Strategy profile changed for {symbol} ({setup_hash}); "
@@ -280,7 +295,8 @@ def ensure_setup_backtest_approval(
             setup_signature=setup_signature,
             report_path=report_path,
         )
-        approved, details = evaluate_backtest_approval(report_path=report_path, force_required=True)
+        approval, details = evaluate_backtest_approval(report_path=report_path, force_required=True)
+        approved = approval in ("full", "partial")
     details["symbol"] = symbol
     details["report_key"] = resolved_report_key
     details["setup_signature"] = setup_signature

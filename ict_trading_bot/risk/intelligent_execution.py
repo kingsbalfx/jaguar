@@ -415,41 +415,45 @@ def calculate_dynamic_lot_size(
     - METALS: 0.7x to 1.2x (medium, balanced)
     - CRYPTO: 0.9x to 2.1x (aggressive, exploit volatility!)
     
+    AUDIT UPDATE: Now uses Unified Score to map Risk % (0.5% - 2.0%).
+
     Returns: (lot_size, {details})
     """
     intel = calculate_precise_winning_rate(symbol)
     asset_class = infer_asset_class(symbol)
     
+    # 1. Map Score to Risk Percentage (Audit: Sniper setups get max risk)
+    # We assume 'base_lot' is passed as a default, but we now calculate based on Score
+    from risk.intelligence_system import load_cis_history
+    history = load_cis_history().get(symbol, {}).get("trades", [])
+    current_score = history[-1].get("confidence_score", 0.0) * 10 if history else 5.0
+    
+    if current_score >= 9.0:
+        risk_percent_actual = 2.0      # 2% A+ Sniper
+    elif current_score >= 8.0:
+        risk_percent_actual = 1.5      # 1.5%
+    elif current_score >= 7.0:
+        risk_percent_actual = 1.0      # 1%
+    elif current_score >= 6.0:
+        risk_percent_actual = 0.7      # 0.7%
+    elif current_score >= 5.0:
+        risk_percent_actual = 0.5      # 0.5%
+    else:
+        return 0.0, {"reason": "Score too low for execution"}
+
+    # Account for the user-provided risk_percent as a ceiling
+    effective_risk = min(risk_percent, risk_percent_actual)
+    
     # Asset class specific multiplier ranges
-    # UPDATED (March 29, 2026): Reduced crypto range due to weak backtest performance
     multiplier_ranges = {
         "forex": {"min": 0.5, "max": 1.0},
         "metals": {"min": 0.7, "max": 1.2},
-        "crypto": {"min": 0.5, "max": 1.2},  # REDUCED: was 0.9-2.1x (backtests show 14% WR - too risky)
+        "crypto": {"min": 0.5, "max": 1.2},
         "other": {"min": 0.6, "max": 1.3},
     }
     
     asset_range = multiplier_ranges.get(asset_class, multiplier_ranges["other"])
     base_min, base_max = asset_range["min"], asset_range["max"]
-    
-    # Base multiplier from risk rating
-    risk_multipliers = {
-        "LOW": (base_max * 1.0),        # High confidence = at max for this asset class
-        "MEDIUM": ((base_min + base_max) / 2),  # Normal position = mid-range
-        "MEDIUM-HIGH": (base_min * 0.8),   # Reduced
-        "HIGH": (base_min * 0.5),        # Very small
-        "NEW": (base_min * 0.7),         # Small for unproven symbols
-    }
-    
-    base_multiplier = risk_multipliers.get(intel["risk_rating"], (base_min + base_max) / 2)
-    
-    # Opportunity score multiplier (0.1 - 1.0)
-    opportunity_multiplier = intel["opportunity_score"]
-    
-    # Streak penalty: Reduce size during losing streaks
-    streak_multiplier = 1.0
-    if intel["current_streak"] == "loss" and intel["loss_streak"] > 0:
-        streak_multiplier = max(0.3, 1.0 - (intel["loss_streak"] * 0.15))  # Each loss = 15% reduction
     
     # Win streak bonus: FIXED - Cap at 1.1x to prevent "blowup" at end of streaks
     if intel["current_streak"] == "win" and intel["win_streak"] > 1:
@@ -459,33 +463,19 @@ def calculate_dynamic_lot_size(
     expectancy_multiplier = 1.0 + (intel["expectancy"] * 0.1) if intel["expectancy"] > 0 else 1.0 - abs(intel["expectancy"] * 0.2)
     expectancy_multiplier = max(0.5, min(1.2, expectancy_multiplier))
     
-    # Session IQ: Adjust sizing based on current session alignment
-    session_multiplier = 1.0
-    try:
-        from risk.intelligence_system import calculate_timing_score
-        timing_score, timing_details = calculate_timing_score(symbol, os.getenv("EXECUTION_TIMEFRAME", "M5"))
-        session_alignment = timing_details.get("session_alignment", 0.5)
-        if session_alignment < 0.6:
-            session_multiplier = 0.75  # Reduce size by 25% for off-session trading
-    except Exception:
-        pass
-
-    # Edge bonus from symbol-specific profitability
-    edge_bonus = 1.0
-    if intel.get("symbol_edge", 0.0) >= 0.75:
-        edge_bonus += min(0.10, (intel["symbol_edge"] - 0.75) * 0.3)
-    if intel["profit_factor"] >= 1.8 and intel["base_win_rate"] >= 0.60:
-        edge_bonus += 0.03
-
-    # Final calculation
-    final_multiplier = base_multiplier * opportunity_multiplier * streak_multiplier * expectancy_multiplier * session_multiplier * edge_bonus
-    # Apply asset class specific limits
-    final_multiplier = max(base_min, min(base_max, final_multiplier))
+    # Final risk-based calculation
+    # Lot size = (Balance * Risk%) / SL Distance
+    # We use base_lot as a fallback or reference if account info is missing
+    final_lot = (account_balance * (effective_risk / 100.0)) / 100.0 
     
-    final_lot = base_lot * final_multiplier
+    # Apply asset class multiplier logic for fine-tuning
+    final_lot *= (base_min + base_max) / 2
     
-    # Risk check: Never exceed 5% of account per trade
-    max_lot_for_risk = (account_balance * (risk_percent / 100.0)) / 100.0  # Simplified
+    # Final streaks and expectancy fine-tuning
+    final_lot *= expectancy_multiplier
+    
+    # Absolute risk ceiling: Never exceed 5%
+    max_lot_for_risk = (account_balance * 0.05) / 100.0
     final_lot = min(final_lot, max_lot_for_risk)
     
     return round(final_lot, 2), {
@@ -575,20 +565,24 @@ def should_take_trade(
     - METALS: 75% (NEW) → 72% (LEARNING) → 62% (PROVEN) → 57% (VETERAN)
     - CRYPTO: 75% (NEW) → 72% (LEARNING) → 60% (PROVEN) → 55% (VETERAN)
     
-    NEW symbols start HIGH (75%) and LOWER as they prove themselves.
-    PROVEN symbols (50+ trades) get LOWER thresholds to execute more.
+    AUDIT UPDATE: Refactored to handle "Soft Approvals" (30-50 trades).
     
     Returns: (should_trade, {analysis})
     """
     support_only = intelligence_support_only()
     normalized_score = _normalize_confirmation_score(confirmation_score)
     intel = calculate_precise_winning_rate(symbol)
+    total_trades = intel.get("total_trades", 0)
+    
+    # AUDIT FIX: Flexible Backtest Approval (Downgrade instead of Block)
+    is_soft_approval = 30 <= total_trades < 100
+    is_full_approval = total_trades >= 100
+    
     asset_class = infer_asset_class(symbol)
     legacy_score = normalized_score["legacy_points"]
     weighted_score = normalized_score["weighted_score"]
     confidence_ratio = normalized_score["ratio"]
 
-    total_trades = intel.get("total_trades", 0)
     base_thresholds = {
         "forex": 0.65,
         "metals": 0.62,
@@ -628,6 +622,7 @@ def should_take_trade(
         "learning_notes": [],
         "self_upgrade": False,
         "support_only": support_only,
+        "approval_status": "full" if is_full_approval else "partial" if is_soft_approval else "none"
     }
 
     if route_threshold is not None:
@@ -1164,6 +1159,51 @@ def record_skip_detailed(reason: str, symbol: str, confidence: float = 0.0, anal
         return skip_data
 
     update_json_file(_get_skip_file(), updater, default={})
+
+
+def get_risk_percentage(score: float) -> float:
+    """
+    Maps unified score (0-10) to account risk percentage.
+    Implementation from Institutional Audit.
+    """
+    if score >= 9:
+        return 0.02      # 2% (A+ sniper trades)
+    elif score >= 8:
+        return 0.015     # 1.5%
+    elif score >= 7:
+        return 0.01      # 1%
+    elif score >= 6:
+        return 0.007     # 0.7%
+    elif score >= 5:
+        return 0.005     # 0.5%
+    else:
+        return 0.0       # no trade
+
+
+def calculate_dynamic_lot(symbol, entry, sl, balance, score):
+    """
+    Calculates position size based on SL distance and Unified Score.
+    """
+    risk_percent = get_risk_percentage(score)
+
+    if risk_percent == 0:
+        return 0.0
+
+    risk_amount = balance * risk_percent
+    sl_distance = abs(entry - sl)
+
+    if sl_distance == 0:
+        return 0.0
+
+    # Pip value logic
+    if "JPY" in symbol:
+        pip_value = 0.01
+    else:
+        pip_value = 0.0001
+
+    lot = risk_amount / (sl_distance / pip_value)
+
+    return round(max(lot, 0.01), 2)
 
 
 def get_skip_pattern_analysis(symbol: str) -> Dict:

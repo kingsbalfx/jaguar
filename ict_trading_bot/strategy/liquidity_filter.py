@@ -30,32 +30,42 @@ def _displacement_score(recent_candles, direction):
     return round(body_ratio, 3)
 
 
-def liquidity_taken(price, liquidity, direction, recent_candles=None):
+def score_liquidity_confidence(price, liquidity, direction, recent_candles=None):
     """
-    Strict liquidity confirmation:
-    1. Session must be inside the execution window.
-    2. A true EQH/EQL sweep must occur.
-    3. The sweep must show displacement and multi-candle participation.
+    Soft liquidity scoring instead of hard rejection:
+    Returns confidence score 0-100 based on liquidity quality
     """
 
     if not isinstance(liquidity, dict):
-        return False
+        return 0.0
+
+    score = 100.0
 
     session_dt = None
     if isinstance(recent_candles, list) and recent_candles:
         session_dt = recent_candles[-1].get("time")
 
+    # Session penalty instead of hard block
     if not intelligence_session_open(session_dt):
-        return False
+        score -= 30.0
 
     tolerance = float(os.getenv("LIQUIDITY_TOLERANCE_RATIO", "0.0015"))
     direction = str(direction or "").lower()
     displacement = _displacement_score(recent_candles or [], direction)
-    if displacement < 0.70:
-        return False
 
+    # Displacement gradient instead of hard cutoff
+    if displacement >= 0.75:
+        pass  # Full score
+    elif displacement >= 0.65:
+        score -= 10.0
+    elif displacement >= 0.55:
+        score -= 25.0
+    else:
+        score -= 50.0
+
+    # Sweep confirmation penalty
     if not confirm_liquidity_sweep(price, liquidity, direction, tolerance=tolerance):
-        return False
+        score -= 40.0
 
     zones = liquidity.get("EQL", []) if direction == "buy" else liquidity.get("EQH", [])
     active_zone = None
@@ -75,8 +85,22 @@ def liquidity_taken(price, liquidity, direction, recent_candles=None):
             break
 
     if active_zone is None:
-        return False
+        score -= 50.0  # No active zone penalty
+    else:
+        # Zone validation bonus/penalty
+        zone_valid = validate_liquidity_zone(active_zone, recent_candles or [], direction)
+        if zone_valid:
+            active_zone["session_checked"] = session_name(session_dt)
+            active_zone["sweep_confirmed"] = True
+        else:
+            score -= 20.0
 
-    active_zone["session_checked"] = session_name(session_dt)
-    active_zone["sweep_confirmed"] = True
-    return validate_liquidity_zone(active_zone, recent_candles or [], direction)
+    return max(0.0, score)
+
+
+def liquidity_taken(price, liquidity, direction, recent_candles=None):
+    """
+    Legacy function - now uses scoring internally
+    """
+    confidence = score_liquidity_confidence(price, liquidity, direction, recent_candles)
+    return confidence >= 60.0  # Maintain backward compatibility with relaxed threshold

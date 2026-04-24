@@ -77,7 +77,7 @@ def confirm_liquidity_sweep(price, liquidity, direction, tolerance=0.0015):
         for low_zone in liquidity.get("EQL", []):
             prices = low_zone.get("prices") if isinstance(low_zone, dict) else low_zone
             level = float(prices[0])
-            if price < level or price <= level * (1 + tolerance):
+            if price < level * (1 - tolerance):   # must break clearly
                 if isinstance(low_zone, dict):
                     low_zone["sweep_confirmed"] = True
                 return True
@@ -85,7 +85,7 @@ def confirm_liquidity_sweep(price, liquidity, direction, tolerance=0.0015):
         for high_zone in liquidity.get("EQH", []):
             prices = high_zone.get("prices") if isinstance(high_zone, dict) else high_zone
             level = float(prices[-1])
-            if price > level or price >= level * (1 - tolerance):
+            if price > level * (1 + tolerance):
                 if isinstance(high_zone, dict):
                     high_zone["sweep_confirmed"] = True
                 return True

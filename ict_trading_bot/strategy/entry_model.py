@@ -5,8 +5,76 @@ from strategy.breakout import breakout_retest_strategy
 from utils.symbol_profile import get_entry_profile, infer_asset_class
 
 
+def execute_decision(score):
+    """
+    Final execution threshold gate based on Unified Score.
+    """
+    if score >= 8:
+        return "EXECUTE_FULL"
+    elif score >= 6:
+        return "EXECUTE_PARTIAL"
+    elif score >= 5:
+        return "WATCH"
+    else:
+        return "SKIP"
+
+
+def unified_score_engine(data, context):
+    """
+    Unified scoring engine combining market data and context into a 0-100 score.
+
+    Returns:
+        tuple: (base_score: float, breakdown: dict with component scores)
+    """
+    # This is a local wrapper for the centralized CIS engine
+    breakdown = {}
+    
+    # Market Quality Scores (each 0-25)
+    liquidity_score = 25.0 if data.get("liquidity_sweep") else 0.0
+    breakdown["liquidity"] = liquidity_score
+    
+    bos_score = 25.0 if data.get("bos") else 0.0
+    breakdown["bos"] = bos_score
+    
+    displacement_score = min(25.0, float(data.get("displacement", 0.0) or 0.0) * 0.1)
+    breakdown["displacement"] = displacement_score
+    
+    # ML/Rule Quality (0-25)
+    ml_probability = float(context.get("ml_probability", 0.5) or 0.5)
+    ml_score = ml_probability * 25.0
+    breakdown["ml"] = ml_score
+    
+    rule_score = float(context.get("rule_score", 0.0) or 0.0)
+    breakdown["rule"] = min(25.0, rule_score)
+    
+    # Trend Strength & Confirmation (0-25)
+    trend_strength = float(data.get("trend_strength", 0.0) or 0.0)
+    trend_score = min(25.0, trend_strength * 25.0)
+    breakdown["trend"] = trend_score
+    
+    # Price Action Confirmation (0-25)
+    price_action_bonus = 25.0 if context.get("price_action_confirmed") else 12.5
+    breakdown["price_action"] = price_action_bonus
+    
+    # Calculate base score (max 100 by capping component contributions)
+    base_score = min(
+        100.0,
+        liquidity_score + 
+        bos_score + 
+        (displacement_score * 0.5) +  # Weight less than hard rules
+        ml_score +
+        trend_score +
+        price_action_bonus
+    )
+    
+    breakdown["total"] = base_score
+    return base_score, breakdown
+
+
 def body_ratio(c):
     return abs(float(c["close"]) - float(c["open"])) / max((float(c["high"]) - float(c["low"])), 1e-9)
+
+
 
 
 def _normalize_trend(value):
@@ -105,40 +173,180 @@ def m1_liquidity_sweep_entry(data, trend):
     return sweep and reversal
 
 
-def valid_fvg_entry(price, fvg, trend=None):
+def score_fvg_entry(price, fvg, trend=None):
+    """Convert FVG validation to scoring system"""
     if not isinstance(fvg, dict):
-        return False
+        return 0.0
     if fvg.get("low") is None or fvg.get("high") is None:
-        return False
-    if fvg.get("mitigated") or not fvg.get("active", True):
-        return False
-    if not fvg.get("size_ok", True) or not fvg.get("context_aligned", True):
-        return False
+        return 0.0
+
+    score = 100.0
+
+    # Mitigated penalty
+    if fvg.get("mitigated"):
+        score -= 40.0
+    if not fvg.get("active", True):
+        score -= 20.0
+
+    # Size and context penalties
+    if not fvg.get("size_ok", True):
+        score -= 15.0
+    if not fvg.get("context_aligned", True):
+        score -= 15.0
+
+    # Trend alignment penalty
     trend = _normalize_trend(trend)
     if trend and fvg.get("type") and fvg.get("type") != trend:
-        return False
-    return float(fvg["low"]) <= float(price) <= float(fvg["high"])
+        score -= 25.0
+
+    # Price bounds check
+    if not (float(fvg["low"]) <= float(price) <= float(fvg["high"])):
+        return 0.0  # Hard reject if price not in zone
+
+    return max(0.0, score)
 
 
-def valid_ob_entry(price, ob, trend=None):
+def score_ob_entry(price, ob, trend=None):
+    """Convert OB validation to scoring system"""
     if not isinstance(ob, dict):
-        return False
+        return 0.0
     if ob.get("low") is None or ob.get("high") is None:
-        return False
-    if ob.get("mitigated") or ob.get("fresh") is False:
-        return False
-    if float(ob.get("quality", 0.0) or 0.0) < 0.70:
-        return False
+        return 0.0
+
+    score = 100.0
+
+    # Freshness and mitigation penalties
+    if ob.get("mitigated"):
+        score -= 40.0
+    if ob.get("fresh") is False:
+        score -= 20.0
+
+    # Quality gradient (relaxed from 0.70 hard cutoff)
+    quality = float(ob.get("quality", 0.0) or 0.0)
+    if quality >= 0.80:
+        pass  # Full score
+    elif quality >= 0.70:
+        score -= 10.0
+    elif quality >= 0.60:
+        score -= 25.0
+    else:
+        score -= 50.0
+
+    # Trend alignment penalty
     trend = _normalize_trend(trend)
     if trend and ob.get("type") and ob.get("type") != trend:
-        return False
+        score -= 25.0
+
+    # Liquidity and institutional penalties
     if not ob.get("liquidity_sweep_confirmed", False):
-        return False
+        score -= 20.0
     if not ob.get("institutional_footprint", False):
-        return False
-    if float(ob.get("displacement", 0.0) or 0.0) < 0.70:
-        return False
-    return float(ob["low"]) <= float(price) <= float(ob["high"])
+        score -= 15.0
+
+    # Displacement gradient (relaxed from 0.70 hard cutoff)
+    displacement = float(ob.get("displacement", 0.0) or 0.0)
+    if displacement >= 0.75:
+        pass  # Full score
+    elif displacement >= 0.65:
+        score -= 10.0
+    elif displacement >= 0.55:
+        score -= 25.0
+    else:
+        score -= 50.0
+
+    # Price bounds check
+    if not (float(ob["low"]) <= float(price) <= float(ob["high"])):
+        return 0.0  # Hard reject if price not in zone
+
+    return max(0.0, score)
+
+
+def rsi_trend_confirmation(data, direction):
+    """RSI should NOT generate trades; it should only confirm direction."""
+    rsi = data.get("rsi", 50)
+    direction = _normalize_trend(direction)
+
+    if direction == "bullish":
+        return rsi > 55
+    elif direction == "bearish":
+        return rsi < 45
+    return False
+
+
+def double_confirmation(data, direction):
+    """Main trigger: Price Action + Displacement strength."""
+    # 1. Structure (BOS/Liq) is confirmed in the main model loop
+    
+    # 2. Price action confirmation
+    pa = confirm_price_action(data, direction)
+
+    # 3. Displacement strength
+    displacement_ok = float(data.get("displacement", 0.0) or 0.0) >= 0.6
+
+    return pa and displacement_ok
+
+
+def optional_sniper_bonus(data, direction):
+    """Sniper becomes an optional improvement rather than a requirement."""
+    m5_ok = sniper_entry_trigger(data, direction)
+    m1_ok = m1_liquidity_sweep_entry(data, direction)
+
+    if m5_ok or m1_ok:
+        return True, "SNIPER_ENTRY"
+    
+    return False, "STANDARD_ENTRY"
+
+
+def calculate_confidence_score(data, direction, entry_type):
+    """Rank trades from weak to strong to control execution quality."""
+    score = 0
+
+    # STRUCTURE (MOST IMPORTANT)
+    if data.get("liquidity_sweep"):
+        score += 2
+    if data.get("bos"):
+        score += 2
+
+    # DISPLACEMENT
+    displacement = float(data.get("displacement", 0.0) or 0.0)
+    if displacement >= 0.7:
+        score += 2
+    elif displacement >= 0.6:
+        score += 1
+
+    # ZONE QUALITY
+    if data.get("fvg") or (data.get("fvgs") and len(data.get("fvgs")) > 0):
+        score += 1
+    if data.get("htf_ob") or (data.get("htf_order_blocks") and len(data.get("htf_order_blocks")) > 0):
+        score += 1
+
+    # RSI ALIGNMENT
+    rsi = data.get("rsi", 50)
+    direction = _normalize_trend(direction)
+    if direction == "bullish" and rsi > 55:
+        score += 1
+    elif direction == "bearish" and rsi < 45:
+        score += 1
+
+    # SNIPER BONUS
+    if entry_type == "SNIPER_ENTRY":
+        score += 2
+
+    return score
+
+
+def classify_trade(score):
+    if score >= 8:
+        return "A+"
+    elif score >= 6:
+        return "A"
+    elif score >= 4:
+        return "B"
+    else:
+        return "C"
+
+def should_execute_trade(score):
+    return score >= 5   # minimum quality threshold (tuneable)
 
 
 def entry_debug_snapshot(data):
@@ -155,43 +363,78 @@ def entry_debug_snapshot(data):
 
 
 def explain_hybrid_failure(data):
+    """Updated to reflect soft scoring penalties instead of hard blocks"""
     trend = _normalize_trend((data or {}).get("trend"))
     if not trend:
         return "trend"
 
-    if float((data or {}).get("trend_strength", 0.0) or 0.0) < 0.60:
+    # ADAPTIVE TREND STRENGTH: Allow slightly lower strength (0.50) if market condition is 'normal' or 'pullback'
+    min_strength = 0.50 if (data or {}).get("market_condition") in ("normal", "pullback") else 0.60
+    if float((data or {}).get("trend_strength", 0.0) or 0.0) < min_strength:
         return "trend_strength"
 
-    if not (data or {}).get("liquidity_sweep"):
-        return "no_liquidity_sweep"
-
-    if not (data or {}).get("bos"):
-        return "no_bos"
-
-    if float((data or {}).get("displacement", 0.0) or 0.0) < 0.70:
-        return "weak_displacement"
+    # No longer hard blocks - these are now penalties
+    # if not (data or {}).get("liquidity_sweep"):
+    #     return "no_liquidity_sweep"
+    # if not (data or {}).get("bos"):
+    #     return "no_bos"
 
     price = float((data or {}).get("price", 0.0) or 0.0)
     fvg = (data or {}).get("fvg")
     ob = (data or {}).get("htf_ob")
-    if not valid_fvg_entry(price, fvg, trend):
-        fvg = next((item for item in ((data or {}).get("fvgs") or []) if valid_fvg_entry(price, item, trend)), None)
-    if not valid_ob_entry(price, ob, trend):
-        ob = next(
-            (item for item in ((data or {}).get("htf_order_blocks") or []) if valid_ob_entry(price, item, trend)),
-            None,
-        )
-    if not (valid_fvg_entry(price, fvg, trend) or valid_ob_entry(price, ob, trend)):
+
+    # Use scoring functions instead of boolean validation
+    fvg_score = score_fvg_entry(price, fvg, trend) if fvg else 0.0
+    ob_score = score_ob_entry(price, ob, trend) if ob else 0.0
+
+    # Check additional zones
+    for item in ((data or {}).get("fvgs") or []):
+        fvg_score = max(fvg_score, score_fvg_entry(price, item, trend))
+    for item in ((data or {}).get("htf_order_blocks") or []):
+        ob_score = max(ob_score, score_ob_entry(price, item, trend))
+
+    if fvg_score < 30.0 and ob_score < 30.0:
         return "zone"
 
-    if not confirm_price_action(data, trend):
-        return "price_action"
+    # No longer hard blocks - these are now penalties
+    # if not double_confirmation(data, trend):
+    #     return "double_confirmation"
+    # if not rsi_trend_confirmation(data, trend):
+    #     return "rsi_alignment"
 
-    if not sniper_entry_trigger(data, trend):
-        return "m5_sniper"
+    # Calculate final score with penalties to determine if it would execute
+    context = {
+        "price_action_confirmed": double_confirmation(data, trend),
+        "ml_probability": data.get("ml_probability", 0.5),
+        "backtest_approval": data.get("backtest_approval", "none"),
+        "rule_score": data.get("rule_score", 0),
+        "favorable": data.get("favorable", False),
+        "avoid": data.get("avoid", False)
+    }
 
-    if not m1_liquidity_sweep_entry(data, trend):
-        return "m1_sweep"
+    base_score, _ = unified_score_engine(data, context)
+
+    # Calculate penalties
+    trend_strength_penalty = 0.0
+    current_trend_strength = float(data.get("trend_strength", 0.0) or 0.0)
+    if current_trend_strength < min_strength:
+        trend_strength_penalty = (min_strength - current_trend_strength) * 50.0
+
+    liquidity_penalty = 0.0 if data.get("liquidity_sweep") else 25.0
+    bos_penalty = 0.0 if data.get("bos") else 25.0
+    zone_penalty = 40.0 if fvg_score < 30.0 and ob_score < 30.0 else 0.0
+    double_conf_penalty = 0.0 if double_confirmation(data, trend) else 20.0
+    rsi_penalty = 0.0 if rsi_trend_confirmation(data, trend) else 15.0
+
+    total_penalties = (
+        trend_strength_penalty + liquidity_penalty + bos_penalty +
+        zone_penalty + double_conf_penalty + rsi_penalty
+    )
+
+    final_score = max(0.0, base_score - total_penalties)
+
+    if final_score < 4.0:  # Minimum threshold for execution
+        return "low_confidence"
 
     return "ready"
 
@@ -233,14 +476,12 @@ def _dynamic_stop_loss(data, trend, price):
 
 def hybrid_entry_model(data):
     """
-    FINAL ENTRY LOGIC (Strict, multi-stage):
-      1) Liquidity sweep required
-      2) BOS required
-      3) Displacement strength required (>= 0.7)
-      4) Retest into FVG or OB zone (body, not wick)
-      5) Multi-candle price action confirmation
-      6) Sniper timing: M5 micro BOS + displacement
-      7) Final trigger: M1 liquidity sweep reversal
+    UPDATED HYBRID ARCHITECTURE WITH SOFT SCORING:
+    Core Setup (Liq + BOS + Zone) with penalties instead of hard blocks
+    -> Double Confirmation (PA + Displacement) with scoring
+    -> RSI Trend Filter with penalty
+    -> Optional Sniper Boost
+    -> Dynamic Confidence Scoring
     """
 
     if not isinstance(data, dict):
@@ -250,55 +491,100 @@ def hybrid_entry_model(data):
     if trend not in ("bullish", "bearish"):
         return None
 
-    price = float(data.get("price", 0.0) or 0.0)
+    price = float(data.get("price") or 0.0)
 
     # ADAPTIVE TREND STRENGTH: Allow slightly lower strength (0.50) if market condition is 'normal' or 'pullback'
     # This prevents the "Wait for entry: trend strength" spam during valid ICT retracements.
     min_strength = 0.50 if data.get("market_condition") in ("normal", "pullback") else 0.60
-    
-    if float(data.get("trend_strength", 0.0) or 0.0) < min_strength:
-        return None
 
-    if not data.get("liquidity_sweep"):
-        return None
+    trend_strength_penalty = 0.0
+    current_trend_strength = float(data.get("trend_strength", 0.0) or 0.0)
+    if current_trend_strength < min_strength:
+        trend_strength_penalty = (min_strength - current_trend_strength) * 50.0  # Penalty for weak trend
 
-    if not data.get("bos"):
-        return None
+    # Convert liquidity and BOS to penalties instead of hard blocks
+    liquidity_penalty = 0.0 if data.get("liquidity_sweep") else 25.0
+    bos_penalty = 0.0 if data.get("bos") else 25.0
 
-    if float(data.get("displacement", 0.0) or 0.0) < 0.70:
-        return None
-
-    # Zone validation: FVG OR OB (accept either pre-selected zones or full lists)
+    # 🔴 2. ZONE CHECK WITH SCORING
     fvg = data.get("fvg")
     ob = data.get("htf_ob")
 
-    if not valid_fvg_entry(price, fvg, trend):
-        fvg = next((item for item in (data.get("fvgs") or []) if valid_fvg_entry(price, item, trend)), None)
-    if not valid_ob_entry(price, ob, trend):
-        ob = next((item for item in (data.get("htf_order_blocks") or []) if valid_ob_entry(price, item, trend)), None)
-    if not (valid_fvg_entry(price, fvg, trend) or valid_ob_entry(price, ob, trend)):
-        return None
+    # Use scoring functions instead of hard validation
+    fvg_score = score_fvg_entry(price, fvg, trend) if fvg else 0.0
+    ob_score = score_ob_entry(price, ob, trend) if ob else 0.0
 
-    if not confirm_price_action(data, trend):
-        return None
+    # Check additional FVGs and OBs with scoring
+    if fvg_score < 50.0:  # If primary FVG score is low, check alternatives
+        for item in (data.get("fvgs") or []):
+            alt_score = score_fvg_entry(price, item, trend)
+            fvg_score = max(fvg_score, alt_score)
 
-    if not sniper_entry_trigger(data, trend):
-        return None
+    if ob_score < 50.0:  # If primary OB score is low, check alternatives
+        for item in (data.get("htf_order_blocks") or []):
+            alt_score = score_ob_entry(price, item, trend)
+            ob_score = max(ob_score, alt_score)
 
-    if not m1_liquidity_sweep_entry(data, trend):
-        return None
+    # Zone penalty if both scores are very low
+    zone_penalty = 0.0
+    if fvg_score < 30.0 and ob_score < 30.0:
+        zone_penalty = 40.0  # Significant penalty if no valid zone
+
+    # 🔴 3. DOUBLE CONFIRMATION PENALTY
+    double_conf_penalty = 0.0 if double_confirmation(data, trend) else 20.0
+
+    # 🔴 4. RSI FILTER PENALTY
+    rsi_penalty = 0.0 if rsi_trend_confirmation(data, trend) else 15.0
+
+    # 🔴 5. OPTIONAL SNIPER BOOST
+    sniper_ok, entry_type = optional_sniper_bonus(data, trend)
+
+    # 🔴 6. UNIFIED SCORING SYSTEM WITH PENALTIES
+    context = {
+        "price_action_confirmed": double_confirmation(data, trend),
+        "ml_probability": data.get("ml_probability", 0.5),
+        "backtest_approval": data.get("backtest_approval", "none"),
+        "rule_score": data.get("rule_score", 0),
+        "favorable": data.get("favorable", False),
+        "avoid": data.get("avoid", False)
+    }
+
+    base_score, breakdown = unified_score_engine(data, context)
+
+    # Apply all penalties
+    total_penalties = (
+        trend_strength_penalty +
+        liquidity_penalty +
+        bos_penalty +
+        zone_penalty +
+        double_conf_penalty +
+        rsi_penalty
+    )
+
+    final_score = max(0.0, base_score - total_penalties)
+
+    decision = execute_decision(final_score)
+
+    print(f"[SCORE] {final_score:.2f} (base: {base_score:.2f}, penalties: {total_penalties:.2f}) → {decision}")
+    print(f"[PENALTIES] trend:{trend_strength_penalty:.1f} liq:{liquidity_penalty:.1f} bos:{bos_penalty:.1f} zone:{zone_penalty:.1f} double:{double_conf_penalty:.1f} rsi:{rsi_penalty:.1f}")
+    print(f"[BREAKDOWN] {breakdown}")
+
+    # Remove hard SKIP/WATCH rejection - allow all decisions to proceed with adjusted confidence
+    risk_multiplier = 0.3 if decision == "EXECUTE_PARTIAL" else 0.6 if final_score < 5.0 else 1.0
 
     sl = _dynamic_stop_loss(data, trend, price)
 
     return {
-        "type": "HYBRID_ENTRY",
+        "type": entry_type,
         "direction": "buy" if trend == "bullish" else "sell",
         "price": price,
+        "confidence_score": final_score,
+        "confidence_grade": "A+" if final_score >= 8 else "A" if final_score >= 6 else "B" if final_score >= 4 else "C",
         "sl": sl,
         "fvg": fvg,
         "htf_ob": ob,
-        "trend": trend,
-        "reason": "Liquidity + BOS + Displacement + Zone Retest + Multi-candle PA + Sniper Timing",
+        "reason": f"{entry_type} | Score: {final_score:.1f} | Decision: {decision} | Penalties: {total_penalties:.1f}",
+        "risk_multiplier": risk_multiplier
     }
 
 

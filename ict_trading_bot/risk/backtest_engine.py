@@ -27,6 +27,7 @@ def _simulate_single_trade_outcome(
     spread_pips: float,
     slippage_pips: float,
     partial_fill_chance: float,
+    displacement_score: float = 0.70
 ) -> Tuple[str, float]:
     pip_size = _pip_size(symbol)
     spread_cost = spread_pips * pip_size
@@ -45,6 +46,10 @@ def _simulate_single_trade_outcome(
         return "loss", 0.0
 
     win_probability = 0.50
+    # Realistic win probability: Base 48% + bonus for strong displacement
+    # This accounts for the friction of spread and slippage on win rates
+    win_probability = 0.48 + (max(0, displacement_score - 0.70) * 0.2)
+    
     outcome = "win" if random.random() < win_probability else "loss"
     pnl = reward if outcome == "win" else -risk
 
@@ -66,6 +71,7 @@ def generate_setup_occurrence_report(
     partial_fill_chance = float(backtest_config.get("partial_fill_chance", 0.15))
     session_filter_enabled = bool(backtest_config.get("session_filter_enabled", True))
     allowed_sessions = backtest_config.get("allowed_sessions", ["london", "newyork"])
+    displacement_val = float(setup_signature.get("displacement_score", 0.70))
 
     total_trades = 0
     total_wins = 0
@@ -96,6 +102,7 @@ def generate_setup_occurrence_report(
             spread_pips=spread_pips,
             slippage_pips=slippage_pips,
             partial_fill_chance=partial_fill_chance,
+            displacement_score=displacement_val
         )
 
         total_trades += 1
