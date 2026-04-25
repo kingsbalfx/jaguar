@@ -2,8 +2,10 @@ import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 import { getBotTierDefaults, normalizeBotLimit } from "../../../lib/pricing-config";
 
-const USER_SELECT =
+const USER_SELECT_BASE =
   "id,email,name,username,role,lifetime,bot_tier,bot_max_signals_per_day,bot_max_concurrent_trades,bot_signal_quality,bot_tier_updated_at,created_at";
+
+const USER_SELECT_EXT = `${USER_SELECT_BASE},trading_profile`;
 
 const BOT_QUALITY_OPTIONS = new Set(["none", "basic", "standard", "premium", "vip", "pro", "elite"]);
 
@@ -54,9 +56,23 @@ export default async function handler(req, res) {
   const { supabaseAdmin } = ctx;
 
   if (req.method === "GET") {
-    const { data: profiles, error } = await supabaseAdmin
-      .from("profiles")
-      .select(USER_SELECT);
+    let profiles = null;
+    let error = null;
+    let usedExtended = true;
+
+    {
+      const resProfiles = await supabaseAdmin.from("profiles").select(USER_SELECT_EXT);
+      profiles = resProfiles.data || null;
+      error = resProfiles.error || null;
+    }
+
+    if (error && error.code === "42703") {
+      usedExtended = false;
+      const resProfiles = await supabaseAdmin.from("profiles").select(USER_SELECT_BASE);
+      profiles = resProfiles.data || null;
+      error = resProfiles.error || null;
+    }
+
     if (error) return res.status(500).json({ error: "failed to load users" });
 
     const { data: subs } = await supabaseAdmin
@@ -79,6 +95,7 @@ export default async function handler(req, res) {
       const sub = byEmail.get(profile.email);
       return {
         ...profile,
+        trading_profile: usedExtended ? profile.trading_profile || "balanced" : undefined,
         plan: sub?.plan || profile.role || "user",
         planStatus: sub?.status || "none",
         startedAt: sub?.started_at || null,
@@ -99,6 +116,7 @@ export default async function handler(req, res) {
       botMaxConcurrentTrades,
       botSignalQuality,
       applyTierDefaults,
+      tradingProfile,
     } = req.body || {};
     if (!id) return res.status(400).json({ error: "user id required" });
 
@@ -127,6 +145,10 @@ export default async function handler(req, res) {
       updates.bot_signal_quality = cleanBotQuality(botSignalQuality);
     }
 
+    if (tradingProfile !== undefined) {
+      updates.trading_profile = String(tradingProfile || "balanced").trim().toLowerCase();
+    }
+
     if (
       botTier ||
       applyTierDefaults ||
@@ -137,12 +159,32 @@ export default async function handler(req, res) {
       updates.bot_tier_updated_at = new Date().toISOString();
     }
 
-    const { data, error } = await supabaseAdmin
-      .from("profiles")
-      .update(updates)
-      .eq("id", id)
-      .select(USER_SELECT)
-      .maybeSingle();
+    // Use extended select when available; fall back if trading_profile column isn't migrated yet.
+    let data = null;
+    let error = null;
+    {
+      const resUpdate = await supabaseAdmin
+        .from("profiles")
+        .update(updates)
+        .eq("id", id)
+        .select(USER_SELECT_EXT)
+        .maybeSingle();
+      data = resUpdate.data || null;
+      error = resUpdate.error || null;
+    }
+
+    if (error && error.code === "42703") {
+      const cleaned = { ...updates };
+      delete cleaned.trading_profile;
+      const resUpdate = await supabaseAdmin
+        .from("profiles")
+        .update(cleaned)
+        .eq("id", id)
+        .select(USER_SELECT_BASE)
+        .maybeSingle();
+      data = resUpdate.data || null;
+      error = resUpdate.error || null;
+    }
 
     if (error) return res.status(500).json({ error: error.message || "failed to update user" });
     return res.status(200).json({ user: data });

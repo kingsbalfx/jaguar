@@ -455,40 +455,61 @@ def calculate_dynamic_lot_size(
     asset_range = multiplier_ranges.get(asset_class, multiplier_ranges["other"])
     base_min, base_max = asset_range["min"], asset_range["max"]
     
-    # Win streak bonus: FIXED - Cap at 1.1x to prevent "blowup" at end of streaks
-    if intel["current_streak"] == "win" and intel["win_streak"] > 1:
-        streak_multiplier = min(1.1, 1.0 + (intel["win_streak"] - 1) * 0.05)
-    
-    # Expectancy adjustment: Positive expectancy = larger, negative = smaller
-    expectancy_multiplier = 1.0 + (intel["expectancy"] * 0.1) if intel["expectancy"] > 0 else 1.0 - abs(intel["expectancy"] * 0.2)
-    expectancy_multiplier = max(0.5, min(1.2, expectancy_multiplier))
-    
-    # Final risk-based calculation
-    # Lot size = (Balance * Risk%) / SL Distance
-    # We use base_lot as a fallback or reference if account info is missing
-    final_lot = (account_balance * (effective_risk / 100.0)) / 100.0 
-    
-    # Apply asset class multiplier logic for fine-tuning
-    final_lot *= (base_min + base_max) / 2
-    
-    # Final streaks and expectancy fine-tuning
-    final_lot *= expectancy_multiplier
-    
-    # Absolute risk ceiling: Never exceed 5%
-    max_lot_for_risk = (account_balance * 0.05) / 100.0
-    final_lot = min(final_lot, max_lot_for_risk)
-    
-    return round(final_lot, 2), {
-        "base_lot": base_lot,
+    # Multipliers default to neutral; we only *reduce* risk from the base lot
+    # because `base_lot` was already sized using `risk_percent` as the ceiling.
+    streak_multiplier = 1.0
+    if intel.get("current_streak") == "win" and int(intel.get("win_streak", 0) or 0) > 1:
+        streak_multiplier = min(1.1, 1.0 + (int(intel.get("win_streak", 0) or 0) - 1) * 0.03)
+    elif intel.get("current_streak") == "loss" and int(intel.get("loss_streak", 0) or 0) >= 2:
+        streak_multiplier = max(0.75, 1.0 - (int(intel.get("loss_streak", 0) or 0) - 1) * 0.05)
+
+    expectancy = float(intel.get("expectancy", 0.0) or 0.0)
+    expectancy_multiplier = 1.0 + (expectancy * 0.05) if expectancy > 0 else 1.0 - abs(expectancy * 0.10)
+    expectancy_multiplier = max(0.70, min(1.10, expectancy_multiplier))
+
+    opportunity = float(intel.get("opportunity_score", 0.5) or 0.5)
+    opportunity_multiplier = 0.85 + (opportunity - 0.5) * 0.30
+    opportunity_multiplier = max(0.70, min(1.05, opportunity_multiplier))
+
+    # Scale base lot down to match the effective risk target (never scale up).
+    try:
+        risk_percent_value = float(risk_percent or 0.0)
+    except Exception:
+        risk_percent_value = 0.0
+
+    if risk_percent_value <= 0 or base_lot <= 0:
+        return 0.0, {"reason": "Invalid base lot or risk percent"}
+
+    base_multiplier = max(0.0, min(1.0, effective_risk / max(risk_percent_value, 1e-9)))
+
+    # Apply only downward adjustments so we don't exceed the risk ceiling.
+    adjustment_multiplier = opportunity_multiplier * streak_multiplier * expectancy_multiplier
+    adjustment_multiplier = max(0.50, min(1.00, adjustment_multiplier))
+
+    final_multiplier = base_multiplier * adjustment_multiplier
+
+    # Respect asset-class floors when they don't violate the risk ceiling.
+    final_multiplier = min(final_multiplier, base_multiplier)
+    if base_multiplier >= base_min:
+        final_multiplier = max(base_min, final_multiplier)
+
+    final_lot = float(base_lot) * float(final_multiplier)
+    final_lot = round(max(final_lot, 0.01), 2)
+
+    return final_lot, {
+        "base_lot": round(float(base_lot), 4),
         "asset_class": asset_class,
+        "effective_risk_percent": round(float(effective_risk), 3),
+        "risk_ceiling_percent": round(float(risk_percent_value), 3),
         "multiplier_range": f"{base_min}x - {base_max}x",
-        "base_multiplier": round(base_multiplier, 2),
-        "opportunity_multiplier": round(opportunity_multiplier, 2),
-        "streak_multiplier": round(streak_multiplier, 2),
-        "expectancy_multiplier": round(expectancy_multiplier, 2),
-        "final_multiplier": round(final_multiplier, 2),
-        "final_lot": round(final_lot, 2),
-        "reason": f"{asset_class.upper()} {intel['risk_rating']} + {intel['current_streak']} streak = {final_multiplier:.2f}x",
+        "base_multiplier": round(float(base_multiplier), 3),
+        "opportunity_multiplier": round(float(opportunity_multiplier), 3),
+        "streak_multiplier": round(float(streak_multiplier), 3),
+        "expectancy_multiplier": round(float(expectancy_multiplier), 3),
+        "adjustment_multiplier": round(float(adjustment_multiplier), 3),
+        "final_multiplier": round(float(final_multiplier), 3),
+        "final_lot": final_lot,
+        "reason": f"{asset_class.upper()} {intel.get('risk_rating', 'UNKNOWN')} sizing",
     }
 
 

@@ -9,6 +9,7 @@ import {
 const ROLE_OPTIONS = ["user", "premium", "vip", "pro", "lifetime", "admin"];
 const SEGMENT_FILTERS = ["all", "user", "premium", "vip", "pro", "lifetime", "admin"];
 const QUALITY_OPTIONS = ["none", "basic", "standard", "premium", "vip", "pro", "elite"];
+const TRADING_PROFILE_OPTIONS = ["aggressive", "balanced", "conservative"];
 const ROLE_TO_TIER = {
   user: "FREE",
   premium: "PREMIUM",
@@ -64,6 +65,7 @@ function buildUserPayload(user) {
     botMaxSignalsPerDay: normalizeBotLimit(user.bot_max_signals_per_day, 0),
     botMaxConcurrentTrades: normalizeBotLimit(user.bot_max_concurrent_trades, 0),
     botSignalQuality: user.bot_signal_quality || "none",
+    tradingProfile: user.trading_profile || "balanced",
   };
 }
 
@@ -342,7 +344,7 @@ export default function Users() {
                   </div>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
                   <label className="text-xs text-gray-400">
                     Role
                     <select
@@ -419,6 +421,20 @@ export default function Users() {
                       {QUALITY_OPTIONS.map((quality) => (
                         <option key={quality} value={quality}>
                           {quality.toUpperCase()}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-xs text-gray-400">
+                    Trading profile
+                    <select
+                      className="mt-1 w-full rounded-md bg-black/40 border border-white/10 px-3 py-2 text-sm text-white"
+                      value={user.trading_profile || "balanced"}
+                      onChange={(e) => patchUser(user.id, { trading_profile: e.target.value })}
+                    >
+                      {TRADING_PROFILE_OPTIONS.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt.toUpperCase()}
                         </option>
                       ))}
                     </select>

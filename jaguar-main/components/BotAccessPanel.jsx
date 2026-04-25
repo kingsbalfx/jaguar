@@ -1,5 +1,6 @@
 import MT5SubmissionForm from "./MT5SubmissionForm";
 import AccountFloatPanel from "./AccountFloatPanel";
+import TradingProfilePanel from "./TradingProfilePanel";
 
 export default function BotAccessPanel({ tier, isActive }) {
   const features = tier?.features || {};
@@ -37,6 +38,7 @@ export default function BotAccessPanel({ tier, isActive }) {
         {botAccess && isActive ? (
           <div className="space-y-4">
             <AccountFloatPanel />
+            <TradingProfilePanel />
             <MT5SubmissionForm />
           </div>
         ) : (

@@ -124,32 +124,11 @@ from bot_state import (
     append_log,
 )
 
+
 # =====================================================
-# USER PROFILES CONFIGURATION
+# USER PROFILES
 # =====================================================
-USER_PROFILES = {
-    "aggressive": {
-        "min_score": 50,
-        "risk_multiplier": 1.2,
-        "max_trades": 10,
-        "max_exposure": 10,
-        "trade_frequency": "high"
-    },
-    "balanced": {
-        "min_score": 60,
-        "risk_multiplier": 1.0,
-        "max_trades": 5,
-        "max_exposure": 6,
-        "trade_frequency": "medium"
-    },
-    "conservative": {
-        "min_score": 70,
-        "risk_multiplier": 0.7,
-        "max_trades": 3,
-        "max_exposure": 4,
-        "trade_frequency": "low"
-    }
-}
+# Profiles are resolved via utils.user_profiles.get_user_profile()
 
 load_dotenv()
 
@@ -320,24 +299,48 @@ if os.getenv("MT5_DISABLED", "").lower() in ("1", "true", "yes"):
 DEFAULT_SYMBOLS = LIQUID_FOREX + LIQUID_METALS + LIQUID_CRYPTO
 
 
-def quick_symbol_filter(symbol, data):
+def quick_symbol_filter(symbol):
     """
-    Fast pre-filter for symbols before full analysis
-    Returns True if symbol passes basic checks
+    Fast pre-filter for symbols before full analysis.
+
+    Goal: avoid expensive multi-timeframe scans on symbols that are currently
+    too expensive to trade (spread) or not returning tick data.
     """
-    # Check recent volume (cheap operation)
-    if not data.get("recent_volume"):
-        return False
+    try:
+        import MetaTrader5 as mt5
+    except Exception:
+        # Non-Windows / no MT5 installed: don't block orchestration.
+        return True
 
-    # Check spread (cheap operation)
-    if data.get("spread", 0) > 3:
-        return False
+    try:
+        info = mt5.symbol_info(symbol)
+        if info is None:
+            return False
+        if not getattr(info, "visible", True):
+            try:
+                mt5.symbol_select(symbol, True)
+            except Exception:
+                return False
 
-    # Check volatility (cheap operation)
-    if data.get("volatility", 0) < 0.2:
-        return False
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None:
+            return False
 
-    return True
+        ask = float(getattr(tick, "ask", 0.0) or 0.0)
+        bid = float(getattr(tick, "bid", 0.0) or 0.0)
+        if ask <= 0 or bid <= 0:
+            return False
+
+        pip_multiplier = 100 if "JPY" in symbol else 10000
+        spread_pips = (ask - bid) * pip_multiplier
+        max_spread_pips = float(os.getenv("MAX_SPREAD_PIPS", "5") or 5.0)
+        if spread_pips > max_spread_pips:
+            return False
+
+        return True
+    except Exception:
+        # Fail open on unexpected MT5 errors to keep the loop running.
+        return True
 
 
 def score_symbols_for_orchestration(valid_symbols):
@@ -346,16 +349,14 @@ def score_symbols_for_orchestration(valid_symbols):
     Audit Update: Now uses quick_symbol_filter for efficiency.
     """
     symbol_scores = []
-    # Get user profile setting (default to balanced if not in env)
-    current_profile_name = os.getenv("BOT_USER_PROFILE", "balanced").lower()
-    profile = USER_PROFILES.get(current_profile_name, USER_PROFILES["balanced"])
+    profile = get_user_profile()
 
     for symbol in valid_symbols:
         try:
             original_symbol = next((k for k, v in RESOLVED_MAP.items() if v == symbol), symbol)
 
             # Quick pre-filter check
-            if not quick_symbol_filter(symbol, {"recent_volume": True, "spread": 0, "volatility": 0.5}):
+            if not quick_symbol_filter(symbol):
                 continue
 
             # Get basic market data for scoring
@@ -371,29 +372,81 @@ def score_symbols_for_orchestration(valid_symbols):
             if trend not in ("bullish", "bearish"):
                 continue
 
-            # Build context for CIS scoring
+            # Build lightweight CIS inputs for ranking.
+            direction_label = "BUY" if trend == "bullish" else "SELL"
+            direction_hint = "buy" if trend == "bullish" else "sell"
+
+            try:
+                liquidity_state = liquidity_sweep_or_swing(price, analysis, direction_hint)
+            except Exception:
+                liquidity_state = {"confirmed": False, "displacement_score": 0.0}
+
+            try:
+                bos_state = bos_setup(analysis, trend)
+            except Exception:
+                bos_state = {"confirmed": False}
+
+            try:
+                price_action_state = price_action_setup(analysis, trend)
+            except Exception:
+                price_action_state = {"confirmed": False}
+
+            execution_state = analysis.get("EXECUTION", {}) or {}
+            ltf_state = analysis.get("LTF", {}) or {}
+            mtf_state = analysis.get("MTF", {}) or {}
+
+            fvgs = execution_state.get("fvgs") or ltf_state.get("fvgs") or mtf_state.get("fvgs") or []
+            order_blocks = mtf_state.get("order_blocks") or ltf_state.get("order_blocks") or []
+
+            def _max_quality(records):
+                try:
+                    return max(
+                        (float(item.get("quality", 0.0) or 0.0) for item in records if isinstance(item, dict)),
+                        default=None,
+                    )
+                except Exception:
+                    return None
+
+            atr_val = execution_state.get("atr") or ltf_state.get("atr") or mtf_state.get("atr") or 0.0
+            try:
+                atr_percent = (abs(float(atr_val or 0.0)) / float(price) * 100.0) if price else 0.0
+                volatility_index = min(1.0, max(0.0, atr_percent / 0.5)) if atr_percent else 0.5
+            except Exception:
+                volatility_index = 0.5
+
+            session_active = bool(in_london_session() or in_newyork_session())
+            correlation_risk = get_pair_correlation_risk(original_symbol)
+
             context = {
-                "price_action": True,  # Simplified
+                "price_action": bool((price_action_state or {}).get("confirmed")),
                 "smt": 0.5,
-                "volatility_index": 0.5,
-                "session_active": True,
-                "correlation_risk": 0.0,
+                "volatility_index": volatility_index,
+                "session_active": session_active,
+                "correlation_risk": correlation_risk,
                 "news": "none",
                 "market_rhythm": {"favorable": True},
                 "rr": 2.0,
             }
 
             analysis_dict = {
-                "bos": analysis.get("bos", False),
+                "bos": bool((bos_state or {}).get("confirmed")),
                 "trend": trend,
-                "liquidity_sweep": analysis.get("liquidity_sweep", False),
-                "displacement": analysis.get("displacement", 0.0),
-                "fvg": analysis.get("fvg", False),
-                "order_block": analysis.get("order_block", False),
+                "liquidity_sweep": bool((liquidity_state or {}).get("confirmed")),
+                "displacement": float((liquidity_state or {}).get("displacement_score", 0.0) or 0.0),
+                "fvg": bool(fvgs),
+                "order_block": bool(order_blocks),
+                "fvg_quality": _max_quality(fvgs),
+                "order_block_quality": _max_quality(order_blocks),
             }
 
             # Get CIS score
-            score, breakdown = get_cis_score(original_symbol, "BUY" if trend == "bullish" else "SELL", analysis_dict, context, ranking_mode=True)
+            score, breakdown = get_cis_score(
+                original_symbol,
+                direction_label,
+                analysis_dict,
+                context,
+                ranking_mode=True,
+            )
 
             symbol_scores.append({
                 "symbol": symbol,
@@ -412,69 +465,64 @@ def score_symbols_for_orchestration(valid_symbols):
     symbol_scores.sort(key=lambda x: x["score"], reverse=True)
 
     # Limit to top symbols for performance
-    MAX_ACTIVE_SYMBOLS = profile["max_trades"] * 2 
-    return symbol_scores[:MAX_ACTIVE_SYMBOLS]
+    max_trades = int(profile.get("max_trades", profile.get("max_concurrent_trades", 5)) or 5)
+    max_active_symbols = max(5, max_trades * 2)
+    return symbol_scores[:max_active_symbols]
 
 
 def orchestrate_symbol_execution(symbol_scores):
     """
-    Create execution queue with risk control and user profile constraints
-    Audit Update: Implements global risk control and ranking.
+    Multi-pair orchestration: choose which symbols to run the heavy scan for this cycle.
+
+    This is a *ranking + selection* step (not trade execution). It should never
+    return an empty list just because scores are low; the trade loop still has
+    the final say via weighted validation, risk, and protection layers.
     """
-    # Get user profile settings
-    profile_name = os.getenv("BOT_USER_PROFILE", "balanced").lower()
-    profile = USER_PROFILES.get(profile_name, USER_PROFILES["balanced"])
-    min_cis_score = profile["min_score"]
-    max_concurrent_trades = profile["max_trades"]
+    profile = get_user_profile()
+    profile_name = str(profile.get("profile_name") or "balanced").lower()
 
-    execution_queue = []
-    current_exposure = get_current_account_exposure().get("total_percent", 0.0)
-    MAX_TOTAL_EXPOSURE = profile["max_exposure"]
+    try:
+        max_symbols = max(5, int(profile.get("max_trades", 5) or 5) * 2)
+    except Exception:
+        max_symbols = 10
 
-    # Check current open positions against profile limits
+    try:
+        max_exposure = float(profile.get("max_exposure", 6) or 6)
+    except Exception:
+        max_exposure = 6.0
+
     open_positions = get_open_positions()
-    current_trades = len([p for p in open_positions if p.get("type") == "position"])
+    current_exposure = float(get_current_account_exposure().get("total_percent", 0.0) or 0.0)
 
-    if current_trades >= max_concurrent_trades or current_exposure >= MAX_TOTAL_EXPOSURE:
-        return []  # No more trades allowed by profile
+    # If already at/over exposure cap, keep the scan small (webhooks still append later).
+    if current_exposure >= max_exposure:
+        max_symbols = min(max_symbols, 3)
 
-    for item in symbol_scores:
-        score = item["score"]
+    ranked = []
+    for item in symbol_scores or []:
+        try:
+            raw_score = float(item.get("score", 0.0) or 0.0)
+        except Exception:
+            raw_score = 0.0
 
-        if score < min_cis_score:
-            continue
+        correlation_penalty = calculate_correlation_penalty(
+            item.get("original_symbol") or item.get("symbol") or "",
+            open_positions,
+        )
+        adjusted_score = max(0.0, raw_score - float(correlation_penalty or 0.0))
 
-        from risk.intelligence_system import cis_decision
-        verdict = cis_decision(score)
+        ranked.append(
+            {
+                **item,
+                "adjusted_score": adjusted_score,
+                "correlation_penalty": correlation_penalty,
+                "profile": profile_name,
+            }
+        )
 
-        if verdict == "SKIP":
-            continue
-
-        # Check profile concurrent trade limits
-        if len(execution_queue) + current_trades >= max_concurrent_trades:
-            break
-
-        # Add profile-adjusted correlation penalty
-        correlation_penalty = calculate_correlation_penalty(item["original_symbol"], open_positions)
-        adjusted_score = max(0, score - correlation_penalty)
-
-        if adjusted_score < min_cis_score:  # Re-check after correlation adjustment
-            continue
-
-        execution_item = {
-            **item,
-            "decision": verdict,
-            "adjusted_score": adjusted_score,
-            "correlation_penalty": correlation_penalty,
-            "profile": profile_name,
-        }
-
-        execution_queue.append(execution_item)
-
-        # Estimate exposure increase
-        current_exposure += 1.0  # Simplified estimation
-
-    return [item["symbol"] for item in execution_queue]
+    ranked.sort(key=lambda x: float(x.get("adjusted_score", 0.0) or 0.0), reverse=True)
+    top = ranked[:max_symbols]
+    return [item.get("symbol") for item in top if item.get("symbol")]
 
 
 def calculate_correlation_penalty(symbol, open_positions):
@@ -500,6 +548,64 @@ def process_webhook_signals():
     try:
         from bot_api import get_webhook_signals, clear_webhook_signals
         signals = get_webhook_signals() or []
+
+        # Also pull TradingView signals queued via the website (Supabase inbox table).
+        try:
+            from supabase import create_client
+        except Exception:
+            create_client = None
+
+        if create_client:
+            try:
+                url = os.getenv("SUPABASE_URL")
+                key = os.getenv("SUPABASE_KEY")
+                user_id = (os.getenv("SIGNAL_USER_ID") or os.getenv("BOT_USER_ID") or "").strip()
+                table = os.getenv("TRADINGVIEW_SIGNALS_TABLE", "tradingview_signals")
+
+                if url and key and user_id:
+                    client = create_client(url, key)
+                    res = (
+                        client.table(table)
+                        .select("id,user_id,symbol,direction,payload,received_at")
+                        .eq("user_id", user_id)
+                        .eq("status", "pending")
+                        .order("received_at", desc=False)
+                        .limit(25)
+                        .execute()
+                    )
+                    rows = getattr(res, "data", None) or []
+                    if rows:
+                        # Mark as processed to avoid re-processing in the next loop.
+                        ids = [row.get("id") for row in rows if row.get("id")]
+                        if ids:
+                            try:
+                                client.table(table).update(
+                                    {
+                                        "status": "processed",
+                                        "processed_at": datetime.datetime.utcnow().isoformat(),
+                                    }
+                                ).in_("id", ids).execute()
+                            except Exception:
+                                pass
+
+                        for row in rows:
+                            payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+                            symbol = row.get("symbol") or payload.get("symbol")
+                            direction = (row.get("direction") or payload.get("direction") or "").upper()
+                            if not symbol or direction not in ["BUY", "SELL"]:
+                                continue
+                            signals.append(
+                                {
+                                    **payload,
+                                    "symbol": symbol,
+                                    "direction": direction,
+                                    "received_at": row.get("received_at") or datetime.datetime.utcnow().isoformat(),
+                                    "signal_id": row.get("id") or payload.get("signal_id"),
+                                    "source": "supabase_tradingview",
+                                }
+                            )
+            except Exception:
+                pass
 
         for webhook_signal in signals:
             try:
@@ -1488,6 +1594,7 @@ while True:
         # MULTI-PAIR ORCHESTRATION
         # ===================================
         # Score all symbols and orchestrate execution based on CIS scores and risk limits
+        webhook_signals = []
         try:
             profile = get_user_profile()
             symbol_scores = score_symbols_for_orchestration(VALID_SYMBOLS)
@@ -1495,7 +1602,14 @@ while True:
             
             # Process webhook signals and add them to processing queue
             webhook_signals = process_webhook_signals()
-            webhook_symbols = [s["symbol"] for s in webhook_signals if s.get("symbol") in VALID_SYMBOLS]
+            webhook_symbols = []
+            for signal in webhook_signals:
+                raw_symbol = (signal or {}).get("symbol")
+                if not raw_symbol:
+                    continue
+                resolved_symbol = RESOLVED_MAP.get(raw_symbol, raw_symbol)
+                if resolved_symbol in VALID_SYMBOLS:
+                    webhook_symbols.append(resolved_symbol)
             selected_symbols.extend(webhook_symbols)
             
             # Remove duplicates while preserving order
@@ -1520,16 +1634,28 @@ while True:
             )
         except Exception as e:
             bot_log("orchestration_error", f"Orchestration failed, falling back to all symbols: {e}", {"error": str(e)}, persist=False)
-            selected_symbols = VALID_SYMBOLS
+            selected_symbols = list(VALID_SYMBOLS)
+            webhook_signals = []
+
+        if not selected_symbols:
+            selected_symbols = list(VALID_SYMBOLS)
+
+        webhook_by_raw = {}
+        webhook_by_resolved = {}
+        for _sig in webhook_signals:
+            raw = (_sig or {}).get("symbol")
+            if not raw:
+                continue
+            webhook_by_raw[raw] = _sig
+            webhook_by_resolved[RESOLVED_MAP.get(raw, raw)] = _sig
 
         for symbol in selected_symbols:
 
             # Define original_symbol early to prevent scope errors
             original_symbol = next((k for k, v in RESOLVED_MAP.items() if v == symbol), symbol)
             
-            # Check if this symbol was triggered by webhook
-            is_webhook_triggered = original_symbol in [s["symbol"] for s in webhook_signals]
-            webhook_signal_data = next((s for s in webhook_signals if s.get("symbol") == original_symbol), None) if is_webhook_triggered else None
+            webhook_signal_data = webhook_by_raw.get(original_symbol) or webhook_by_resolved.get(symbol)
+            is_webhook_triggered = webhook_signal_data is not None
             
             record_stage("seen", original_symbol)
 
@@ -1865,36 +1991,108 @@ while True:
                 "price_action": price_action_state,
             }
 
-            # --- CIS INTELLIGENCE SCORING ---
+            # --- CIS INTELLIGENCE SCORING (0-100, advisory) ---
+            try:
+                from risk.news_filter import check_for_high_impact_news
+            except Exception:
+                check_for_high_impact_news = None
+
+            session_active = bool(in_london_session() or in_newyork_session())
+            news_impact = check_for_high_impact_news(original_symbol) if check_for_high_impact_news else "none"
+
+            try:
+                atr_value = abs(float(entry_atr or 0.0))
+                atr_percent = (atr_value / float(price) * 100.0) if price else 0.0
+                volatility_index = min(1.0, max(0.0, atr_percent / 0.5)) if atr_percent else 0.5
+            except Exception:
+                volatility_index = 0.5
+
+            cis_analysis = {
+                "bos": bool((bos_state or {}).get("confirmed")),
+                "trend": trend,
+                "liquidity_sweep": bool((liquidity_state or {}).get("confirmed")),
+                "displacement": float((liquidity_state or {}).get("displacement_score", 0.0) or 0.0),
+                "fvg": bool(signal.get("fvg")),
+                "order_block": bool(signal.get("htf_ob")),
+                "fvg_quality": (signal.get("fvg") or {}).get("quality") if signal.get("fvg") else None,
+                "order_block_quality": (signal.get("htf_ob") or {}).get("quality") if signal.get("htf_ob") else None,
+            }
+
+            cis_context = {
+                "price_action": bool((price_action_state or {}).get("confirmed")),
+                "smt": 0.5,
+                "volatility_index": volatility_index,
+                "session_active": session_active,
+                "correlation_risk": get_pair_correlation_risk(original_symbol),
+                "news": news_impact,
+                "market_rhythm": market_rhythm,
+                "rr": 2.0,
+            }
+
             cis_score, cis_breakdown = get_cis_score(
-                symbol=original_symbol,
-                direction="BUY" if trend == "bullish" else "SELL",
-                timeframe=analysis.get("timeframes", {}).get("EXECUTION", "M5"),
-                entry_price=price,
-                multi_tf_analysis=analysis,
+                original_symbol,
+                "BUY" if trend == "bullish" else "SELL",
+                cis_analysis,
+                cis_context,
             )
-            
-            # AUDIT FIX: Rename variable to cis_result to avoid shadowing function cis_decision
+            cis_exec = cis_decision(cis_score)
+            cis_legacy_verdict = "TRADE" if cis_exec != "SKIP" else "AVOID"
+
+            # Use executed-trade history for weighted backtest gating.
+            try:
+                from risk.symbol_stats import load_symbol_stats
+                from utils.symbol_profile import canonical_symbol
+                symbol_stats = load_symbol_stats() or {}
+                history_count = int((symbol_stats.get(canonical_symbol(original_symbol)) or {}).get("total_trades", 0) or 0)
+            except Exception:
+                history_count = 0
+
+            setup_points = (
+                float(cis_breakdown.get("bos", 0) or 0)
+                + float(cis_breakdown.get("liquidity", 0) or 0)
+                + float(cis_breakdown.get("displacement", 0) or 0)
+                + float(cis_breakdown.get("fvg", 0) or 0)
+                + float(cis_breakdown.get("order_block", 0) or 0)
+                + float(cis_breakdown.get("price_action", 0) or 0)
+            )
+            setup_quality = max(0.0, min(1.0, setup_points / 64.0))
+
+            timing_score = 0.9 if session_active else 0.6
+            if news_impact == "high":
+                timing_score = min(timing_score, 0.2)
+            elif news_impact == "medium":
+                timing_score = min(timing_score, 0.5)
+
             cis_result = {
-                "final_score": cis_score,
-                "component_scores": cis_breakdown,
-                "confidence_score": cis_score / 100.0,  # Convert to 0-1 scale
-                "final_verdict": cis_decision(cis_score),  # Get verdict from score
+                "final_verdict": cis_legacy_verdict,
+                "confidence_score": cis_score / 100.0,
+                "history_count": history_count,
+                "component_scores": {
+                    "setup_quality": round(setup_quality, 3),
+                    "timing": round(timing_score, 3),
+                },
+                "unified_score": cis_score,
+                "execution_decision": cis_exec,
                 "breakdown": cis_breakdown,
             }
             signal["cis_decision"] = cis_result
 
-            cis_verdict = cis_result["final_verdict"]
-            if cis_verdict != "TRADE":
-                # Advisory-only: CIS no longer blocks execution. It only provides context/risk hints.
+            if cis_result["final_verdict"] != "TRADE":
                 bot_log_throttled(
                     "cis_advisory",
                     original_symbol,
-                    f"[{original_symbol}] CIS advisory verdict {cis_verdict} (score {cis_score:.1f}/100).",
-                    {"symbol": original_symbol, "cis_score": cis_score, "cis_breakdown": cis_breakdown},
+                    f"[{original_symbol}] CIS advisory {cis_result['final_verdict']} (score {cis_score:.1f}/100 â†’ {cis_exec}).",
+                    {
+                        "symbol": original_symbol,
+                        "cis_score": cis_score,
+                        "cis_exec": cis_exec,
+                        "cis_breakdown": cis_breakdown,
+                        "news": news_impact,
+                        "session_active": session_active,
+                    },
                     persist=False,
                     cooldown=300,
-                    signature=f"{cis_verdict}:{cis_score:.1f}",
+                    signature=f"{cis_result['final_verdict']}:{cis_exec}:{cis_score:.1f}",
                 )
 
             # ============================================================
@@ -2196,7 +2394,7 @@ while True:
                 mode="auto",
                 direction=direction,
                 candles=(analysis.get("EXECUTION") or {}).get("recent_candles"),
-                timing_score=(cis_decision.get("component_scores") or {}).get("timing"),
+                timing_score=(cis_result.get("component_scores") or {}).get("timing"),
             )
 
             # ----------------------------

@@ -898,40 +898,61 @@ def calculate_timing_score(symbol: str, timeframe: str) -> Tuple[float, Dict]:
 
 def get_cis_score(symbol: str, direction: str, analysis: dict, context: dict, ranking_mode: bool = False) -> Tuple[float, dict]:
     """
-    NEW CIS SCORING ENGINE: One Brain Decision System
-    Returns score 0-100 instead of TRADE/WAIT/AVOID
-    Audit Fix: Enforce Strict ICT Quality thresholds
+    CIS SCORING ENGINE (0 → 100)
+
+    Returns `(score, breakdown)` where score is 0-100.
+    Score influences execution; it does not hard-block via binary verdicts.
+    `ranking_mode=True` is intended for fast symbol ranking when some inputs may be missing.
     """
     # Hard Filters (Audit Requirement: High Quality OB/FVG)
     FVG_QUALITY_MIN = 0.6
     OB_QUALITY_MIN = 0.7
     
-    score = 0
+    analysis = analysis or {}
+    context = context or {}
+
+    def _clamp(value, low=0.0, high=1.0, default=0.0):
+        try:
+            numeric = float(value)
+        except Exception:
+            numeric = float(default)
+        return max(low, min(high, numeric))
+
+    score = 0.0
     breakdown = {}
 
     # 🔴 1. MARKET STRUCTURE (CRITICAL)
-    # Audit Fix: FORCE BOS for entry
-    if not analysis.get("bos") and not ranking_mode:
-        return 0, {"reason": "BOS Missing - Strict ICT requirement"}
+    bos_confirmed = bool(analysis.get("bos"))
+    if bos_confirmed:
+        score += 15
+        breakdown["bos"] = 15
+    else:
+        breakdown["bos"] = 0
 
-    score += 15
-    breakdown["bos"] = 15
-
-    if analysis.get("trend") == direction.lower():
+    trend_value = str(analysis.get("trend") or analysis.get("overall_trend") or analysis.get("bias") or "").strip().lower()
+    direction_norm = _normalize_direction(direction)
+    trend_aligned = (
+        (direction_norm == "BUY" and trend_value in ("buy", "bullish", "up", "long"))
+        or (direction_norm == "SELL" and trend_value in ("sell", "bearish", "down", "short"))
+    )
+    if trend_aligned:
         score += 10
         breakdown["trend_alignment"] = 10
+    else:
+        breakdown["trend_alignment"] = 0
 
     # 🔴 2. LIQUIDITY
-    # Audit Fix: Strict Sweep Only logic
-    sweep_confirmed = analysis.get("liquidity_sweep", ranking_mode)
-    if not sweep_confirmed:
-        return 0, {"reason": "Liquidity Sweep Missing - Strict ICT requirement"}
-
-    score += 15
-    breakdown["liquidity"] = 15
+    sweep_confirmed = bool(analysis.get("liquidity_sweep"))
+    if sweep_confirmed:
+        score += 15
+        breakdown["liquidity"] = 15
+    else:
+        # Allow non-sweep setups, but score them lower.
+        score += 3
+        breakdown["liquidity"] = 3
 
     # 🔴 3. DISPLACEMENT
-    disp = analysis.get("displacement", 0)
+    disp = _clamp(analysis.get("displacement", 0.0), default=0.0)
     if disp >= 0.7:
         score += 12
         breakdown["displacement"] = 12
@@ -943,16 +964,32 @@ def get_cis_score(symbol: str, direction: str, analysis: dict, context: dict, ra
         breakdown["displacement"] = 2
 
     # 🔴 4. ZONES (FVG / OB)
-    # Audit Fix: Quality scoring for FVG/OB
-    fvg_quality = analysis.get("fvg_quality", 0.0)
-    if analysis.get("fvg") and fvg_quality >= FVG_QUALITY_MIN:
-        score += 8
-        breakdown["fvg"] = 8
+    # Quality scoring for FVG/OB (missing quality should not zero-out the score).
+    fvg_present = bool(analysis.get("fvg"))
+    if fvg_present:
+        raw_quality = analysis.get("fvg_quality", None)
+        if raw_quality is None:
+            fvg_points = 8
+        else:
+            q = _clamp(raw_quality, default=0.0)
+            fvg_points = 8 if q >= FVG_QUALITY_MIN else 5 if q >= 0.4 else 2
+        score += fvg_points
+        breakdown["fvg"] = fvg_points
+    else:
+        breakdown["fvg"] = 0
 
-    ob_quality = analysis.get("order_block_quality", 0.0)
-    if analysis.get("order_block") and ob_quality >= OB_QUALITY_MIN:
-        score += 8
-        breakdown["order_block"] = 8
+    ob_present = bool(analysis.get("order_block"))
+    if ob_present:
+        raw_quality = analysis.get("order_block_quality", None)
+        if raw_quality is None:
+            ob_points = 8
+        else:
+            q = _clamp(raw_quality, default=0.0)
+            ob_points = 8 if q >= OB_QUALITY_MIN else 5 if q >= 0.5 else 2
+        score += ob_points
+        breakdown["order_block"] = ob_points
+    else:
+        breakdown["order_block"] = 0
 
     # 🔴 5. PRICE ACTION
     if context.get("price_action"):
@@ -963,12 +1000,12 @@ def get_cis_score(symbol: str, direction: str, analysis: dict, context: dict, ra
         breakdown["price_action"] = 2
 
     # 🔴 6. SMT DIVERGENCE
-    smt_score = context.get("smt", 0.5)
+    smt_score = _clamp(context.get("smt", 0.5), default=0.5)
     score += smt_score * 10
     breakdown["smt"] = round(smt_score * 10, 2)
 
     # 🔴 7. MARKET CONDITION (VOLATILITY)
-    volatility = context.get("volatility_index", 0.5)
+    volatility = _clamp(context.get("volatility_index", 0.5), default=0.5)
     score += volatility * 8
     breakdown["volatility"] = round(volatility * 8, 2)
 
@@ -981,7 +1018,7 @@ def get_cis_score(symbol: str, direction: str, analysis: dict, context: dict, ra
         breakdown["session"] = 2
 
     # 🔴 9. CORRELATION RISK (PENALTY)
-    correlation_risk = context.get("correlation_risk", 0.0)
+    correlation_risk = _clamp(context.get("correlation_risk", 0.0), default=0.0)
     penalty = correlation_risk * 10
     score -= penalty
     breakdown["correlation_penalty"] = -round(penalty, 2)
@@ -1024,11 +1061,11 @@ def get_cis_score(symbol: str, direction: str, analysis: dict, context: dict, ra
 
 def cis_decision(score):
     """New execution decision based on score"""
-    if score >= 80: # Audit Fix: Selective Execution
+    if score >= 75:
         return "EXECUTE_FULL"
-    elif score >= 65:
+    elif score >= 60:
         return "EXECUTE_PARTIAL"
-    elif score >= 55:
+    elif score >= 50:
         return "SCALP"
     else:
         return "SKIP"
@@ -1050,51 +1087,137 @@ def get_cis_decision(
     Maintained for backward compatibility
     """
     try:
-        # Build analysis dict from parameters
-        analysis = {
-            "bos": multi_tf_analysis.get("bos", False) if multi_tf_analysis else False,
-            "trend": multi_tf_analysis.get("trend", "").lower() if multi_tf_analysis else "",
-            "liquidity_sweep": multi_tf_analysis.get("liquidity_sweep", False) if multi_tf_analysis else False,
-            "displacement": multi_tf_analysis.get("displacement", 0.0) if multi_tf_analysis else 0.0,
-            "fvg": multi_tf_analysis.get("fvg", False) if multi_tf_analysis else False,
-            "order_block": multi_tf_analysis.get("order_block", False) if multi_tf_analysis else False,
+        direction_label = _normalize_direction(direction)
+
+        analysis_full = multi_tf_analysis
+        effective_price = entry_price or (analysis_full or {}).get("price")
+        if effective_price is None:
+            try:
+                tick = mt5.symbol_info_tick(symbol)
+                if tick is not None and getattr(tick, "ask", None) is not None and getattr(tick, "bid", None) is not None:
+                    effective_price = (float(tick.ask) + float(tick.bid)) / 2.0
+            except Exception:
+                effective_price = None
+
+        if analysis_full is None:
+            try:
+                analysis_full = analyze_market_top_down(symbol, float(effective_price or 0.0))
+            except Exception:
+                analysis_full = {}
+
+        trend = (analysis_full or {}).get("overall_trend") or (analysis_full or {}).get("trend") or ""
+
+        try:
+            liquidity_state = liquidity_sweep_or_swing(float(effective_price or 0.0), analysis_full, direction_label)
+        except Exception:
+            liquidity_state = {"confirmed": False, "displacement_score": 0.0}
+
+        try:
+            bos_state = bos_setup(analysis_full, trend or direction_label)
+        except Exception:
+            bos_state = {"confirmed": False}
+
+        try:
+            price_action_state = price_action_setup(analysis_full, trend or direction_label)
+        except Exception:
+            price_action_state = {"confirmed": False}
+
+        execution_data = (analysis_full or {}).get("EXECUTION") or {}
+        ltf_data_local = (analysis_full or {}).get("LTF") or {}
+        mtf_data_local = (analysis_full or {}).get("MTF") or {}
+
+        fvgs = execution_data.get("fvgs") or ltf_data_local.get("fvgs") or mtf_data_local.get("fvgs") or []
+        order_blocks = mtf_data_local.get("order_blocks") or ltf_data_local.get("order_blocks") or []
+
+        def _max_quality(records):
+            try:
+                return max(
+                    (float(item.get("quality", 0.0) or 0.0) for item in records if isinstance(item, dict)),
+                    default=None,
+                )
+            except Exception:
+                return None
+
+        analysis_for_score = {
+            "bos": bool((bos_state or {}).get("confirmed")),
+            "trend": trend,
+            "liquidity_sweep": bool((liquidity_state or {}).get("confirmed")),
+            "displacement": float((liquidity_state or {}).get("displacement_score", 0.0) or 0.0),
+            "fvg": bool(fvgs),
+            "order_block": bool(order_blocks),
+            "fvg_quality": _max_quality(fvgs),
+            "order_block_quality": _max_quality(order_blocks),
         }
 
-        # Build context dict
+        session_active = bool(in_london_session() or in_newyork_session() or in_asia_session())
+        vol_data = load_volatility_analysis().get(_symbol_key(symbol), {})
+        volatility_index = float(vol_data.get("volatility_index", 0.5) or 0.5)
+        correlation_risk = float(get_pair_correlation_risk(symbol) or 0.0)
+        smt_score = float(check_smt_divergence(symbol, direction_label) or 0.5)
+        news_impact = check_for_high_impact_news(symbol)
+
+        rr_ratio = 2.0
+        if entry_price and stop_loss and take_profit:
+            try:
+                rr_ratio = float(calculate_risk_reward_for_trade(entry_price, stop_loss, take_profit) or 0.0)
+            except Exception:
+                rr_ratio = 2.0
+
         context = {
-            "price_action": True,  # Assume confirmed for legacy compatibility
-            "smt": 0.5,  # Default
-            "volatility_index": 0.5,  # Default
-            "session_active": True,  # Default
-            "correlation_risk": 0.0,  # Default
-            "news": "none",  # Default
-            "market_rhythm": {"favorable": True},  # Default
-            "rr": 2.0,  # Default
+            "price_action": bool((price_action_state or {}).get("confirmed")),
+            "smt": smt_score,
+            "volatility_index": volatility_index,
+            "session_active": session_active,
+            "correlation_risk": correlation_risk,
+            "news": news_impact,
+            "market_rhythm": (analysis_full or {}).get("market_rhythm") or {},
+            "rr": rr_ratio,
         }
 
-        # Get new score
-        score, breakdown = get_cis_score(symbol, direction, analysis, context)
-        decision = cis_decision(score)
+        score, breakdown = get_cis_score(symbol, direction_label, analysis_for_score, context)
+        execution_decision = cis_decision(score)
+        final_verdict = "TRADE" if execution_decision != "SKIP" else "AVOID"
 
-        # Convert to legacy format for backward compatibility
-        final_verdict = "TRADE" if decision in ["EXECUTE_FULL", "EXECUTE_PARTIAL", "SCALP"] else "AVOID"
+        setup_points = (
+            float(breakdown.get("bos", 0) or 0)
+            + float(breakdown.get("liquidity", 0) or 0)
+            + float(breakdown.get("displacement", 0) or 0)
+            + float(breakdown.get("fvg", 0) or 0)
+            + float(breakdown.get("order_block", 0) or 0)
+            + float(breakdown.get("price_action", 0) or 0)
+        )
+        setup_quality = max(0.0, min(1.0, setup_points / 64.0))
+
+        timing_score = 0.9 if session_active else 0.6
+        if str(news_impact or "").lower() == "high":
+            timing_score = min(timing_score, 0.2)
+        elif str(news_impact or "").lower() == "medium":
+            timing_score = min(timing_score, 0.5)
+
+        try:
+            sequence_data = evaluate_ict_sequence(symbol, direction_label, analysis_full, float(effective_price or 0.0))
+        except Exception:
+            sequence_data = {}
 
         return {
             "symbol": symbol,
-            "direction": direction,
+            "direction": direction_label,
             "final_verdict": final_verdict,
-            "confidence_score": score / 100.0,  # Convert to 0-1 scale
+            "confidence_score": score / 100.0,
+            "history_count": 0,
             "component_scores": {
-                "setup_quality": score / 100.0,
-                "market_condition": 0.5,
-                "risk_profile": 0.5,
-                "timing": 0.5,
+                "setup_quality": round(setup_quality, 3),
+                "market_condition": float(volatility_index) if volatility_index is not None else 0.5,
+                "risk_profile": max(0.0, min(1.0, 1.0 - (correlation_risk * 0.5))),
+                "timing": round(timing_score, 3),
             },
-            "reasoning": [f"Score: {score}, Decision: {decision}"],
+            "reasoning": [f"Score: {score:.1f}, Decision: {execution_decision}"],
             "red_flags": [],
             "entry_checklist": [],
-            "decision_id": f"{symbol}_{direction}_{int(time.time())}",
+            "ict_sequence": sequence_data,
+            "decision_id": f"{symbol}_{direction_label}_{int(time.time())}",
             "unified_score": score,
+            "execution_decision": execution_decision,
             "breakdown": breakdown,
         }
 
