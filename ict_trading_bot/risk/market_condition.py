@@ -23,7 +23,12 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+except Exception as e:
+    mt5 = None
+    _MT5_IMPORT_ERROR = e
+
 from utils.persistent_json import save_json_file
 from utils.symbol_profile import canonical_symbol
 
@@ -58,15 +63,18 @@ def save_volatility_analysis(analysis: dict):
 def calculate_atr(symbol: str, timeframe: str, periods: int = 14) -> Optional[float]:
     """
     Calculate Average True Range for a symbol.
-    
+
     Args:
         symbol: Trading pair (e.g., "EURUSD")
         timeframe: Timeframe string (e.g., "H1", "M15", "D1")
         periods: ATR period (default 14)
-    
+
     Returns:
         ATR value or None if fetch failed
     """
+    if mt5 is None:
+        return None
+
     try:
         tf_map = {
             "M5": mt5.TIMEFRAME_M5,
@@ -104,7 +112,7 @@ def calculate_atr(symbol: str, timeframe: str, periods: int = 14) -> Optional[fl
 def analyze_market_condition_per_pair(symbol: str, timeframe: str = "H1") -> Dict:
     """
     Comprehensive market condition analysis for a single pair.
-    
+
     Returns:
         {
             "symbol": "EURUSD",
@@ -123,6 +131,24 @@ def analyze_market_condition_per_pair(symbol: str, timeframe: str = "H1") -> Dic
             "trades_should_avoid_in_last_hours": 2,  # Hours to avoid this pair if highly volatile
         }
     """
+    if mt5 is None:
+        return {
+            "symbol": symbol,
+            "analyzed_at": datetime.utcnow().isoformat(),
+            "volatility_index": 0.5,
+            "market_condition": "unknown",
+            "atr": 0.0,
+            "atr_percent": 0.0,
+            "recent_range": 0.0,
+            "recent_range_percent": 0.0,
+            "consolidation_strength": 0.0,
+            "volatility_trend": "unknown",
+            "opportunity_type": "unknown",
+            "position_size_adjustment": 0.8,
+            "confidence_adjustment": 0.0,
+            "trades_should_avoid_in_last_hours": 0,
+        }
+
     try:
         # Fetch rates
         tf_map = {

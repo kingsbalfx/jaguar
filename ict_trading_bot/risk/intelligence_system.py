@@ -46,7 +46,12 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple, List
 import time
 
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+except Exception as e:
+    mt5 = None
+    _MT5_IMPORT_ERROR = e
+
 from utils.persistent_json import load_json_file, update_json_file
 from risk.news_filter import check_for_high_impact_news
 

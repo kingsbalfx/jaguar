@@ -7,7 +7,11 @@ import logging
 from datetime import datetime
 from typing import Dict, Tuple
 
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+except Exception as e:
+    mt5 = None
+    _MT5_IMPORT_ERROR = e
 
 from risk.intelligence_system import get_cis_decision
 from risk.market_condition import should_trade_pair_based_on_volatility
@@ -41,6 +45,9 @@ class PreTradeValidator:
 
     def _check_broker_connection(self) -> bool:
         try:
+            if mt5 is None:
+                self._check("Broker Connection", False, "MT5 package not available")
+                return False
             if not mt5.initialize():
                 mt5.initialize()
             tick = mt5.symbol_info_tick("EURUSD")

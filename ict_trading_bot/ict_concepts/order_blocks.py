@@ -118,7 +118,8 @@ def detect_order_blocks(df, structure_points):
 
 
 def detect_htf_order_blocks(symbol, timeframe, bars=500):
-    _require_mt5()
+    if mt5 is None:
+        return []
     tf = _tf_to_mt5(timeframe)
     rates = mt5.copy_rates_from_pos(symbol, tf, 0, bars)
     if rates is None or len(rates) == 0:
@@ -138,7 +139,8 @@ def detect_htf_order_blocks(symbol, timeframe, bars=500):
 
 
 def _tf_to_mt5(tf):
-    _require_mt5()
+    if mt5 is None:
+        return None
     mapping = {
         "M1": mt5.TIMEFRAME_M1,
         "M5": mt5.TIMEFRAME_M5,

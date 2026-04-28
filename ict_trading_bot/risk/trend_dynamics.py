@@ -82,7 +82,7 @@ class TrendDynamicsAnalyzer:
         # Check if price is in the 62%-79% retracement zone of the recent swing
         if direction == "buy" and 0.2 < position_percent < 0.4:
             dynamics_score = max(dynamics_score, 0.8) # Strong Swing Pullback
-        elif direction == "sell" and 0.6 > position_percent > 0.8:
+        elif direction == "sell" and 0.6 < position_percent < 0.8:
             dynamics_score = max(dynamics_score, 0.8)
 
         return {

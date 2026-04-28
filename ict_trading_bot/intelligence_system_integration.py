@@ -25,7 +25,11 @@ import logging
 from typing import Dict, Optional, Tuple
 from datetime import datetime
 
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+except Exception as e:
+    mt5 = None
+    _MT5_IMPORT_ERROR = e
 
 from risk.intelligence_system import (
     get_cis_decision,
@@ -194,6 +198,10 @@ class TradeDecisionEngine:
             Order result or None if failed
         """
         try:
+            if mt5 is None:
+                logger.error(f"[ENGINE] MT5 unavailable, cannot execute live trade: {symbol}")
+                return None
+
             # Use provided decision or evaluate now
             if decision is None:
                 decision = self.evaluate_trade(

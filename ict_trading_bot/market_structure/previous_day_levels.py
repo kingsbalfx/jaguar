@@ -19,7 +19,35 @@ Key Features:
 - Provides liquidity map for the day
 """
 
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+except Exception as e:
+    _MT5_IMPORT_ERROR = e
+
+    class _MT5Stub:
+        TIMEFRAME_D1 = 1440
+        TIMEFRAME_H1 = 60
+
+        def initialize(self):
+            return False
+
+        def shutdown(self):
+            return None
+
+        def copy_rates_range(self, *args, **kwargs):
+            return None
+
+        def copy_rates_from_pos(self, *args, **kwargs):
+            return None
+
+        def symbol_info_tick(self, *args, **kwargs):
+            return None
+
+        def symbol_info(self, *args, **kwargs):
+            return None
+
+    mt5 = _MT5Stub()
+
 from datetime import datetime, timedelta
 import numpy as np
 from typing import Dict, Tuple, Optional

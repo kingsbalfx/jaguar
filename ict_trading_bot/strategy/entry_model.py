@@ -8,12 +8,15 @@ from utils.symbol_profile import get_entry_profile, infer_asset_class
 def execute_decision(score):
     """
     Final execution threshold gate based on Unified Score.
+
+    `hybrid_entry_model` produces a 0-100 score, so the execution bands must
+    also use 0-100 thresholds.
     """
-    if score >= 8:
+    if score >= 85:
         return "EXECUTE_FULL"
-    elif score >= 6:
+    elif score >= 70:
         return "EXECUTE_PARTIAL"
-    elif score >= 5:
+    elif score >= 55:
         return "WATCH"
     else:
         return "SKIP"
@@ -569,8 +572,15 @@ def hybrid_entry_model(data):
     print(f"[PENALTIES] trend:{trend_strength_penalty:.1f} liq:{liquidity_penalty:.1f} bos:{bos_penalty:.1f} zone:{zone_penalty:.1f} double:{double_conf_penalty:.1f} rsi:{rsi_penalty:.1f}")
     print(f"[BREAKDOWN] {breakdown}")
 
-    # Remove hard SKIP/WATCH rejection - allow all decisions to proceed with adjusted confidence
-    risk_multiplier = 0.3 if decision == "EXECUTE_PARTIAL" else 0.6 if final_score < 5.0 else 1.0
+    # Scale risk based on the execution band instead of the raw score band.
+    if decision == "EXECUTE_FULL":
+        risk_multiplier = 1.0
+    elif decision == "EXECUTE_PARTIAL":
+        risk_multiplier = 0.7
+    elif decision == "WATCH":
+        risk_multiplier = 0.4
+    else:
+        risk_multiplier = 0.0
 
     sl = _dynamic_stop_loss(data, trend, price)
 
@@ -579,7 +589,7 @@ def hybrid_entry_model(data):
         "direction": "buy" if trend == "bullish" else "sell",
         "price": price,
         "confidence_score": final_score,
-        "confidence_grade": "A+" if final_score >= 8 else "A" if final_score >= 6 else "B" if final_score >= 4 else "C",
+        "confidence_grade": "A+" if final_score >= 85 else "A" if final_score >= 70 else "B" if final_score >= 55 else "C",
         "sl": sl,
         "fvg": fvg,
         "htf_ob": ob,

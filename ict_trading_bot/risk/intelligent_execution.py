@@ -1184,18 +1184,17 @@ def record_skip_detailed(reason: str, symbol: str, confidence: float = 0.0, anal
 
 def get_risk_percentage(score: float) -> float:
     """
-    Maps unified score (0-10) to account risk percentage.
-    Implementation from Institutional Audit.
+    Maps unified score (0-100) to account risk percentage.
     """
-    if score >= 9:
+    if score >= 90:
         return 0.02      # 2% (A+ sniper trades)
-    elif score >= 8:
+    elif score >= 80:
         return 0.015     # 1.5%
-    elif score >= 7:
+    elif score >= 70:
         return 0.01      # 1%
-    elif score >= 6:
+    elif score >= 60:
         return 0.007     # 0.7%
-    elif score >= 5:
+    elif score >= 50:
         return 0.005     # 0.5%
     else:
         return 0.0       # no trade

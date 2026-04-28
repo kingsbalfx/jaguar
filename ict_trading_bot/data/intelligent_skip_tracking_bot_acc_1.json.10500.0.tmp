@@ -31719,11 +31719,12 @@
   "GBPAUD": {
     "symbol": "GBPAUD",
     "asset_class": "forex",
-    "total_skips": 48,
+    "total_skips": 49,
     "skip_reasons": {
       "liquidity_setup": 17,
       "price_action": 14,
-      "hybrid_reject": 17
+      "hybrid_reject": 17,
+      "price_unavailable": 1
     },
     "skip_samples": [
       {
@@ -32157,9 +32158,18 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-04-28T07:35:33.152436",
+        "symbol": "GBPAUD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-04-28T07:34:58.125692",
+    "last_skip": "2026-04-28T07:35:33.152436",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -32213,6 +32223,9 @@
         0.0,
         0.06,
         0.04,
+        0.0
+      ],
+      "price_unavailable": [
         0.0
       ]
     }
