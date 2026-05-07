@@ -434,13 +434,14 @@ def calculate_setup_quality_score(
         entry_price = entry_price or analysis.get("price", 0.0)
         fib_levels = mtf_data.get("fib", {}) or analysis.get("MTF", {}).get("fib", {})
 
+        # CRITICAL FIX: Don't hard reject on PD zone - score lower instead
         if not is_premium_discount_optimal(entry_price, fib_levels, htf_trend):
-            details["pd_zone"] = 0.2
-            details["notes"].append("Price is not in a strong premium/discount entry zone.")
-            return 0.2, details
-
-        details["pd_zone"] = 1.0
-        details["notes"].append("Premium/Discount entry zone confirmed.")
+            details["pd_zone"] = 0.5  # Raised from 0.2 - allow progression with other confirmations
+            details["notes"].append("Price outside optimal PD zone - requires additional confirmation.")
+            # Don't return immediately - continue scoring with penalty applied
+        else:
+            details["pd_zone"] = 1.0
+            details["notes"].append("Premium/Discount entry zone confirmed.")
 
         structure = bos_setup(analysis, direction_lower)
         details["structure_confirmation"] = 1.0 if structure.get("confirmed") else 0.0
@@ -478,9 +479,15 @@ def calculate_setup_quality_score(
             details["notes"].append("Standalone ICT sequence approval is satisfied.")
         else:
             details["notes"].append("Standalone ICT sequence approval is not fully satisfied.")
-            if details["sequence_score"] < 0.60:
+            # CRITICAL FIX: Graduated approach instead of hard rejection
+            if details["sequence_score"] >= 0.67:  # 4/6 confirmations
+                details["notes"].append("Strong setup: 4/6 ICT confirmations present.")
+            elif details["sequence_score"] >= 0.50:  # 3/6 confirmations
+                details["notes"].append("Moderate setup: 3/6 ICT confirmations - proceeding with caution.")
+                # Continue scoring with lower confidence instead of rejecting
+            elif details["sequence_score"] < 0.50:  # Less than 3/6
                 details["notes"].append("ICT sequence incomplete – using conservative setup quality.")
-                return 0.35, details
+                return 0.35, details  # Only reject if truly weak
 
         rsi_val = mtf_data.get("rsi", mtf_data.get("rsi_value", 50))
         try:
@@ -587,18 +594,20 @@ def calculate_setup_quality_score(
         details["pattern_strength"] = confirmations.get("m5_rating", 0.5)
         details["micro_entry_precision"] = confirmations.get("m1_rating", 0.5)
 
+        # SMT DIVERGENCE IS NOW PRIMARY FILTER (30% weight)
+        # Rebalanced to prioritize ICT smart money concepts
         score = (
-            details["weekly_structure"] * 0.05 +
-            details["h4_brief"] * 0.05 +
-            details["entry_setup"] * 0.12 +
-            details["mid_term_confirmation"] * 0.12 +
-            details["imbalance_quality"] * 0.12 +
-            details["market_dynamics"] * 0.18 +
-            details["sequence_score"] * 0.15 +
-            details["smt_divergence"] * 0.06 +
-            details["rsi_alignment"] * 0.07 +
-            details["volatility_quality"] * 0.05 +
-            details["judas_swing_context"] * 0.03
+            details["smt_divergence"] * 0.30 +  # PRIMARY - Smart Money Divergence
+            details["sequence_score"] * 0.20 +  # ICT sequence (Liq+BOS+FVG)
+            details["market_dynamics"] * 0.15 +  # Market structure
+            details["entry_setup"] * 0.10 +     # H1 entry quality
+            details["mid_term_confirmation"] * 0.08 +  # M15 confirmation
+            details["imbalance_quality"] * 0.08 +  # FVG quality
+            details["rsi_alignment"] * 0.04 +   # Trend support
+            details["weekly_structure"] * 0.02 +  # HTF context
+            details["h4_brief"] * 0.02 +        # H4 structure
+            details["volatility_quality"] * 0.01 +
+            details["judas_swing_context"] * 0.00  # Removed - redundant with SMT
         )
 
         if score < 0.5:
@@ -823,11 +832,18 @@ def calculate_timing_score(symbol: str, timeframe: str) -> Tuple[float, Dict]:
         is_london = in_london_session()
         is_ny = in_newyork_session()
         
-        # Requirement: "intelligence should only follow this" (London or NY)
+        # CRITICAL FIX: Allow trading outside London/NY with reduced scores (not hard block)
         if not (is_london or is_ny):
-            details["session_alignment"] = 0.0
-            details["notes"].append("Non-Killzone Session: Intelligence blocks execution outside London/NY.")
-            return 0.0, details
+            if in_asia_session():
+                details["session_alignment"] = 0.65  # 65% score for Asia session
+                details["notes"].append("Asia Session: Reduced liquidity but tradeable for crypto/metals.")
+            else:
+                details["session_alignment"] = 0.50  # 50% score for off-hours
+                details["notes"].append("Off-Session: Proceed with higher confirmation requirements.")
+            # Continue scoring instead of returning 0.0 (removed hard block)
+        else:
+            # London or NY session - proceed normally
+            pass
 
         is_overlap = is_london and is_ny
         is_london_kz = 7 <= hour < 10
@@ -1065,12 +1081,12 @@ def get_cis_score(symbol: str, direction: str, analysis: dict, context: dict, ra
 
 
 def cis_decision(score):
-    """New execution decision based on score"""
-    if score >= 75:
+    """New execution decision based on score - CRITICAL FIX: Lowered thresholds"""
+    if score >= 70:  # Reduced from 75 - allow more elite trades
         return "EXECUTE_FULL"
-    elif score >= 60:
+    elif score >= 55:  # Reduced from 60 - more partial executions
         return "EXECUTE_PARTIAL"
-    elif score >= 50:
+    elif score >= 45:  # Reduced from 50 - more scalp opportunities
         return "SCALP"
     else:
         return "SKIP"

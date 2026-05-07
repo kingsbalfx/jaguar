@@ -65,18 +65,21 @@ def _hour(dt=None):
 
 
 def in_london_session(dt=None):
+    """STRICT London Kill Zone: 07:00-10:00 UTC (3-hour window)"""
     hour = _hour(dt)
-    return 7 <= hour < 12
+    return 7 <= hour < 10  # Strict Kill Zone only
 
 
 def in_newyork_session(dt=None):
+    """STRICT New York Kill Zone: 12:00-15:00 UTC (3-hour window)"""
     hour = _hour(dt)
-    return 12 <= hour < 17
+    return 12 <= hour < 15  # Strict Kill Zone only
 
 
 def in_asia_session(dt=None):
+    """Asia session for reference only - NOT primary trading window"""
     hour = _hour(dt)
-    return hour >= 22 or hour < 6
+    return hour >= 22 or hour < 7
 
 
 def session_name(dt=None):

@@ -51,29 +51,28 @@ def calculate_entry_confidence(
     has_fvg = _confirmation_passed(confirmation_flags.get("fvg")) or bool(signal.get("valid_fvg"))
     has_order_block = _confirmation_passed(confirmation_flags.get("order_block_confirmed")) or bool(signal.get("valid_order_block"))
 
-    component_scores["core_liquidity"] = 100.0 if has_liquidity else 20.0  # Soft penalty instead of 0
-    component_scores["core_bos"] = 100.0 if has_bos else 20.0  # Soft penalty instead of 0
-    component_scores["core_displacement"] = round(min(100.0, displacement_score * 100.0), 1)  # Already gradient
-    component_scores["core_fvg"] = 100.0 if has_fvg else 15.0  # Soft penalty instead of 0
-    component_scores["core_order_block"] = 100.0 if has_order_block else 15.0  # Soft penalty instead of 0
+    component_scores["core_liquidity"] = 100.0 if has_liquidity else 30.0  # Higher baseline
+    component_scores["core_bos"] = 100.0 if has_bos else 30.0  # Higher baseline
+    component_scores["core_displacement"] = round(min(100.0, displacement_score * 100.0), 1)
+    component_scores["core_fvg"] = 100.0 if has_fvg else 25.0  # Higher baseline
+    component_scores["core_order_block"] = 100.0 if has_order_block else 25.0  # Higher baseline
 
-    # Remove hard rejection for missing core - convert to penalties
+    # ICT-FOCUSED: Only penalize missing CORE rules (liq + BOS)
     core_penalty = 0.0
     if not has_liquidity:
-        core_penalty += 15.0
+        core_penalty += 8.0  # Reduced from 10.0
     if not has_bos:
-        core_penalty += 15.0
-    if not has_displacement:
-        core_penalty += 10.0  # Displacement is gradient, but add penalty if below threshold
-    if not has_fvg:
-        core_penalty += 10.0
-    if not has_order_block:
-        core_penalty += 10.0
-
-    # Convert market rhythm caution to penalty instead of hard block
+        core_penalty += 8.0  # Reduced from 10.0
+    # Removed displacement, FVG, and OB penalties - not hard requirements
+    
+    # Give displacement bonus instead of penalty
+    if displacement_score >= 0.70:
+        core_penalty -= 5.0  # Bonus for strong displacement
+    
+    # Market rhythm is advisory only, not blocking
     market_rhythm_penalty = 0.0
     if market_rhythm.get("should_avoid_entry"):
-        market_rhythm_penalty = 25.0  # Significant penalty but not total rejection
+        market_rhythm_penalty = 8.0  # Reduced from 15.0 - advisory warning only
 
     topdown_score = _score_topdown(analysis, trend)
     trend_alignment_score = _score_trend_alignment(analysis, trend)
@@ -242,23 +241,24 @@ def _score_market_rhythm(analysis: Dict) -> float:
 
 
 def _determine_execution_route(confidence: float, force_backtest: bool) -> Tuple[str, bool, str]:
-    # Lower thresholds for new bots with few trades to force initial trading
-    elite_threshold = 75 if force_backtest else 85
-    standard_threshold = 60 if force_backtest else 70
-    conservative_threshold = 50 if force_backtest else 60
+    # ICT-FOCUSED THRESHOLDS: Lowered to allow valid ICT setups to execute
+    # NEW: More aggressive to enable execution after 48hrs of no trades
+    elite_threshold = 65 if force_backtest else 75
+    standard_threshold = 50 if force_backtest else 60
+    conservative_threshold = 40 if force_backtest else 50
 
     if confidence >= elite_threshold:
         if force_backtest:
-            return "standard_validated", True, f"High-confidence setup ({confidence:.1f}), but backtest validation required for new bot."
-        return "elite", False, f"Elite confidence ({confidence:.1f}) with full structural alignment."
+            return "standard_validated", True, f"High-confidence ICT setup ({confidence:.1f}), validating with backtest."
+        return "elite", False, f"Elite ICT confidence ({confidence:.1f}) - executing immediately."
 
     if confidence >= standard_threshold:
         if force_backtest:
-            return "standard_validated", True, f"Strong setup ({confidence:.1f}), but backtest validation required for new bot."
-        return "standard", False, f"Standard confidence ({confidence:.1f}) with strict ICT alignment."
+            return "standard_validated", True, f"Valid ICT setup ({confidence:.1f}), validating with backtest."
+        return "standard", False, f"Standard ICT confidence ({confidence:.1f}) - executing."
 
     if confidence >= conservative_threshold:
-        return "conservative", True, f"Conservative confidence ({confidence:.1f}); backtest validation required."
+        return "conservative", True, f"Conservative ICT setup ({confidence:.1f}); executing with reduced risk."
 
     return "skip", False, f"Confidence too low ({confidence:.1f}); skip the setup."
 

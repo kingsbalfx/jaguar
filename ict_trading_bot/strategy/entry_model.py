@@ -554,15 +554,30 @@ def hybrid_entry_model(data):
 
     base_score, breakdown = unified_score_engine(data, context)
 
-    # Apply all penalties
-    total_penalties = (
-        trend_strength_penalty +
-        liquidity_penalty +
-        bos_penalty +
-        zone_penalty +
-        double_conf_penalty +
-        rsi_penalty
-    )
+    # ICT-FIRST EXECUTION: Minimal penalties to allow valid ICT setups
+    # Only penalize when ICT CORE rules are completely missing
+    critical_penalties = 0.0
+    if not data.get("liquidity_sweep"):
+        critical_penalties += 15.0  # Reduced from 25.0
+    if not data.get("bos"):
+        critical_penalties += 15.0  # Reduced from 25.0
+    
+    # Displacement bonus instead of penalty
+    displacement_value = float(data.get("displacement", 0.0) or 0.0)
+    displacement_bonus = 0.0
+    if displacement_value >= 0.70:
+        displacement_bonus = 10.0
+    elif displacement_value >= 0.50:
+        displacement_bonus = 5.0
+    
+    # Zone: mild penalty only if BOTH FVG and OB are missing
+    zone_penalty_adjusted = 0.0
+    if fvg_score < 20.0 and ob_score < 20.0:
+        zone_penalty_adjusted = 10.0  # Reduced from 40.0
+    
+    # Remove RSI and double confirmation penalties - not core ICT
+    total_penalties = critical_penalties + zone_penalty_adjusted + trend_strength_penalty - displacement_bonus
+    total_penalties = max(0.0, min(35.0, total_penalties))  # Cap at 35 (was 60)
 
     final_score = max(0.0, base_score - total_penalties)
 

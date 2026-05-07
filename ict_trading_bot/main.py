@@ -1310,6 +1310,38 @@ def build_hybrid_trade_decision(
     weighted_intelligence_pass = weighted_pass and intelligence_pass
     analysis_pass = classic_analysis["decision"]
 
+    # 🔴 ICT-FIRST OVERRIDE: Check if core ICT rules are satisfied
+    from strategy.ict_first_execution import should_override_with_ict_first
+    
+    ict_override = False
+    ict_override_details = {}
+    try:
+        # Build data dict for ICT check
+        ict_data = {
+            "liquidity_sweep": signal.get("liquidity_sweep") if signal else False,
+            "smt_divergence": confidence_data.get("smt_divergence", 0.0),
+            "smt_confirmed": confidence_data.get("smt_confirmed", False),
+            "bos": signal.get("bos") if signal else False,
+            "break_of_structure": confidence_data.get("bos", False),
+            "mss": confidence_data.get("mss", False),
+            "market_structure_shift": confidence_data.get("market_structure_shift", False),
+            "fvg": signal.get("fvg") if signal else None,
+            "fvgs": signal.get("fvgs") if signal else [],
+            "htf_ob": signal.get("htf_ob") if signal else None,
+            "htf_order_blocks": signal.get("htf_order_blocks") if signal else [],
+            "displacement": confidence_data.get("displacement", 0.0),
+        }
+        
+        ict_override, ict_override_details = should_override_with_ict_first(
+            data=ict_data,
+            symbol=symbol,
+            weighted_decision=weighted_route,
+            intelligence_decision="PASS" if intelligence_pass else "SKIP",
+            classic_decision=analysis_pass
+        )
+    except Exception as e:
+        logger.warning(f"ICT-first override check failed: {e}")
+
     intelligence_override = False
     intelligence_override_meta = {}
     if (
@@ -1334,7 +1366,15 @@ def build_hybrid_trade_decision(
         )
     )
 
-    if weighted_intelligence_pass and analysis_pass:
+    # 🔴 ICT-FIRST TAKES PRIORITY OVER ALL OTHER DECISIONS
+    if ict_override:
+        decision_source = "ict_first_override"
+        engine_agreement = "ict_rules_satisfied"
+        effective_execution_route = "ict_first"
+        backtest_required = False  # ICT rules met = direct execution
+        execute = True
+        skip_reason = None
+    elif weighted_intelligence_pass and analysis_pass:
         decision_source = "analysis_and_weighted_intelligence"
         engine_agreement = "both_passed"
         effective_execution_route = weighted_route
@@ -1380,6 +1420,9 @@ def build_hybrid_trade_decision(
         execute = False
 
     reasons = []
+    if ict_override:
+        reasons.append(f"ict_first_override(confidence=100%, {ict_override_details.get('reason', 'unknown')})")
+        reasons.append(f"ICT breakdown: {ict_override_details.get('breakdown', {})}")
     if weighted_intelligence_pass:
         reasons.append("weighted+intelligence approved")
     else:
@@ -1792,7 +1835,7 @@ while True:
             market_rhythm = analyze_market_rhythm(analysis, trend)
             analysis["market_rhythm"] = market_rhythm
 
-            if market_rhythm.get("should_avoid_entry") and not is_webhook_triggered:
+            if market_rhythm.get("should_avoid_entry") and not is_webhook_triggered and market_rhythm.get("entry_bias") == "avoid":
                 record_skip(
                     "market_rhythm_reversal",
                     original_symbol,
@@ -1812,7 +1855,7 @@ while True:
                     signature=build_market_rhythm_summary(market_rhythm),
                 )
                 continue
-            elif market_rhythm.get("should_avoid_entry") and is_webhook_triggered:
+            elif market_rhythm.get("should_avoid_entry") and is_webhook_triggered and market_rhythm.get("entry_bias") == "avoid":
                 bot_log(
                     "webhook_bypassed_rhythm",
                     f"[{original_symbol}] Webhook signal bypassed market rhythm block: {market_rhythm.get('summary')}",

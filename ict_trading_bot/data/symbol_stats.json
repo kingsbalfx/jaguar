@@ -49,7 +49,7 @@
     "avg_confidence": 0.0,
     "last_updated": null,
     "backtests_skipped": 119,
-    "backtests_required": 0
+    "backtests_required": 2
   },
   "SOLUSD": {
     "symbol": "SOLUSD",
@@ -88,7 +88,7 @@
     "avg_confidence": 0.0,
     "last_updated": null,
     "backtests_skipped": 800,
-    "backtests_required": 0
+    "backtests_required": 1
   },
   "CADJPY": {
     "symbol": "CADJPY",
@@ -391,5 +391,44 @@
     "last_updated": null,
     "backtests_skipped": 288,
     "backtests_required": 0
+  },
+  "GBPAUD": {
+    "symbol": "GBPAUD",
+    "asset_class": "forex",
+    "total_trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": 0.0,
+    "confidence_scores": [],
+    "avg_confidence": 0.0,
+    "last_updated": null,
+    "backtests_skipped": 0,
+    "backtests_required": 1
+  },
+  "CHFJPY": {
+    "symbol": "CHFJPY",
+    "asset_class": "forex",
+    "total_trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": 0.0,
+    "confidence_scores": [],
+    "avg_confidence": 0.0,
+    "last_updated": null,
+    "backtests_skipped": 0,
+    "backtests_required": 1
+  },
+  "USDSGD": {
+    "symbol": "USDSGD",
+    "asset_class": "forex",
+    "total_trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": 0.0,
+    "confidence_scores": [],
+    "avg_confidence": 0.0,
+    "last_updated": null,
+    "backtests_skipped": 0,
+    "backtests_required": 1
   }
 }
