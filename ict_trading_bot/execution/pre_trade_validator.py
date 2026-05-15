@@ -185,21 +185,20 @@ class PreTradeValidator:
                 self._check("CIS Approval", False, f"CIS verdict {verdict} (conf: {confidence:.2f})")
                 return False
 
-            required_steps = {
-                "market_structure": bool(sequence.get("market_structure")),
-                "liquidity_zones_identified": bool(sequence.get("liquidity_zones_identified")),
-                "liquidity_sweep_confirmed": bool(sequence.get("liquidity_sweep_confirmed")),
-                "displacement_confirmed": bool(sequence.get("displacement_confirmed")),
-                "fvg_or_ob": bool(sequence.get("fvg_or_ob")),
-                "retrace_to_fvg_or_zone": bool(sequence.get("retrace_to_fvg_or_zone")),
-            }
-            missing = [name for name, passed in required_steps.items() if not passed]
-            if missing:
-                self._check("CIS Approval", False, f"CIS sequence incomplete: {', '.join(missing)}")
+            # Use the new flexible approval logic based on timeframe alignment
+            standalone_approval = bool(sequence.get("standalone_approval", False))
+            timeframe_alignment = sequence.get("timeframe_alignment", "unknown")
+            flexible_mode = bool(sequence.get("flexible_mode", False))
+
+            if standalone_approval:
+                mode_desc = "FLEXIBLE (H4 aligned)" if flexible_mode else "STRICT (all conditions)"
+                self._check("CIS Approval", True, f"ICT sequence approved ({mode_desc}) - conf: {confidence:.2f}")
+                return True
+            else:
+                mode_desc = "FLEXIBLE (H4 aligned)" if flexible_mode else "STRICT (all conditions)"
+                self._check("CIS Approval", False, f"ICT sequence failed ({mode_desc}) - conf: {confidence:.2f}")
                 return False
 
-            self._check("CIS Approval", True, f"CIS TRADE (conf: {confidence:.2f}) with full ICT sequence")
-            return True
         except Exception as exc:
             self._check("CIS Approval", False, f"CIS check error: {exc}")
             return False

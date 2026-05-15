@@ -1311,12 +1311,17 @@ def build_hybrid_trade_decision(
     analysis_pass = classic_analysis["decision"]
 
     # 🔴 ICT-FIRST OVERRIDE: Check if core ICT rules are satisfied
-    from strategy.ict_first_execution import should_override_with_ict_first
+    from strategy.ict_first_execution import (
+        should_override_with_ict_first,
+        should_override_with_smt_only,
+    )
     
     ict_override = False
     ict_override_details = {}
+    smt_override = False
+    smt_override_details = {}
     try:
-        # Build data dict for ICT check
+        # Build data dict for ICT/SMT override check
         ict_data = {
             "liquidity_sweep": signal.get("liquidity_sweep") if signal else False,
             "smt_divergence": confidence_data.get("smt_divergence", 0.0),
@@ -1330,6 +1335,7 @@ def build_hybrid_trade_decision(
             "htf_ob": signal.get("htf_ob") if signal else None,
             "htf_order_blocks": signal.get("htf_order_blocks") if signal else [],
             "displacement": confidence_data.get("displacement", 0.0),
+            "trend_strength": confidence_data.get("trend_strength", 0.0),
         }
         
         ict_override, ict_override_details = should_override_with_ict_first(
@@ -1337,10 +1343,19 @@ def build_hybrid_trade_decision(
             symbol=symbol,
             weighted_decision=weighted_route,
             intelligence_decision="PASS" if intelligence_pass else "SKIP",
-            classic_decision=analysis_pass
+            classic_decision=analysis_pass,
         )
+
+        if not ict_override:
+            smt_override, smt_override_details = should_override_with_smt_only(
+                data=ict_data,
+                symbol=symbol,
+                weighted_decision=weighted_route,
+                intelligence_decision="PASS" if intelligence_pass else "SKIP",
+                classic_decision=analysis_pass,
+            )
     except Exception as e:
-        logger.warning(f"ICT-first override check failed: {e}")
+        logger.warning(f"ICT/SMT override check failed: {e}")
 
     intelligence_override = False
     intelligence_override_meta = {}
@@ -1372,6 +1387,13 @@ def build_hybrid_trade_decision(
         engine_agreement = "ict_rules_satisfied"
         effective_execution_route = "ict_first"
         backtest_required = False  # ICT rules met = direct execution
+        execute = True
+        skip_reason = None
+    elif smt_override:
+        decision_source = "smt_only_override"
+        engine_agreement = "smt_only_rules_satisfied"
+        effective_execution_route = "smt_only"
+        backtest_required = False
         execute = True
         skip_reason = None
     elif weighted_intelligence_pass and analysis_pass:
@@ -1423,6 +1445,9 @@ def build_hybrid_trade_decision(
     if ict_override:
         reasons.append(f"ict_first_override(confidence=100%, {ict_override_details.get('reason', 'unknown')})")
         reasons.append(f"ICT breakdown: {ict_override_details.get('breakdown', {})}")
+    elif smt_override:
+        reasons.append(f"smt_only_override(confidence=95%, {smt_override_details.get('reason', 'unknown')})")
+        reasons.append(f"SMT breakdown: {smt_override_details.get('breakdown', {})}")
     if weighted_intelligence_pass:
         reasons.append("weighted+intelligence approved")
     else:
@@ -1457,6 +1482,7 @@ def build_hybrid_trade_decision(
         "classic_analysis": classic_analysis,
         "intelligence_analysis": intelligence_analysis,
         "intelligence_override_meta": intelligence_override_meta,
+        "smt_override_details": smt_override_details,
         "reasons": reasons,
     }
 
@@ -1723,6 +1749,9 @@ while True:
             # ===================================
             # SKIP ENTIRELY FILTER (LEARNED FROM SKIP PATTERNS)
             # ===================================
+            # TEMPORARILY DISABLED to allow fresh execution after fixes
+            # TODO: Re-enable after 24-48 hours of successful trading
+            """
             should_skip_entirely, skip_reason = should_skip_symbol_entirely(original_symbol)
             if should_skip_entirely:
                 skip_diagnostics = get_symbol_skip_diagnostics(original_symbol)
@@ -1756,6 +1785,7 @@ while True:
                     signature=f"{skip_reason}|{top_reasons}|{skip_diagnostics.get('hard_block_skips', 0)}",
                 )
                 continue
+            """
 
             asset_class = infer_asset_class(original_symbol)
             if not asset_trading_open(asset_class):

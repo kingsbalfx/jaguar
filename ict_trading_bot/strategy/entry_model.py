@@ -7,16 +7,15 @@ from utils.symbol_profile import get_entry_profile, infer_asset_class
 
 def execute_decision(score):
     """
-    Final execution threshold gate based on Unified Score.
-
-    `hybrid_entry_model` produces a 0-100 score, so the execution bands must
-    also use 0-100 thresholds.
+    PURE ICT EXECUTION THRESHOLDS:
+    Lowered significantly to allow valid ICT setups to execute.
+    Pure ICT scoring focuses on: Liquidity + BOS + Displacement + Zone quality.
     """
-    if score >= 85:
+    if score >= 40:
         return "EXECUTE_FULL"
-    elif score >= 70:
+    elif score >= 30:
         return "EXECUTE_PARTIAL"
-    elif score >= 55:
+    elif score >= 20:
         return "WATCH"
     else:
         return "SKIP"
@@ -554,37 +553,70 @@ def hybrid_entry_model(data):
 
     base_score, breakdown = unified_score_engine(data, context)
 
-    # ICT-FIRST EXECUTION: Minimal penalties to allow valid ICT setups
-    # Only penalize when ICT CORE rules are completely missing
+    # PURE ICT EXECUTION: ULTRA-MINIMAL penalties
+    # Allow setups with ANY valid ICT structure element to execute
     critical_penalties = 0.0
     if not data.get("liquidity_sweep"):
-        critical_penalties += 15.0  # Reduced from 25.0
+        critical_penalties += 3.0  # REDUCED from 8.0 - NOT blocking anymore
     if not data.get("bos"):
-        critical_penalties += 15.0  # Reduced from 25.0
+        critical_penalties += 3.0  # REDUCED from 8.0 - NOT blocking anymore
     
-    # Displacement bonus instead of penalty
+    # Displacement bonus instead of penalty (INCREASED)
     displacement_value = float(data.get("displacement", 0.0) or 0.0)
     displacement_bonus = 0.0
     if displacement_value >= 0.70:
-        displacement_bonus = 10.0
+        displacement_bonus = 20.0  # INCREASED from 15.0
     elif displacement_value >= 0.50:
-        displacement_bonus = 5.0
+        displacement_bonus = 12.0  # INCREASED from 8.0
+    elif displacement_value >= 0.30:
+        displacement_bonus = 6.0   # INCREASED from 3.0
     
-    # Zone: mild penalty only if BOTH FVG and OB are missing
+    # NEW: RSI TREND BOOSTER (not penalty!)
+    rsi_boost = 0.0
+    rsi_value = float(data.get("rsi", 50) or 50)
+    if trend == "bullish" and rsi_value > 55:
+        rsi_boost = min(15.0, (rsi_value - 55) / 2.0)  # 0-15 points BOOST
+    elif trend == "bearish" and rsi_value < 45:
+        rsi_boost = min(15.0, (45 - rsi_value) / 2.0)  # 0-15 points BOOST
+    
+    # NEW: VOLUME BOOSTER
+    volume_boost_score = 0.0
+    candles = data.get("candles") or []
+    if len(candles) >= 10:
+        try:
+            recent_vols = [float(c.get("tick_volume", c.get("volume", 0)) or 0) for c in candles[-10:]]
+            avg_vol = sum(recent_vols) / len(recent_vols) if recent_vols else 1.0
+            current_vol = float(candles[-1].get("tick_volume", candles[-1].get("volume", 0)) or 0)
+            if avg_vol > 0 and current_vol > avg_vol * 1.2:
+                volume_boost_score = 10.0  # Strong volume confirmation BOOST
+        except Exception:
+            pass
+    
+    # Zone: minimal penalty only if BOTH FVG and OB are completely missing
     zone_penalty_adjusted = 0.0
-    if fvg_score < 20.0 and ob_score < 20.0:
-        zone_penalty_adjusted = 10.0  # Reduced from 40.0
+    if fvg_score < 10.0 and ob_score < 10.0:
+        zone_penalty_adjusted = 2.0  # REDUCED from 5.0
     
-    # Remove RSI and double confirmation penalties - not core ICT
-    total_penalties = critical_penalties + zone_penalty_adjusted + trend_strength_penalty - displacement_bonus
-    total_penalties = max(0.0, min(35.0, total_penalties))  # Cap at 35 (was 60)
+    # Reduce trend strength penalty impact (pure ICT can work in pullbacks)
+    trend_strength_penalty = trend_strength_penalty * 0.5  # Cut in half
+    
+    # Apply all BOOSTERS - Remove RSI and double confirmation penalties (not core ICT)
+    total_penalties = critical_penalties + zone_penalty_adjusted + trend_strength_penalty
+    total_penalties -= (displacement_bonus + rsi_boost + volume_boost_score)
+    total_penalties = max(0.0, min(35.0, total_penalties))  # Cap at 35 (was 25) - MORE ROOM FOR BONUSES
 
     final_score = max(0.0, base_score - total_penalties)
 
     decision = execute_decision(final_score)
 
-    print(f"[SCORE] {final_score:.2f} (base: {base_score:.2f}, penalties: {total_penalties:.2f}) → {decision}")
-    print(f"[PENALTIES] trend:{trend_strength_penalty:.1f} liq:{liquidity_penalty:.1f} bos:{bos_penalty:.1f} zone:{zone_penalty:.1f} double:{double_conf_penalty:.1f} rsi:{rsi_penalty:.1f}")
+    # PURE ICT: Show ACTUAL penalties being applied (matching code above)
+    actual_liq_penalty = 8.0 if not data.get("liquidity_sweep") else 0.0
+    actual_bos_penalty = 8.0 if not data.get("bos") else 0.0
+    actual_zone_penalty = 5.0 if (fvg_score < 10.0 and ob_score < 10.0) else 0.0
+    
+    print(f"[PURE ICT SCORE] {final_score:.2f} (base: {base_score:.2f}, penalties: {total_penalties:.2f}) → {decision}")
+    print(f"[ICT PENALTIES] liq:{actual_liq_penalty:.1f} bos:{actual_bos_penalty:.1f} zone:{actual_zone_penalty:.1f} trend:{trend_strength_penalty:.1f} disp_bonus:{displacement_bonus:.1f}")
+    print(f"[FVG/OB SCORES] fvg:{fvg_score:.1f} ob:{ob_score:.1f}")
     print(f"[BREAKDOWN] {breakdown}")
 
     # Scale risk based on the execution band instead of the raw score band.

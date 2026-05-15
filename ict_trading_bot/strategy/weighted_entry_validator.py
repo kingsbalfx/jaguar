@@ -60,9 +60,9 @@ def calculate_entry_confidence(
     # ICT-FOCUSED: Only penalize missing CORE rules (liq + BOS)
     core_penalty = 0.0
     if not has_liquidity:
-        core_penalty += 8.0  # Reduced from 10.0
+        core_penalty += 4.0  # REDUCED from 8.0 - Less blocking
     if not has_bos:
-        core_penalty += 8.0  # Reduced from 10.0
+        core_penalty += 4.0  # REDUCED from 8.0 - Less blocking
     # Removed displacement, FVG, and OB penalties - not hard requirements
     
     # Give displacement bonus instead of penalty
@@ -72,7 +72,7 @@ def calculate_entry_confidence(
     # Market rhythm is advisory only, not blocking
     market_rhythm_penalty = 0.0
     if market_rhythm.get("should_avoid_entry"):
-        market_rhythm_penalty = 8.0  # Reduced from 15.0 - advisory warning only
+        market_rhythm_penalty = 4.0  # REDUCED from 8.0 - Advisory warning only
 
     topdown_score = _score_topdown(analysis, trend)
     trend_alignment_score = _score_trend_alignment(analysis, trend)
@@ -241,11 +241,11 @@ def _score_market_rhythm(analysis: Dict) -> float:
 
 
 def _determine_execution_route(confidence: float, force_backtest: bool) -> Tuple[str, bool, str]:
-    # ICT-FOCUSED THRESHOLDS: Lowered to allow valid ICT setups to execute
-    # NEW: More aggressive to enable execution after 48hrs of no trades
-    elite_threshold = 65 if force_backtest else 75
-    standard_threshold = 50 if force_backtest else 60
-    conservative_threshold = 40 if force_backtest else 50
+    # ICT-FOCUSED THRESHOLDS: SIGNIFICANTLY REDUCED to unblock execution
+    # CRITICAL FIX: Reduced by 15 points to allow valid ICT setups through
+    elite_threshold = 50 if force_backtest else 60      # Was 65/75 - REDUCED by 15
+    standard_threshold = 35 if force_backtest else 45   # Was 50/60 - REDUCED by 15  
+    conservative_threshold = 25 if force_backtest else 35  # Was 40/50 - REDUCED by 15
 
     if confidence >= elite_threshold:
         if force_backtest:

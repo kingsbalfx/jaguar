@@ -278,9 +278,19 @@ def evaluate_ict_sequence(
     analysis: Dict,
     entry_price: float,
 ) -> Dict:
-    """AUDIT FIX: Enforce BOS and Strict Sweep Requirement."""
+    """
+    MODIFIED: Flexible approval based on timeframe alignment.
+    If H4 aligns with higher timeframes (24HR), pick ONE condition that aligns.
+    Otherwise maintain strict requirements.
+    """
     direction_label = _normalize_direction(direction)
     trend = (analysis or {}).get("overall_trend", "unknown")
+
+    # Check timeframe alignment
+    brief_context = (analysis or {}).get("brief_context", {})
+    context_alignment = brief_context.get("alignment", "unclear")
+    h4_aligned = context_alignment in ("aligned", "mixed")  # Allow mixed as partial alignment
+
     sequence = {
         "market_structure": False,
         "liquidity_zones_identified": False,
@@ -290,6 +300,8 @@ def evaluate_ict_sequence(
         "retrace_to_fvg_or_zone": False,
         "sequence_score": 0.0,
         "standalone_approval": False,
+        "timeframe_alignment": context_alignment,
+        "flexible_mode": h4_aligned,
         "steps": [],
     }
 
@@ -316,7 +328,7 @@ def evaluate_ict_sequence(
         f"Liquidity Sweep: {'PASS' if sequence['liquidity_sweep_confirmed'] else 'FAIL'}"
     )
 
-    # AUDIT: Mandatory BOS for entry
+    # AUDIT: Mandatory BOS for entry (always required)
     if not sequence["market_structure"]:
         sequence["steps"].append("CRITICAL: BOS Missing - Blocking Entry")
         sequence["standalone_approval"] = False
@@ -342,6 +354,46 @@ def evaluate_ict_sequence(
         f"Retrace: {'PASS' if sequence['retrace_to_fvg_or_zone'] else 'FAIL'}"
     )
 
+    # FLEXIBLE APPROVAL LOGIC
+    if h4_aligned:
+        # If H4 aligns with higher timeframes, pick ONE condition that aligns
+        key_conditions = [
+            sequence["liquidity_sweep_confirmed"],  # Liquidity spotted
+            sequence["fvg_or_ob"],                  # OB or FVG
+            # Price action check (need to add this)
+        ]
+
+        # Check for price action setup
+        price_action_state = price_action_setup(analysis, direction_label)
+        price_action_confirmed = bool((price_action_state or {}).get("confirmed"))
+        key_conditions.append(price_action_confirmed)
+
+        # If ANY key condition is met, approve
+        sequence["standalone_approval"] = any(key_conditions)
+        sequence["steps"].append(
+            f"Timeframe Aligned ({context_alignment}): ANY condition required - {'PASS' if sequence['standalone_approval'] else 'FAIL'}"
+        )
+        sequence["steps"].append(
+            f"Key conditions met: Liquidity={sequence['liquidity_sweep_confirmed']}, FVG/OB={sequence['fvg_or_ob']}, PriceAction={price_action_confirmed}"
+        )
+    else:
+        # Strict requirements when timeframes don't align
+        passed_steps = sum(
+            1 for key in [
+                "market_structure",
+                "liquidity_zones_identified",
+                "liquidity_sweep_confirmed",
+                "displacement_confirmed",
+                "fvg_or_ob",
+                "retrace_to_fvg_or_zone",
+            ]
+            if sequence.get(key)
+        )
+        sequence["standalone_approval"] = passed_steps == 6
+        sequence["steps"].append(
+            f"Timeframes NOT aligned: ALL conditions required - {'PASS' if sequence['standalone_approval'] else 'FAIL'}"
+        )
+
     passed_steps = sum(
         1 for key in [
             "market_structure",
@@ -354,10 +406,6 @@ def evaluate_ict_sequence(
         if sequence.get(key)
     )
     sequence["sequence_score"] = round(passed_steps / 6.0, 3)
-    sequence["standalone_approval"] = passed_steps == 6
-    sequence["steps"].append(
-        f"Standalone Approval: {'PASS' if sequence['standalone_approval'] else 'FAIL'}"
-    )
 
     return sequence
 

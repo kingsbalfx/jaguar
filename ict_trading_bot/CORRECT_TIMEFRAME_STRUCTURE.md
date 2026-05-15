@@ -236,7 +236,7 @@ Recent Swings:
 FVGs Found:
   - FVG #1: 1.3200-1.3205 (from previous sweep)
   - FVG #2: 1.3140-1.3145 (older gap)
-  
+    
 Order Blocks:
   - OB #1: 1.3210-1.3215 (from last move up)
   - OB #2: 1.3160-1.3170 (from sweep down)

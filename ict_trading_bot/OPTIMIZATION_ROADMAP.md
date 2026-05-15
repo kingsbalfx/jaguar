@@ -4,6 +4,11 @@
 **Based on:** 2 weeks of projected test data from first 100 trades  
 **Goal:** Push win rate from 62-68% → 72-78% range
 
+**RECENT UPDATE:** Modified ICT sequence validation for flexible execution
+- When H4 aligns with H1/Daily: ANY key condition (liquidity, OB, FVG, price action) can trigger trade
+- When H4 opposes higher timeframes: ALL conditions still required for strict validation
+- This should increase execution frequency while maintaining quality on aligned setups
+
 ---
 
 ## PHASE 1: DATA VALIDATION (Week 1)
@@ -51,6 +56,10 @@ Track: Liquidity vs BOS vs Price Action performance
   
 Track: Which setup type performs BEST with previous day levels?
   Expected: One setup type gets +10-15% boost from daily S/R
+
+Track: NEW - Flexible vs Strict Execution Performance
+  Expected: Flexible mode (H4 aligned) should have 10-20% more executions
+  Monitor: Win rate difference between flexible and strict modes
 ```
 
 **Action Items:**
@@ -58,6 +67,8 @@ Track: Which setup type performs BEST with previous day levels?
 - Calculate win rate per setup type
 - Identify winning combination (e.g., Liquidity + BOS)
 - Phase out lowest-performing setup for this system
+- Track flexible vs strict execution performance
+- Monitor if flexible mode maintains quality while increasing frequency
 
 ---
 

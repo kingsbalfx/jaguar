@@ -17,6 +17,11 @@ PURPOSE: Remove over-filtering that prevents valid ICT setups from executing.
 
 import logging
 from typing import Dict, Optional, Tuple
+from market_structure.previous_day_levels import (
+    get_previous_week_levels,
+    get_recent_4h_brief,
+    compare_4h_weekly_alignment,
+)
 from utils.sessions import in_london_session, in_newyork_session
 
 logger = logging.getLogger(__name__)
@@ -136,6 +141,111 @@ def should_override_with_ict_first(data: Dict, symbol: str, weighted_decision: s
         return True, override_details
     
     return False, override_details
+
+
+def check_smt_only_rules(data: Dict, symbol: str) -> Tuple[bool, Dict]:
+    breakdown = {
+        "smt_divergence": False,
+        "market_structure_shift": False,
+        "entry_zone": False,
+        "kill_zone": False,
+        "strong_trend": False,
+        "weekly_4h_alignment": "unknown",
+        "weekly_4h_valid": False,
+        "all_rules_met": False,
+    }
+
+    try:
+        smt_score = float(data.get("smt_divergence", 0.0) or 0.0)
+        smt_confirmed = data.get("smt_confirmed", False)
+        breakdown["smt_divergence"] = bool(smt_score >= 0.75 or smt_confirmed)
+
+        bos = data.get("bos", False) or data.get("break_of_structure", False)
+        mss = data.get("mss", False) or data.get("market_structure_shift", False)
+        breakdown["market_structure_shift"] = bool(bos or mss)
+
+        fvg = data.get("fvg") or (data.get("fvgs") and len(data.get("fvgs", [])) > 0)
+        ob = data.get("htf_ob") or (data.get("htf_order_blocks") and len(data.get("htf_order_blocks", [])) > 0)
+        breakdown["entry_zone"] = bool(fvg or ob)
+
+        breakdown["kill_zone"] = bool(in_london_session() or in_newyork_session())
+
+        trend_strength = float(data.get("trend_strength", 0.0) or 0.0)
+        breakdown["strong_trend"] = bool(trend_strength >= 0.55)
+
+        weekly_levels = get_previous_week_levels(symbol)
+        recent_4h = get_recent_4h_brief(symbol)
+        weekly_valid = isinstance(weekly_levels, dict) and "error" not in weekly_levels
+        four_hour_valid = isinstance(recent_4h, dict) and "error" not in recent_4h
+        breakdown["weekly_4h_valid"] = bool(weekly_valid and four_hour_valid)
+
+        if weekly_valid and four_hour_valid:
+            alignment = compare_4h_weekly_alignment(weekly_levels, recent_4h)
+            breakdown["weekly_4h_alignment"] = alignment
+        else:
+            breakdown["weekly_4h_alignment"] = "unknown"
+
+        breakdown["all_rules_met"] = all([
+            breakdown["smt_divergence"],
+            breakdown["market_structure_shift"],
+            breakdown["entry_zone"],
+            breakdown["kill_zone"],
+            breakdown["weekly_4h_valid"],
+            breakdown["weekly_4h_alignment"] == "aligned",
+        ])
+
+        return breakdown["all_rules_met"], breakdown
+    except Exception as e:
+        logger.error(f"SMT-only rules check error: {e}")
+        return False, breakdown
+
+
+def should_override_with_smt_only(
+    data: Dict,
+    symbol: str,
+    weighted_decision: str,
+    intelligence_decision: str,
+    classic_decision: bool,
+) -> Tuple[bool, Dict]:
+    breakdown = {
+        "smt_rules_met": False,
+        "breakdown": {},
+        "override_applied": False,
+        "reason": None,
+        "confidence": 0.0,
+    }
+
+    smt_rules_met, rule_breakdown = check_smt_only_rules(data, symbol)
+    breakdown["breakdown"] = rule_breakdown
+    breakdown["smt_rules_met"] = smt_rules_met
+
+    if not smt_rules_met:
+        breakdown["reason"] = "SMT-only core rules not satisfied"
+        return False, breakdown
+
+    weighted_blocking = weighted_decision in ["skip", "SKIP", "WATCH"]
+    intelligence_blocking = intelligence_decision in ["SKIP", "AVOID", "WAIT"]
+    classic_blocking = not classic_decision
+    any_module_blocking = weighted_blocking or intelligence_blocking or classic_blocking
+
+    if smt_rules_met and any_module_blocking:
+        breakdown["override_applied"] = True
+        breakdown["confidence"] = 95.0
+        breakdown["reason"] = (
+            "Strong SMT-only execution path satisfied - overriding other module disagreement. "
+            "SMT divergence + structure + entry zone + kill zone present."
+        )
+        logger.info(f"[SMT-ONLY OVERRIDE] {symbol}: {breakdown['reason']}")
+        logger.info(f"[SMT-ONLY BREAKDOWN] {rule_breakdown}")
+        return True, breakdown
+
+    if smt_rules_met:
+        breakdown["override_applied"] = True
+        breakdown["confidence"] = 95.0
+        breakdown["reason"] = "Strong SMT-only path satisfied and all modules agree."
+        return True, breakdown
+
+    return False, breakdown
 
 
 def calculate_ict_first_confidence(breakdown: Dict) -> float:

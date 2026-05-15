@@ -26,7 +26,9 @@ except Exception as e:
 
     class _MT5Stub:
         TIMEFRAME_D1 = 1440
+        TIMEFRAME_H4 = 240
         TIMEFRAME_H1 = 60
+        TIMEFRAME_W1 = 10080
 
         def initialize(self):
             return False
@@ -198,10 +200,102 @@ def get_previous_day_levels(symbol: str) -> Dict:
         mt5.shutdown()
 
 
+def get_previous_week_levels(symbol: str) -> Dict:
+    """
+    Get the previous completed week's OHLC and bias using W1 data.
+    """
+    if not mt5.initialize():
+        return {"error": "MT5 not initialized", "symbol": symbol}
+
+    try:
+        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_W1, 1, 1)
+        if rates is None or len(rates) == 0:
+            rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_W1, 0, 2)
+            if rates is None or len(rates) < 2:
+                return {"error": "Not enough weekly candles", "symbol": symbol}
+            rates = [rates[1]]
+
+        candle = rates[0]
+        week_open = float(candle["open"])
+        week_high = float(candle["high"])
+        week_low = float(candle["low"])
+        week_close = float(candle["close"])
+        week_range = week_high - week_low
+        midpoint = (week_high + week_low) / 2
+        trend = "bullish" if week_close > week_open else "bearish" if week_close < week_open else "neutral"
+        position = (
+            "above_mid" if week_close > midpoint else "below_mid" if week_close < midpoint else "at_mid"
+        )
+
+        return {
+            "symbol": symbol,
+            "timeframe": "W1",
+            "open": round(week_open, 5),
+            "high": round(week_high, 5),
+            "low": round(week_low, 5),
+            "close": round(week_close, 5),
+            "range": round(week_range, 5),
+            "midpoint": round(midpoint, 5),
+            "trend": trend,
+            "position_relative_to_range": position,
+            "analysis_timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        return {"error": str(e), "symbol": symbol}
+    finally:
+        mt5.shutdown()
+
+
+def get_recent_4h_brief(symbol: str, lookback: int = 6) -> Dict:
+    """
+    Get a short 4H brief snapshot for the last few candles.
+    """
+    if not mt5.initialize():
+        return {"error": "MT5 not initialized", "symbol": symbol}
+
+    try:
+        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H4, 0, lookback)
+        if rates is None or len(rates) < 2:
+            return {"error": "Not enough 4H candles", "symbol": symbol}
+
+        last = rates[0]
+        prev = rates[1]
+        trend = "bullish" if last["close"] > last["open"] else "bearish" if last["close"] < last["open"] else "neutral"
+        prev_trend = "bullish" if prev["close"] > prev["open"] else "bearish" if prev["close"] < prev["open"] else "neutral"
+        candle_size = abs(last["close"] - last["open"])
+
+        return {
+            "symbol": symbol,
+            "timeframe": "H4",
+            "trend": trend,
+            "previous_trend": prev_trend,
+            "candle_size": round(candle_size, 5),
+            "close": round(float(last["close"]), 5),
+            "open": round(float(last["open"]), 5),
+            "high": round(float(last["high"]), 5),
+            "low": round(float(last["low"]), 5),
+            "analysis_timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        return {"error": str(e), "symbol": symbol}
+    finally:
+        mt5.shutdown()
+
+
+def compare_4h_weekly_alignment(weekly: Dict, four_hour: Dict) -> str:
+    if not weekly or not four_hour:
+        return "unknown"
+    if weekly.get("trend") == four_hour.get("trend"):
+        return "aligned"
+    if weekly.get("trend") == "neutral" or four_hour.get("trend") == "neutral":
+        return "mixed"
+    return "opposed"
+
+
 def get_all_symbols_previous_day_levels(symbols: list) -> Dict:
     """
     Get previous day levels for multiple symbols efficiently.
-    
+
     Returns:
         {
             "GBPJPY": {...levels...},
@@ -700,16 +794,24 @@ def print_daily_4hr_brief_report(symbol: str):
         print(f"   Quality: {daily_pa['price_action_quality'].upper()}")
         print(f"   Rejection Candles: {daily_pa['rejection_candles_count']}")
     
+    weekly_levels = get_previous_week_levels(symbol)
+    if "error" not in weekly_levels:
+        print(f"\n📚 WEEKLY (previous completed week) STRUCTURE:")
+        print(f"   Open: {weekly_levels['open']:.5f} | High: {weekly_levels['high']:.5f} | Low: {weekly_levels['low']:.5f} | Close: {weekly_levels['close']:.5f}")
+        print(f"   Trend: {weekly_levels['trend'].upper()} | Midpoint: {weekly_levels['midpoint']:.5f} | Range: {weekly_levels['range']:.5f}")
+
+    recent_4h = get_recent_4h_brief(symbol)
+    if "error" not in recent_4h:
+        alignment = compare_4h_weekly_alignment(weekly_levels, recent_4h)
+        print(f"\n📡 4HR SNAPSHOT:")
+        print(f"   Latest 4H candle: {recent_4h['trend'].upper()} | Previous 4H candle: {recent_4h['previous_trend'].upper()}")
+        print(f"   4H range: {recent_4h['high']:.5f} - {recent_4h['low']:.5f} | Close: {recent_4h['close']:.5f}")
+        print(f"   Alignment with weekly bias: {alignment.upper()}")
+
     print("\n" + "-" * 100)
-    print(f"[CONTEXT DECISION]: Check if Daily shows clear bias & good structure")
-    print(f"   ✅ CONTINUE to 4HR if: Bias is clear + Volume is directional + Price Action is strong")
-    print(f"   ❌ SKIP if: No clear bias OR mixed signals OR consolidating")
+    print(f"[CONTEXT DECISION]: Check if Weekly and Daily show clear bias and if 4H is aligned")
+    print(f"   ✅ CONTINUE to H1 if: Weekly/Daily bias is clear + 4H alignment is confirmed + Price Action is strong")
+    print(f"   ❌ SKIP if: 4H opposes weekly bias, or Daily is mixed, or 4H lacks strength")
     print("\n" + "=" * 100 + "\n")
 
 
-
-    # Example usage - DAILY + 4HR BRIEF CHECK
-    symbols = ["GBPJPY", "EURUSD", "XAGUSD", "DOGEUSD"]
-    
-    for symbol in symbols:
-        print_daily_4hr_brief_report(symbol)

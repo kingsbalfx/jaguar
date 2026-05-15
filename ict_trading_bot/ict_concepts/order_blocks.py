@@ -51,10 +51,13 @@ def _build_order_block(df, idx, timeframe, symbol=None, lookahead_bars=200):
     average_volume = float(df.iloc[max(0, idx - 10) : idx]["tick_volume"].mean()) if "tick_volume" in df.columns else 0.0
     volume_boost = _volume_value(current) >= max(average_volume * 1.15, 1.0)
     liquidity_sweep = _liquidity_sweep_present(df, idx, order_type)
-    institutional_footprint = displacement >= 0.70 and volume_boost and liquidity_sweep
+    # RELAXED: Changed from AND to OR - more permissive
+    institutional_footprint = displacement >= 0.55 and (volume_boost or liquidity_sweep)
 
+    # RELAXED: Don't reject blocks, just mark quality lower
     if not institutional_footprint:
-        return None
+        # Still create block but with reduced quality
+        pass  # Continue to quality calculation
 
     quality = min(
         1.0,
