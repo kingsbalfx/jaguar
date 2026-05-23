@@ -83,6 +83,10 @@ class TradingPairs:
         "TONUSD",  # Toncoin vs USD - 18% WR, marginal
         "TRXUSD",  # Tron vs USD - 6% WR, monitor for improvement
         "BCHUSD",  # Bitcoin Cash vs USD - test with new settings
+        "BTC",
+        "ETH",
+        "BNB",
+        "AVAX",
         # DISABLED (until win rate improves with new entry criteria):
         # "DOGEUSD", # Was 7% WR - too weak
         # "SOLUSD",  # Was 6% WR - too weak  
@@ -105,6 +109,7 @@ class TradingPairs:
         "CAC40",   # CAC 40 (France)
         "STOXX50", # Euro Stoxx 50
         "NIKKEI",  # Nikkei 225 (Japan)
+        "NASDAQ-100",
     ]
     
     # ========== COMMODITIES (6) ==========
