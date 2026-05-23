@@ -49,7 +49,7 @@
     "avg_confidence": 0.0,
     "last_updated": null,
     "backtests_skipped": 0,
-    "backtests_required": 494
+    "backtests_required": 495
   },
   "EURCHF": {
     "symbol": "EURCHF",
@@ -283,7 +283,7 @@
     "avg_confidence": 0.0,
     "last_updated": null,
     "backtests_skipped": 0,
-    "backtests_required": 354
+    "backtests_required": 355
   },
   "CADJPY": {
     "symbol": "CADJPY",
@@ -322,7 +322,7 @@
     "avg_confidence": 0.0,
     "last_updated": null,
     "backtests_skipped": 0,
-    "backtests_required": 280
+    "backtests_required": 282
   },
   "USDCAD": {
     "symbol": "USDCAD",
@@ -348,6 +348,6 @@
     "avg_confidence": 0.0,
     "last_updated": null,
     "backtests_skipped": 0,
-    "backtests_required": 177
+    "backtests_required": 178
   }
 }

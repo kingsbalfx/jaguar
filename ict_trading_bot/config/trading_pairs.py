@@ -130,6 +130,11 @@ class TradingPairs:
             + cls.INDICES
             + cls.COMMODITIES
         )
+
+    @classmethod
+    def get_trading_pairs(cls):
+        """Alias for get_all_pairs for backward compatibility."""
+        return cls.get_all_pairs()
     
     @classmethod
     def get_pairs_by_category(cls, category):

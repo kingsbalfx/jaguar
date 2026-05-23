@@ -29,7 +29,10 @@ def _tf_to_mt5(tf):
     return mapping.get(tf)
 
 
-def _fetch_recent_candles(symbol, timeframe, bars=32):
+def _fetch_recent_candles(symbol, timeframe, bars=500):
+    """
+    Fetch up to `bars` candles – defaults to 500 for deep structure.
+    """
     tf = _tf_to_mt5(timeframe)
     if mt5 is None or tf is None:
         return []
@@ -61,7 +64,6 @@ def _fetch_recent_candles(symbol, timeframe, bars=32):
 def _calculate_atr(candles, period=14):
     if not candles:
         return 0.0
-
     true_ranges = []
     previous_close = None
     for candle in candles:
@@ -78,22 +80,20 @@ def _calculate_atr(candles, period=14):
             )
         true_ranges.append(true_range)
         previous_close = close_price
-
     if not true_ranges:
         return 0.0
     window = true_ranges[-max(1, min(period, len(true_ranges))):]
     return sum(window) / len(window)
 
+
 def _calculate_sma(candles, period=50):
-    if period <= 0:
-        return 0.0
-    if len(candles) < period:
+    if period <= 0 or len(candles) < period:
         return 0.0
     closes = [c["close"] for c in candles[-period:]]
     return sum(closes) / period
 
 
-def _analyze_timeframe(symbol, timeframe, price, recent_candle_count, atr_period):
+def _analyze_timeframe(symbol, timeframe, price, recent_candle_count=500, atr_period=14):
     try:
         trend = get_market_trend(symbol, timeframe=timeframe)
     except Exception:
@@ -185,7 +185,6 @@ def _context_alignment(overall_trend, context_states):
 
 
 def _detect_htf_liquidity_sweep(symbol, htf_tf, price, direction):
-    """Check if a sweep is currently happening on the HTF."""
     from ict_concepts.liquidity import detect_liquidity_zones
     from ict_concepts.market_structure import get_swings
     swings = get_swings(symbol, timeframe=htf_tf)
@@ -193,6 +192,7 @@ def _detect_htf_liquidity_sweep(symbol, htf_tf, price, direction):
     from strategy.liquidity_filter import liquidity_taken
     recent_candles = _fetch_recent_candles(symbol, htf_tf, bars=8)
     return liquidity_taken(price, liquidity, direction, recent_candles=recent_candles)
+
 
 def analyze_market_top_down(
     symbol,
@@ -207,8 +207,8 @@ def analyze_market_top_down(
     mtf = mtf or os.getenv("MTF_TIMEFRAME", "M30")
     ltf = ltf or os.getenv("LTF_TIMEFRAME", "M15")
     execution_tf = os.getenv("EXECUTION_TIMEFRAME", "M5")
-    entry_profile = get_entry_profile(symbol)
-    recent_candle_count = max(16, int(entry_profile["recent_candles"]))
+    # Use 500 candles for deep structure analysis
+    recent_candle_count = 500
     atr_period = max(5, int(os.getenv("ENTRY_ATR_PERIOD", "14")))
 
     requested_timeframes = []
@@ -221,9 +221,6 @@ def analyze_market_top_down(
         for tf in requested_timeframes
     }
 
-    # -------------------------
-    # OVERALL BIAS (TOP DOWN)
-    # -------------------------
     daily_state = analysis[daily_tf]
     h4_state = analysis[h4_tf]
     h1_state = analysis[htf]
@@ -239,12 +236,10 @@ def analyze_market_top_down(
 
     context_alignment = _context_alignment(overall_trend, [daily_state, h4_state])
 
-    # HTF Sweep Check
     htf_sweep = _detect_htf_liquidity_sweep(symbol, htf, price, "buy" if overall_trend == "bullish" else "sell")
 
-    # Micro timeframes for sniper timing (M5/M1)
-    m5_candles = execution_state.get("recent_candles") if execution_tf == "M5" else _fetch_recent_candles(symbol, "M5", bars=16)
-    m1_candles = _fetch_recent_candles(symbol, "M1", bars=32)
+    m5_candles = execution_state.get("recent_candles") if execution_tf == "M5" else _fetch_recent_candles(symbol, "M5", bars=500)
+    m1_candles = _fetch_recent_candles(symbol, "M1", bars=500)
 
     return {
         "overall_trend": overall_trend,
@@ -283,6 +278,5 @@ def analyze_market_top_down(
         "htf_sweep": htf_sweep,
         "volume_alignment": execution_state["volume_boost"],
         "sma_alignment": execution_state["above_sma"] if overall_trend == "bullish" else not execution_state["above_sma"],
-        # placeholder for correlated instruments (not implemented fully)
         "correlated": {}
     }

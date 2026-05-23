@@ -2,34 +2,16 @@
   "ADAUSD": {
     "symbol": "ADAUSD",
     "asset_class": "crypto",
-    "total_skips": 723,
+    "total_skips": 725,
     "skip_reasons": {
       "liquidity_setup": 245,
       "price_action": 230,
       "backtest_required": 244,
       "bos": 1,
       "hybrid_reject": 1,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T13:41:10.067152",
-        "symbol": "ADAUSD",
-        "asset_class": "crypto",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T13:41:12.214966",
-        "symbol": "ADAUSD",
-        "asset_class": "crypto",
-        "reason": "backtest_required",
-        "confidence": 0.45,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T13:45:14.745466",
         "symbol": "ADAUSD",
@@ -461,9 +443,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:07.603363",
+        "symbol": "ADAUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:09.659723",
+        "symbol": "ADAUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:20.534141",
+    "last_skip": "2026-05-15T16:42:09.659723",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -779,6 +779,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -786,32 +788,14 @@
   "TRXUSD": {
     "symbol": "TRXUSD",
     "asset_class": "crypto",
-    "total_skips": 668,
+    "total_skips": 670,
     "skip_reasons": {
       "liquidity_setup": 239,
       "price_action": 190,
       "backtest_required": 237,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T13:41:19.427841",
-        "symbol": "TRXUSD",
-        "asset_class": "crypto",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T13:41:21.741603",
-        "symbol": "TRXUSD",
-        "asset_class": "crypto",
-        "reason": "backtest_required",
-        "confidence": 0.61,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T13:53:14.737339",
         "symbol": "TRXUSD",
@@ -1243,9 +1227,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:07.716601",
+        "symbol": "TRXUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:09.765343",
+        "symbol": "TRXUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:20.688461",
+    "last_skip": "2026-05-15T16:42:09.765343",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -1555,6 +1557,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -1562,32 +1566,14 @@
   "USDBRL": {
     "symbol": "USDBRL",
     "asset_class": "forex",
-    "total_skips": 91,
+    "total_skips": 93,
     "skip_reasons": {
       "liquidity_setup": 30,
       "price_action": 29,
       "backtest_required": 30,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-11T23:09:17.175856",
-        "symbol": "USDBRL",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.29,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-11T23:23:38.523656",
-        "symbol": "USDBRL",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-11T23:23:38.620656",
         "symbol": "USDBRL",
@@ -2019,9 +2005,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:18.305655",
+        "symbol": "USDBRL",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:24.448853",
+        "symbol": "USDBRL",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:10.093249",
+    "last_skip": "2026-05-15T16:42:24.448853",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -2120,6 +2124,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -2127,34 +2133,16 @@
   "AUDCHF": {
     "symbol": "AUDCHF",
     "asset_class": "forex",
-    "total_skips": 217,
+    "total_skips": 219,
     "skip_reasons": {
       "liquidity_setup": 74,
       "price_action": 66,
       "backtest_required": 73,
       "bos": 1,
       "hybrid_reject": 1,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T09:29:05.215812",
-        "symbol": "AUDCHF",
-        "asset_class": "forex",
-        "reason": "price_action",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T09:29:06.731085",
-        "symbol": "AUDCHF",
-        "asset_class": "forex",
-        "reason": "hybrid_reject",
-        "confidence": 0.2,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T09:56:14.586494",
         "symbol": "AUDCHF",
@@ -2586,9 +2574,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:16.510203",
+        "symbol": "AUDCHF",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:21.412854",
+        "symbol": "AUDCHF",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:57.966447",
+    "last_skip": "2026-05-15T16:42:21.412854",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -2817,6 +2823,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -2824,32 +2832,14 @@
   "GBPJPY": {
     "symbol": "GBPJPY",
     "asset_class": "forex",
-    "total_skips": 290,
+    "total_skips": 292,
     "skip_reasons": {
       "liquidity_setup": 98,
       "price_action": 92,
       "backtest_required": 98,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T09:48:33.973752",
-        "symbol": "GBPJPY",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.38,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T10:07:36.506277",
-        "symbol": "GBPJPY",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T10:07:36.607761",
         "symbol": "GBPJPY",
@@ -3281,9 +3271,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:15.916258",
+        "symbol": "GBPJPY",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:19.805150",
+        "symbol": "GBPJPY",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:22.865486",
+    "last_skip": "2026-05-15T16:42:19.805150",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -3581,6 +3589,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -3588,32 +3598,14 @@
   "EURAUD": {
     "symbol": "EURAUD",
     "asset_class": "forex",
-    "total_skips": 154,
+    "total_skips": 156,
     "skip_reasons": {
       "liquidity_setup": 53,
       "price_action": 46,
       "backtest_required": 53,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T08:24:00.935353",
-        "symbol": "EURAUD",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T08:24:01.158975",
-        "symbol": "EURAUD",
-        "asset_class": "forex",
-        "reason": "price_action",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T08:24:02.686216",
         "symbol": "EURAUD",
@@ -4045,9 +4037,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:15.762229",
+        "symbol": "EURAUD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:19.632134",
+        "symbol": "EURAUD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:55.869079",
+    "last_skip": "2026-05-15T16:42:19.632134",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -4209,6 +4219,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -4216,32 +4228,14 @@
   "NZDJPY": {
     "symbol": "NZDJPY",
     "asset_class": "forex",
-    "total_skips": 297,
+    "total_skips": 299,
     "skip_reasons": {
       "liquidity_setup": 103,
       "price_action": 89,
       "backtest_required": 103,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T09:13:37.752432",
-        "symbol": "NZDJPY",
-        "asset_class": "forex",
-        "reason": "price_action",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T09:32:56.180433",
-        "symbol": "NZDJPY",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T09:32:56.275790",
         "symbol": "NZDJPY",
@@ -4673,9 +4667,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:16.895874",
+        "symbol": "NZDJPY",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:22.081523",
+        "symbol": "NZDJPY",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:58.641266",
+    "last_skip": "2026-05-15T16:42:22.081523",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -4974,6 +4986,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -4981,32 +4995,14 @@
   "GBPCHF": {
     "symbol": "GBPCHF",
     "asset_class": "forex",
-    "total_skips": 151,
+    "total_skips": 153,
     "skip_reasons": {
       "liquidity_setup": 52,
       "price_action": 45,
       "backtest_required": 52,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T02:43:12.816138",
-        "symbol": "GBPCHF",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T02:43:12.880656",
-        "symbol": "GBPCHF",
-        "asset_class": "forex",
-        "reason": "price_action",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T02:43:14.654130",
         "symbol": "GBPCHF",
@@ -5438,9 +5434,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:16.046061",
+        "symbol": "GBPCHF",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:20.264494",
+        "symbol": "GBPCHF",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:56.503725",
+    "last_skip": "2026-05-15T16:42:20.264494",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -5599,6 +5613,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -5606,33 +5622,15 @@
   "AUDJPY": {
     "symbol": "AUDJPY",
     "asset_class": "forex",
-    "total_skips": 350,
+    "total_skips": 352,
     "skip_reasons": {
       "liquidity_setup": 119,
       "price_action": 109,
       "backtest_required": 119,
       "bos": 1,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T12:47:11.973487",
-        "symbol": "AUDJPY",
-        "asset_class": "forex",
-        "reason": "bos",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T12:47:12.036525",
-        "symbol": "AUDJPY",
-        "asset_class": "forex",
-        "reason": "price_action",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T12:47:13.890018",
         "symbol": "AUDJPY",
@@ -6064,9 +6062,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:16.277902",
+        "symbol": "AUDJPY",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:21.064725",
+        "symbol": "AUDJPY",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:26.090858",
+    "last_skip": "2026-05-15T16:42:21.064725",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -6379,6 +6395,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -6386,34 +6404,16 @@
   "NZDUSD": {
     "symbol": "NZDUSD",
     "asset_class": "forex",
-    "total_skips": 393,
+    "total_skips": 395,
     "skip_reasons": {
       "liquidity_setup": 130,
       "price_action": 124,
       "backtest_required": 127,
       "bos": 5,
       "hybrid_reject": 5,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T13:22:31.505697",
-        "symbol": "NZDUSD",
-        "asset_class": "forex",
-        "reason": "price_action",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T13:22:33.598524",
-        "symbol": "NZDUSD",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.4,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T13:33:24.720206",
         "symbol": "NZDUSD",
@@ -6845,9 +6845,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:15.141061",
+        "symbol": "NZDUSD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:18.417659",
+        "symbol": "NZDUSD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:47.931463",
+    "last_skip": "2026-05-15T16:42:18.417659",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -7171,6 +7189,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -7178,32 +7198,14 @@
   "CADJPY": {
     "symbol": "CADJPY",
     "asset_class": "forex",
-    "total_skips": 242,
+    "total_skips": 244,
     "skip_reasons": {
       "liquidity_setup": 87,
       "price_action": 66,
       "backtest_required": 87,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T08:38:41.613689",
-        "symbol": "CADJPY",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.41,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T09:05:49.261206",
-        "symbol": "CADJPY",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T09:05:49.323989",
         "symbol": "CADJPY",
@@ -7635,9 +7637,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:16.680759",
+        "symbol": "CADJPY",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:21.569210",
+        "symbol": "CADJPY",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:26.391512",
+    "last_skip": "2026-05-15T16:42:21.569210",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -7887,6 +7907,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -7894,34 +7916,16 @@
   "CHFJPY": {
     "symbol": "CHFJPY",
     "asset_class": "forex",
-    "total_skips": 196,
+    "total_skips": 198,
     "skip_reasons": {
       "liquidity_setup": 72,
       "price_action": 49,
       "backtest_required": 71,
       "bos": 1,
       "hybrid_reject": 1,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T06:08:37.322442",
-        "symbol": "CHFJPY",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.31,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T07:14:00.120196",
-        "symbol": "CHFJPY",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T07:14:00.196714",
         "symbol": "CHFJPY",
@@ -8353,9 +8357,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:16.790707",
+        "symbol": "CHFJPY",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:21.719731",
+        "symbol": "CHFJPY",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:58.257555",
+    "last_skip": "2026-05-15T16:42:21.719731",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -8563,6 +8585,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -8570,34 +8594,16 @@
   "EURCAD": {
     "symbol": "EURCAD",
     "asset_class": "forex",
-    "total_skips": 154,
+    "total_skips": 156,
     "skip_reasons": {
       "liquidity_setup": 52,
       "price_action": 46,
       "backtest_required": 50,
       "bos": 2,
       "hybrid_reject": 2,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T03:34:32.095920",
-        "symbol": "EURCAD",
-        "asset_class": "forex",
-        "reason": "price_action",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T03:34:35.415453",
-        "symbol": "EURCAD",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.28,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T03:56:42.717102",
         "symbol": "EURCAD",
@@ -9029,9 +9035,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:15.661967",
+        "symbol": "EURCAD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:19.441887",
+        "symbol": "EURCAD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:49.526493",
+    "last_skip": "2026-05-15T16:42:19.441887",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -9197,6 +9221,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -9204,32 +9230,14 @@
   "NZDCAD": {
     "symbol": "NZDCAD",
     "asset_class": "forex",
-    "total_skips": 230,
+    "total_skips": 232,
     "skip_reasons": {
       "liquidity_setup": 80,
       "price_action": 68,
       "backtest_required": 80,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T09:09:14.201544",
-        "symbol": "NZDCAD",
-        "asset_class": "forex",
-        "reason": "price_action",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T09:09:15.855552",
-        "symbol": "NZDCAD",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.55,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T09:21:25.420828",
         "symbol": "NZDCAD",
@@ -9661,9 +9669,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:17.028626",
+        "symbol": "NZDCAD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:22.367676",
+        "symbol": "NZDCAD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:59.842289",
+    "last_skip": "2026-05-15T16:42:22.367676",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -9901,6 +9927,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -9908,34 +9936,16 @@
   "AUDUSD": {
     "symbol": "AUDUSD",
     "asset_class": "forex",
-    "total_skips": 397,
+    "total_skips": 399,
     "skip_reasons": {
       "liquidity_setup": 135,
       "price_action": 122,
       "backtest_required": 134,
       "bos": 2,
       "hybrid_reject": 2,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T12:43:13.435795",
-        "symbol": "AUDUSD",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.3,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T12:54:51.745072",
-        "symbol": "AUDUSD",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T12:54:51.887365",
         "symbol": "AUDUSD",
@@ -10367,9 +10377,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:14.892877",
+        "symbol": "AUDUSD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:17.480703",
+        "symbol": "AUDUSD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:45.207230",
+    "last_skip": "2026-05-15T16:42:17.480703",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -10687,6 +10715,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -10694,33 +10724,15 @@
   "EURJPY": {
     "symbol": "EURJPY",
     "asset_class": "forex",
-    "total_skips": 222,
+    "total_skips": 224,
     "skip_reasons": {
       "liquidity_setup": 75,
       "price_action": 69,
       "backtest_required": 75,
       "bos": 1,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T07:33:41.377738",
-        "symbol": "EURJPY",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.28,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T08:49:54.991830",
-        "symbol": "EURJPY",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T08:49:55.063439",
         "symbol": "EURJPY",
@@ -11152,9 +11164,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:07.385202",
+        "symbol": "EURJPY",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:09.359584",
+        "symbol": "EURJPY",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:48.703201",
+    "last_skip": "2026-05-15T16:42:09.359584",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -11386,6 +11416,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -11393,34 +11425,16 @@
   "USDCHF": {
     "symbol": "USDCHF",
     "asset_class": "forex",
-    "total_skips": 191,
+    "total_skips": 193,
     "skip_reasons": {
       "liquidity_setup": 65,
       "price_action": 57,
       "backtest_required": 64,
       "bos": 2,
       "hybrid_reject": 1,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T09:40:14.742916",
-        "symbol": "USDCHF",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T09:40:14.840683",
-        "symbol": "USDCHF",
-        "asset_class": "forex",
-        "reason": "price_action",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T09:40:16.701115",
         "symbol": "USDCHF",
@@ -11852,9 +11866,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:14.783864",
+        "symbol": "USDCHF",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:16.687987",
+        "symbol": "USDCHF",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:44.484135",
+    "last_skip": "2026-05-15T16:42:16.687987",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -12057,6 +12089,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -12064,61 +12098,16 @@
   "EURGBP": {
     "symbol": "EURGBP",
     "asset_class": "forex",
-    "total_skips": 167,
+    "total_skips": 172,
     "skip_reasons": {
-      "liquidity_setup": 57,
-      "price_action": 50,
-      "backtest_required": 56,
+      "liquidity_setup": 58,
+      "price_action": 51,
+      "backtest_required": 57,
       "bos": 1,
       "hybrid_reject": 1,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T05:12:08.277712",
-        "symbol": "EURGBP",
-        "asset_class": "forex",
-        "reason": "hybrid_reject",
-        "confidence": 0.2,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T06:08:25.639598",
-        "symbol": "EURGBP",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T06:08:27.314380",
-        "symbol": "EURGBP",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.46,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T06:54:51.547067",
-        "symbol": "EURGBP",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T06:54:51.614166",
-        "symbol": "EURGBP",
-        "asset_class": "forex",
-        "reason": "price_action",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T06:54:53.393437",
         "symbol": "EURGBP",
@@ -12523,11 +12512,57 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:36:26.268754",
+        "symbol": "EURGBP",
+        "asset_class": "forex",
+        "reason": "liquidity_setup",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:36:26.474131",
+        "symbol": "EURGBP",
+        "asset_class": "forex",
+        "reason": "price_action",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:07.259000",
+        "symbol": "EURGBP",
+        "asset_class": "forex",
+        "reason": "backtest_required",
+        "confidence": 0.33,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:15.457666",
+        "symbol": "EURGBP",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:18.940257",
+        "symbol": "EURGBP",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:48.988700",
+    "last_skip": "2026-05-15T16:42:18.940257",
     "skip_patterns": {
       "liquidity_setup": [
+        0.0,
         0.0,
         0.0,
         0.0,
@@ -12636,6 +12671,7 @@
         0.0,
         0.0,
         0.0,
+        0.0,
         0.0
       ],
       "backtest_required": [
@@ -12694,7 +12730,8 @@
         0.59,
         0.55,
         0.38,
-        0.47
+        0.47,
+        0.33
       ],
       "bos": [
         0.0
@@ -12704,6 +12741,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -12711,34 +12750,16 @@
   "GBPUSD": {
     "symbol": "GBPUSD",
     "asset_class": "forex",
-    "total_skips": 348,
+    "total_skips": 350,
     "skip_reasons": {
       "liquidity_setup": 116,
       "price_action": 111,
       "backtest_required": 113,
       "bos": 3,
       "hybrid_reject": 3,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T10:52:59.535144",
-        "symbol": "GBPUSD",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T10:52:59.604923",
-        "symbol": "GBPUSD",
-        "asset_class": "forex",
-        "reason": "price_action",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T10:53:02.072087",
         "symbol": "GBPUSD",
@@ -13170,9 +13191,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:08.039218",
+        "symbol": "GBPUSD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:09.233052",
+        "symbol": "GBPUSD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:44.073285",
+    "last_skip": "2026-05-15T16:42:09.233052",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -13492,6 +13531,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -13499,33 +13540,15 @@
   "USDJPY": {
     "symbol": "USDJPY",
     "asset_class": "forex",
-    "total_skips": 227,
+    "total_skips": 229,
     "skip_reasons": {
       "liquidity_setup": 78,
       "price_action": 68,
       "backtest_required": 78,
       "bos": 1,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T09:28:39.170679",
-        "symbol": "USDJPY",
-        "asset_class": "forex",
-        "reason": "price_action",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T09:28:40.850091",
-        "symbol": "USDJPY",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.55,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T09:43:56.194632",
         "symbol": "USDJPY",
@@ -13957,9 +13980,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:14.614443",
+        "symbol": "USDJPY",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:16.180972",
+        "symbol": "USDJPY",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:44.319157",
+    "last_skip": "2026-05-15T16:42:16.180972",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -14196,6 +14237,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -14203,33 +14246,15 @@
   "EURUSD": {
     "symbol": "EURUSD",
     "asset_class": "forex",
-    "total_skips": 218,
+    "total_skips": 220,
     "skip_reasons": {
       "liquidity_setup": 74,
       "price_action": 67,
       "backtest_required": 74,
       "bos": 1,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T09:02:18.162050",
-        "symbol": "EURUSD",
-        "asset_class": "forex",
-        "reason": "price_action",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T09:02:19.909790",
-        "symbol": "EURUSD",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.38,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T09:36:20.665446",
         "symbol": "EURUSD",
@@ -14661,9 +14686,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:14.295141",
+        "symbol": "EURUSD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:15.942097",
+        "symbol": "EURUSD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:43.871931",
+    "last_skip": "2026-05-15T16:42:15.942097",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -14891,6 +14934,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -14898,32 +14943,14 @@
   "USDCAD": {
     "symbol": "USDCAD",
     "asset_class": "forex",
-    "total_skips": 211,
+    "total_skips": 213,
     "skip_reasons": {
       "liquidity_setup": 72,
       "price_action": 65,
       "backtest_required": 72,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T10:56:42.175581",
-        "symbol": "USDCAD",
-        "asset_class": "forex",
-        "reason": "price_action",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T10:56:44.286786",
-        "symbol": "USDCAD",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.61,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T11:32:02.816685",
         "symbol": "USDCAD",
@@ -15355,9 +15382,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:14.982186",
+        "symbol": "USDCAD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:17.910687",
+        "symbol": "USDCAD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:45.818046",
+    "last_skip": "2026-05-15T16:42:17.910687",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -15576,6 +15621,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -15583,32 +15630,14 @@
   "AUDCAD": {
     "symbol": "AUDCAD",
     "asset_class": "forex",
-    "total_skips": 272,
+    "total_skips": 274,
     "skip_reasons": {
       "liquidity_setup": 94,
       "price_action": 82,
       "backtest_required": 94,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T09:44:06.280134",
-        "symbol": "AUDCAD",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.41,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T10:07:45.298338",
-        "symbol": "AUDCAD",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T10:07:45.662972",
         "symbol": "AUDCAD",
@@ -16040,9 +16069,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:16.373855",
+        "symbol": "AUDCAD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:21.164371",
+        "symbol": "AUDCAD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:57.236685",
+    "last_skip": "2026-05-15T16:42:21.164371",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -16322,6 +16369,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -16329,33 +16378,15 @@
   "GBPCAD": {
     "symbol": "GBPCAD",
     "asset_class": "forex",
-    "total_skips": 207,
+    "total_skips": 209,
     "skip_reasons": {
       "liquidity_setup": 71,
       "price_action": 62,
       "backtest_required": 71,
       "bos": 1,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T06:12:12.624469",
-        "symbol": "GBPCAD",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T06:12:15.743734",
-        "symbol": "GBPCAD",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.41,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T06:20:00.695895",
         "symbol": "GBPCAD",
@@ -16787,9 +16818,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:16.201091",
+        "symbol": "GBPCAD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:20.920692",
+        "symbol": "GBPCAD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:57.018579",
+    "last_skip": "2026-05-15T16:42:20.920692",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -17006,6 +17055,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -17013,34 +17064,16 @@
   "USDSGD": {
     "symbol": "USDSGD",
     "asset_class": "forex",
-    "total_skips": 240,
+    "total_skips": 242,
     "skip_reasons": {
       "liquidity_setup": 84,
       "price_action": 69,
       "backtest_required": 83,
       "bos": 1,
       "hybrid_reject": 1,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T07:06:30.354691",
-        "symbol": "USDSGD",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.41,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T07:25:54.634980",
-        "symbol": "USDSGD",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T07:25:56.415473",
         "symbol": "USDSGD",
@@ -17472,9 +17505,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:17.937279",
+        "symbol": "USDSGD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:24.013453",
+        "symbol": "USDSGD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:03.590989",
+    "last_skip": "2026-05-15T16:42:24.013453",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -17726,6 +17777,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -17733,34 +17786,16 @@
   "EURCHF": {
     "symbol": "EURCHF",
     "asset_class": "forex",
-    "total_skips": 176,
+    "total_skips": 178,
     "skip_reasons": {
       "liquidity_setup": 59,
       "price_action": 53,
       "backtest_required": 57,
       "bos": 3,
       "hybrid_reject": 2,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T04:45:49.606485",
-        "symbol": "EURCHF",
-        "asset_class": "forex",
-        "reason": "backtest_required",
-        "confidence": 0.47,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T05:00:19.724223",
-        "symbol": "EURCHF",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T05:00:19.806345",
         "symbol": "EURCHF",
@@ -18192,9 +18227,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:07.483459",
+        "symbol": "EURCHF",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:09.448975",
+        "symbol": "EURCHF",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:53.954246",
+    "last_skip": "2026-05-15T16:42:09.448975",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -18382,6 +18435,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -18389,34 +18444,16 @@
   "GBPAUD": {
     "symbol": "GBPAUD",
     "asset_class": "forex",
-    "total_skips": 251,
+    "total_skips": 253,
     "skip_reasons": {
       "liquidity_setup": 85,
       "price_action": 77,
       "backtest_required": 82,
       "bos": 3,
       "hybrid_reject": 2,
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
-      {
-        "timestamp": "2026-05-14T11:23:52.255686",
-        "symbol": "GBPAUD",
-        "asset_class": "forex",
-        "reason": "liquidity_setup",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
-      {
-        "timestamp": "2026-05-14T11:23:52.350706",
-        "symbol": "GBPAUD",
-        "asset_class": "forex",
-        "reason": "price_action",
-        "confidence": 0.0,
-        "analysis_summary": [],
-        "signal_type": "unknown"
-      },
       {
         "timestamp": "2026-05-14T11:23:54.091008",
         "symbol": "GBPAUD",
@@ -18848,9 +18885,27 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:16.125214",
+        "symbol": "GBPAUD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:20.773320",
+        "symbol": "GBPAUD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:00:56.895011",
+    "last_skip": "2026-05-15T16:42:20.773320",
     "skip_patterns": {
       "liquidity_setup": [
         0.0,
@@ -19113,6 +19168,8 @@
       ],
       "price_unavailable": [
         0.0,
+        0.0,
+        0.0,
         0.0
       ]
     }
@@ -19120,9 +19177,9 @@
   "USDZAR": {
     "symbol": "USDZAR",
     "asset_class": "forex",
-    "total_skips": 2,
+    "total_skips": 4,
     "skip_reasons": {
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
       {
@@ -19142,11 +19199,31 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:17.161468",
+        "symbol": "USDZAR",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:22.921749",
+        "symbol": "USDZAR",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:00.391614",
+    "last_skip": "2026-05-15T16:42:22.921749",
     "skip_patterns": {
       "price_unavailable": [
+        0.0,
+        0.0,
         0.0,
         0.0
       ]
@@ -19155,9 +19232,9 @@
   "USDHKD": {
     "symbol": "USDHKD",
     "asset_class": "forex",
-    "total_skips": 2,
+    "total_skips": 4,
     "skip_reasons": {
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
       {
@@ -19177,11 +19254,31 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:17.296507",
+        "symbol": "USDHKD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:23.298049",
+        "symbol": "USDHKD",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:00.791773",
+    "last_skip": "2026-05-15T16:42:23.298049",
     "skip_patterns": {
       "price_unavailable": [
+        0.0,
+        0.0,
         0.0,
         0.0
       ]
@@ -19190,9 +19287,9 @@
   "USDMXN": {
     "symbol": "USDMXN",
     "asset_class": "forex",
-    "total_skips": 2,
+    "total_skips": 4,
     "skip_reasons": {
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
       {
@@ -19212,11 +19309,31 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:17.533458",
+        "symbol": "USDMXN",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:23.611789",
+        "symbol": "USDMXN",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:01.119166",
+    "last_skip": "2026-05-15T16:42:23.611789",
     "skip_patterns": {
       "price_unavailable": [
+        0.0,
+        0.0,
         0.0,
         0.0
       ]
@@ -19225,9 +19342,9 @@
   "USDTHB": {
     "symbol": "USDTHB",
     "asset_class": "forex",
-    "total_skips": 2,
+    "total_skips": 4,
     "skip_reasons": {
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
       {
@@ -19247,11 +19364,31 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:18.208458",
+        "symbol": "USDTHB",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:24.263460",
+        "symbol": "USDTHB",
+        "asset_class": "forex",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:06.976509",
+    "last_skip": "2026-05-15T16:42:24.263460",
     "skip_patterns": {
       "price_unavailable": [
+        0.0,
+        0.0,
         0.0,
         0.0
       ]
@@ -19260,9 +19397,9 @@
   "XAUUSD": {
     "symbol": "XAUUSD",
     "asset_class": "metals",
-    "total_skips": 2,
+    "total_skips": 4,
     "skip_reasons": {
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
       {
@@ -19282,11 +19419,31 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:18.792629",
+        "symbol": "XAUUSD",
+        "asset_class": "metals",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:24.842407",
+        "symbol": "XAUUSD",
+        "asset_class": "metals",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:10.969673",
+    "last_skip": "2026-05-15T16:42:24.842407",
     "skip_patterns": {
       "price_unavailable": [
+        0.0,
+        0.0,
         0.0,
         0.0
       ]
@@ -19295,9 +19452,9 @@
   "XAGUSD": {
     "symbol": "XAGUSD",
     "asset_class": "metals",
-    "total_skips": 2,
+    "total_skips": 4,
     "skip_reasons": {
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
       {
@@ -19317,11 +19474,31 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:19.207220",
+        "symbol": "XAGUSD",
+        "asset_class": "metals",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:25.084559",
+        "symbol": "XAGUSD",
+        "asset_class": "metals",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:11.766891",
+    "last_skip": "2026-05-15T16:42:25.084559",
     "skip_patterns": {
       "price_unavailable": [
+        0.0,
+        0.0,
         0.0,
         0.0
       ]
@@ -19330,9 +19507,9 @@
   "BTCUSD": {
     "symbol": "BTCUSD",
     "asset_class": "crypto",
-    "total_skips": 2,
+    "total_skips": 4,
     "skip_reasons": {
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
       {
@@ -19352,11 +19529,31 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:19.467933",
+        "symbol": "BTCUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:25.186809",
+        "symbol": "BTCUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:13.173607",
+    "last_skip": "2026-05-15T16:42:25.186809",
     "skip_patterns": {
       "price_unavailable": [
+        0.0,
+        0.0,
         0.0,
         0.0
       ]
@@ -19365,9 +19562,9 @@
   "ETHUSD": {
     "symbol": "ETHUSD",
     "asset_class": "crypto",
-    "total_skips": 2,
+    "total_skips": 4,
     "skip_reasons": {
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
       {
@@ -19387,11 +19584,31 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:19.593636",
+        "symbol": "ETHUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:25.399673",
+        "symbol": "ETHUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:13.960934",
+    "last_skip": "2026-05-15T16:42:25.399673",
     "skip_patterns": {
       "price_unavailable": [
+        0.0,
+        0.0,
         0.0,
         0.0
       ]
@@ -19400,9 +19617,9 @@
   "AVAXUSD": {
     "symbol": "AVAXUSD",
     "asset_class": "crypto",
-    "total_skips": 2,
+    "total_skips": 4,
     "skip_reasons": {
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
       {
@@ -19422,11 +19639,31 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:19.672553",
+        "symbol": "AVAXUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:25.626787",
+        "symbol": "AVAXUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:14.688629",
+    "last_skip": "2026-05-15T16:42:25.626787",
     "skip_patterns": {
       "price_unavailable": [
+        0.0,
+        0.0,
         0.0,
         0.0
       ]
@@ -19435,9 +19672,9 @@
   "LTCUSD": {
     "symbol": "LTCUSD",
     "asset_class": "crypto",
-    "total_skips": 2,
+    "total_skips": 4,
     "skip_reasons": {
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
       {
@@ -19457,11 +19694,31 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:19.837446",
+        "symbol": "LTCUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:26.036309",
+        "symbol": "LTCUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:15.335160",
+    "last_skip": "2026-05-15T16:42:26.036309",
     "skip_patterns": {
       "price_unavailable": [
+        0.0,
+        0.0,
         0.0,
         0.0
       ]
@@ -19470,9 +19727,9 @@
   "TONUSD": {
     "symbol": "TONUSD",
     "asset_class": "crypto",
-    "total_skips": 2,
+    "total_skips": 4,
     "skip_reasons": {
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
       {
@@ -19492,11 +19749,31 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:19.962635",
+        "symbol": "TONUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:26.280505",
+        "symbol": "TONUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:16.305357",
+    "last_skip": "2026-05-15T16:42:26.280505",
     "skip_patterns": {
       "price_unavailable": [
+        0.0,
+        0.0,
         0.0,
         0.0
       ]
@@ -19505,9 +19782,9 @@
   "BCHUSD": {
     "symbol": "BCHUSD",
     "asset_class": "crypto",
-    "total_skips": 2,
+    "total_skips": 4,
     "skip_reasons": {
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
       {
@@ -19527,11 +19804,31 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:20.089640",
+        "symbol": "BCHUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:26.799585",
+        "symbol": "BCHUSD",
+        "asset_class": "crypto",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:17.607463",
+    "last_skip": "2026-05-15T16:42:26.799585",
     "skip_patterns": {
       "price_unavailable": [
+        0.0,
+        0.0,
         0.0,
         0.0
       ]
@@ -19540,9 +19837,9 @@
   "US500": {
     "symbol": "US500",
     "asset_class": "other",
-    "total_skips": 2,
+    "total_skips": 4,
     "skip_reasons": {
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
       {
@@ -19562,11 +19859,31 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:20.222078",
+        "symbol": "US500",
+        "asset_class": "other",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:27.137461",
+        "symbol": "US500",
+        "asset_class": "other",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:18.708653",
+    "last_skip": "2026-05-15T16:42:27.137461",
     "skip_patterns": {
       "price_unavailable": [
+        0.0,
+        0.0,
         0.0,
         0.0
       ]
@@ -19575,9 +19892,9 @@
   "DJ30": {
     "symbol": "DJ30",
     "asset_class": "other",
-    "total_skips": 2,
+    "total_skips": 4,
     "skip_reasons": {
-      "price_unavailable": 2
+      "price_unavailable": 4
     },
     "skip_samples": [
       {
@@ -19597,11 +19914,31 @@
         "confidence": 0.0,
         "analysis_summary": [],
         "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:37:20.395337",
+        "symbol": "DJ30",
+        "asset_class": "other",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
+      },
+      {
+        "timestamp": "2026-05-15T16:42:27.479611",
+        "symbol": "DJ30",
+        "asset_class": "other",
+        "reason": "price_unavailable",
+        "confidence": 0.0,
+        "analysis_summary": [],
+        "signal_type": "unknown"
       }
     ],
-    "last_skip": "2026-05-14T21:01:24.337593",
+    "last_skip": "2026-05-15T16:42:27.479611",
     "skip_patterns": {
       "price_unavailable": [
+        0.0,
+        0.0,
         0.0,
         0.0
       ]

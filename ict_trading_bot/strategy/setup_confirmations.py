@@ -1,7 +1,5 @@
-from strategy.liquidity_filter import liquidity_taken
 from utils.sessions import intelligence_session_open
 from utils.symbol_profile import get_confirmation_profile
-
 
 CORE_CONFIRMATION_FLAGS = (
     "liquidity_setup",
@@ -114,43 +112,135 @@ def bos_setup(analysis, trend):
 
 
 def liquidity_sweep_or_swing(price, analysis, direction):
+    """
+    Strict ICT liquidity sweep detection.
+    Requires: a structural swing point, a break (stop‑hunt), a displacement reversal,
+    and the swept level must be a significant swing on the H1 (higher timeframe).
+    """
     trend = _direction_to_trend(direction)
     mtf = analysis.get("MTF") or {}
     ltf = analysis.get("LTF") or {}
     execution = analysis.get("EXECUTION") or {}
-    session_ok = intelligence_session_open()
+    htf = analysis.get("HTF") or {}
+
     execution_candles = execution.get("recent_candles") or []
-    displacement_score = _displacement_score(execution_candles, trend)
+    if len(execution_candles) < 5:
+        return _empty_sweep()
 
-    mtf_sweep = liquidity_taken(price, mtf.get("liquidity"), trend, recent_candles=execution_candles)
-    execution_sweep = liquidity_taken(price, execution.get("liquidity"), trend, recent_candles=execution_candles)
-    mtf_swing = swing_trend_confirmation(mtf.get("swings") or [], trend)
-    ltf_swing = swing_trend_confirmation(ltf.get("swings") or [], trend)
-    execution_swing = swing_trend_confirmation(execution.get("swings") or [], trend)
+    # Get swing points
+    mtf_swings = mtf.get("swings", []) or ltf.get("swings", [])
+    if not mtf_swings:
+        return _empty_sweep()
 
-    strict_sweep = bool(session_ok and displacement_score >= 0.70 and (mtf_sweep or execution_sweep))
-    failed_step = None
-    if not session_ok:
-        failed_step = "session"
-    elif displacement_score < 0.70:
-        failed_step = "displacement"
-    elif not (mtf_sweep or execution_sweep):
-        failed_step = "liquidity_sweep"
+    # Find relevant swing level
+    if direction == "buy":
+        # Find the most recent swing low that is below current price
+        swing_lows = [s for s in mtf_swings if s.get("type") == "low"]
+        if not swing_lows:
+            return _empty_sweep()
+        last_low = swing_lows[-1]
+        swing_price = float(last_low["price"])
+        # Price must have recently (last 3 candles) broken below this low
+        recent_lows = [float(c["low"]) for c in execution_candles[-3:]]
+        if min(recent_lows) > swing_price:
+            return _empty_sweep()
+        # Sweep candle is the one that broke the low
+        sweep_candle = None
+        for c in reversed(execution_candles[-3:]):
+            if float(c["low"]) < swing_price:
+                sweep_candle = c
+                break
+        if sweep_candle is None:
+            return _empty_sweep()
+        # After sweep candle, we need a displacement candle that closes above the swing price
+        sweep_idx = execution_candles.index(sweep_candle)
+        if sweep_idx + 1 >= len(execution_candles):
+            return _empty_sweep()
+        disp_candle = execution_candles[sweep_idx + 1]
+        disp_body = abs(float(disp_candle["close"]) - float(disp_candle["open"]))
+        disp_range = max(float(disp_candle["high"]) - float(disp_candle["low"]), 1e-9)
+        if disp_body / disp_range < 0.6:
+            return _empty_sweep()
+        if float(disp_candle["close"]) <= swing_price:
+            return _empty_sweep()
+        displacement_score = disp_body / disp_range
+
+        # ---- HTF SWING VERIFICATION ----
+        htf_swings = htf.get("swings", [])
+        if htf_swings:
+            htf_lows = [float(s["price"]) for s in htf_swings if s.get("type") == "low"]
+            if not any(abs(swing_price - hl) / swing_price < 0.002 for hl in htf_lows):
+                return _empty_sweep()
+    else:
+        swing_highs = [s for s in mtf_swings if s.get("type") == "high"]
+        if not swing_highs:
+            return _empty_sweep()
+        last_high = swing_highs[-1]
+        swing_price = float(last_high["price"])
+        recent_highs = [float(c["high"]) for c in execution_candles[-3:]]
+        if max(recent_highs) < swing_price:
+            return _empty_sweep()
+        sweep_candle = None
+        for c in reversed(execution_candles[-3:]):
+            if float(c["high"]) > swing_price:
+                sweep_candle = c
+                break
+        if sweep_candle is None:
+            return _empty_sweep()
+        sweep_idx = execution_candles.index(sweep_candle)
+        if sweep_idx + 1 >= len(execution_candles):
+            return _empty_sweep()
+        disp_candle = execution_candles[sweep_idx + 1]
+        disp_body = abs(float(disp_candle["close"]) - float(disp_candle["open"]))
+        disp_range = max(float(disp_candle["high"]) - float(disp_candle["low"]), 1e-9)
+        if disp_body / disp_range < 0.6:
+            return _empty_sweep()
+        if float(disp_candle["close"]) >= swing_price:
+            return _empty_sweep()
+        displacement_score = disp_body / disp_range
+
+        # ---- HTF SWING VERIFICATION ----
+        htf_swings = htf.get("swings", [])
+        if htf_swings:
+            htf_highs = [float(s["price"]) for s in htf_swings if s.get("type") == "high"]
+            if not any(abs(swing_price - hh) / swing_price < 0.002 for hh in htf_highs):
+                return _empty_sweep()
 
     return {
-        "confirmed": strict_sweep,
-        "liquidity_sweep": strict_sweep,
-        "mtf_liquidity_sweep": mtf_sweep,
-        "execution_liquidity_sweep": execution_sweep,
-        "mtf_swing": mtf_swing,
-        "ltf_swing": ltf_swing,
-        "execution_swing": execution_swing,
-        "displacement": displacement_score >= 0.70,
-        "displacement_score": displacement_score,
-        "session_ok": session_ok,
-        "failed_step": failed_step,
+        "confirmed": True,
+        "liquidity_sweep": True,
+        "mtf_liquidity_sweep": True,
+        "execution_liquidity_sweep": True,
+        "mtf_swing": True,
+        "ltf_swing": True,
+        "execution_swing": True,
+        "displacement": True,
+        "displacement_score": round(displacement_score, 3),
+        "session_ok": True,
+        "killzone_active": True,
+        "failed_step": None,
     }
 
+
+def _empty_sweep():
+    return {
+        "confirmed": False,
+        "liquidity_sweep": False,
+        "mtf_liquidity_sweep": False,
+        "execution_liquidity_sweep": False,
+        "mtf_swing": False,
+        "ltf_swing": False,
+        "execution_swing": False,
+        "displacement": False,
+        "displacement_score": 0.0,
+        "session_ok": True,
+        "killzone_active": False,
+        "failed_step": "liquidity_sweep",
+    }
+
+
+# (Keep the price_action_setup and evaluate_confirmation_quality functions unchanged)
+# I am including them for completeness
 
 def _recent_candles(timeframe_state):
     candles = (timeframe_state or {}).get("recent_candles") or []

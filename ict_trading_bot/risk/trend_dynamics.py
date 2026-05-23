@@ -123,3 +123,28 @@ class TrendDynamicsAnalyzer:
         if current_close < min(lows[:-2]) and data[-1]['high'] < max(highs[-5:]):
             return "bearish"
         return "neutral"
+
+
+def analyze_market_rhythm(analysis: dict, trend: str) -> dict:
+    """
+    Bridge function that uses the TrendDynamicsAnalyzer to produce
+    trend_strength and market_condition in the format expected by main.py.
+    """
+    if not isinstance(analysis, dict):
+        return {"trend_strength": 0.5, "market_condition": "normal"}
+
+    htf_data = (analysis.get("HTF") or {}).get("recent_candles") or []
+    mtf_data = (analysis.get("MTF") or {}).get("recent_candles") or []
+    current_price = float(analysis.get("price", 0) or 0)
+
+    analyzer = TrendDynamicsAnalyzer()
+    result = analyzer.analyze_market_position(
+        htf_data=htf_data,
+        mtf_data=mtf_data,
+        current_price=current_price,
+        direction=trend,
+    )
+    return {
+        "trend_strength": round(float(result.get("score", 0.5)), 3),
+        "market_condition": str(result.get("label", "normal")).lower(),
+    }

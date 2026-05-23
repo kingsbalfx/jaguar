@@ -1,66 +1,176 @@
-def manage_trade(trade, price, market_rhythm=None):
-    """
-    Dynamically manage an open trade.
+"""
+Adaptive ICT Trade Manager – Trail stop behind the strongest structural level.
 
-    The baseline plan is still 1R -> breakeven, 2R -> partial, 3R -> trail,
-    but market rhythm can tighten protection when reversal risk is rising or
-    give trend trades a bit more room to run.
+Prioritises:
+1. Fresh Order Block (unmitigated, closest to price)
+2. Mitigated FVG (origin candle acts as support/resistance)
+3. Strong swing point (volume‑confirmed)
+4. Weak swing point (fallback, but only when nothing else exists)
+
+Always moves stop to breakeven at 0.5R.
+Never moves stop away from profit.
+"""
+
+def _atr_buffer(price):
+    """0.05% of price – tight but safe."""
+    return price * 0.0005
+
+
+def _closest_ob(obs, price, direction):
+    """
+    Return the most relevant unmitigated OB.
+    For buys: highest bullish OB below price.
+    For sells: lowest bearish OB above price.
+    """
+    if not obs:
+        return None
+    relevant = []
+    for ob in obs:
+        if not isinstance(ob, dict):
+            continue
+        if ob.get("mitigated", False):
+            continue
+        if ob.get("type") != ("bullish" if direction == "buy" else "bearish"):
+            continue
+        try:
+            low = float(ob["low"])
+            high = float(ob["high"])
+        except Exception:
+            continue
+        if direction == "buy" and low < price:
+            # The top of the OB is the resistance/support? For trailing a buy, we want the OB's low as support.
+            relevant.append(low)
+        elif direction == "sell" and high > price:
+            relevant.append(high)
+    if not relevant:
+        return None
+    return max(relevant) if direction == "buy" else min(relevant)
+
+
+def _mitigated_fvg_level(fvgs, price, direction):
+    """
+    If an FVG has been mitigated (filled), the candle that created it
+    (the origin) is a structural level. Return that level.
+    For bullish FVG: origin is the low of the preceding candle.
+    For bearish FVG: origin is the high of the preceding candle.
+    Here we approximate: use the FVG's reference_low/reference_high if available,
+    otherwise the FVG boundary.
+    """
+    if not fvgs:
+        return None
+    for fvg in fvgs:
+        if not isinstance(fvg, dict):
+            continue
+        if not fvg.get("mitigated", False):
+            continue
+        if fvg.get("type") != ("bullish" if direction == "buy" else "bearish"):
+            continue
+        # Use reference level if stored
+        ref = fvg.get("reference_low" if direction == "buy" else "reference_high")
+        if ref is None:
+            ref = fvg.get("low" if direction == "buy" else "high")
+        try:
+            return float(ref)
+        except Exception:
+            continue
+    return None
+
+
+def _strong_swings(swings, swing_type, price, direction):
+    """Return swing prices that are strong (volume‑confirmed) and on the correct side."""
+    candidates = []
+    for s in swings:
+        if s.get("type") != swing_type:
+            continue
+        try:
+            p = float(s["price"])
+        except Exception:
+            continue
+        # Filter to correct side
+        if direction == "buy" and p >= price:
+            continue
+        if direction == "sell" and p <= price:
+            continue
+        # Prefer strong swings, but accept normal ones; ignore explicitly weak
+        if s.get("strength") == "weak":
+            continue
+        candidates.append(p)
+    return candidates
+
+
+def manage_trade(trade, price, swings=None, order_blocks=None, fvgs=None, atr=None):
+    """
+    Main trade management call.
+    Returns dict with action 'move_sl' or None.
     """
     if not trade:
         return None
 
-    risk_distance = abs(float(trade["entry"]) - float(trade["sl"]))
-    if risk_distance <= 0:
+    direction = str(trade.get("direction", "")).lower()
+    try:
+        entry = float(trade.get("entry", 0))
+        current_sl = float(trade.get("sl", 0))
+        price = float(price)
+    except Exception:
         return None
 
-    current_r = abs(float(price) - float(trade["entry"])) / risk_distance
-    direction = str(trade.get("direction") or "").lower()
+    risk = abs(entry - current_sl)
+    if risk <= 0:
+        return None
 
-    management_plan = {}
-    if isinstance(market_rhythm, dict):
-        management_plan = market_rhythm.get("management_plan") or {}
+    # 1. Breakeven early (0.5R)
+    if direction == "buy":
+        if price >= entry + risk * 0.5:
+            new_sl = entry + _atr_buffer(price)
+            if new_sl > current_sl:
+                trade["sl"] = new_sl
+                return {"action": "move_sl", "sl": new_sl}
+    else:
+        if price <= entry - risk * 0.5:
+            new_sl = entry - _atr_buffer(price)
+            if new_sl < current_sl:
+                trade["sl"] = new_sl
+                return {"action": "move_sl", "sl": new_sl}
 
-    breakeven_r = float(management_plan.get("breakeven_r", 1.0) or 1.0)
-    partial_r = float(management_plan.get("partial_r", 2.0) or 2.0)
-    trail_r = float(management_plan.get("trail_r", 3.0) or 3.0)
-    mode = str(management_plan.get("mode", "balanced") or "balanced")
-    reversal_score = float((market_rhythm or {}).get("reversal_score", 0.0) or 0.0)
+    # 2. Determine best trail level
+    candidate_levels = []
 
-    # ENHANCED: Protect aggressively if Reversal Risk is high or Displacement is against us
-    # ICT Principle: Take profit at the 'Draw on Liquidity'
-    if reversal_score >= 70:
-        breakeven_r = min(breakeven_r, 0.4) # Move to BE earlier
-        partial_r = min(partial_r, 0.8)    # Take partials before the turn
-        trail_r = min(trail_r, 1.2)
+    # ---- Order Blocks ----
+    if order_blocks:
+        ob_level = _closest_ob(order_blocks, price, direction)
+        if ob_level is not None:
+            candidate_levels.append(("OB", ob_level))
 
-    if trade.get("stage", 0) == 0 and current_r >= breakeven_r:
-        # Move SL to Breakeven + minor buffer to cover commissions
-        buffer = 0.05 * risk_distance if mode == "trend" and reversal_score < 60 else 0.01 * risk_distance
-        if direction == "buy":
-            new_sl = max(float(trade["sl"]), float(trade["entry"]) + buffer)
-        else:
-            new_sl = min(float(trade["sl"]), float(trade["entry"]) - buffer)
-        trade["stage"] = 1
-        return {"action": "move_sl", "sl": new_sl}
+    # ---- Mitigated FVGs ----
+    if fvgs:
+        fvg_level = _mitigated_fvg_level(fvgs, price, direction)
+        if fvg_level is not None:
+            candidate_levels.append(("FVG", fvg_level))
 
-    if trade.get("stage", 0) == 1 and current_r >= partial_r:
-        # ICT logic: Close 50-80% at first major liquidity pool
-        trade["stage"] = 2
-        close_percent = 0.70 if reversal_score > 50 else 0.50
-        return {"action": "partial_close", "percent": close_percent}
+    # ---- Strong swing points ----
+    if swings:
+        swing_type = "low" if direction == "buy" else "high"
+        strong = _strong_swings(swings, swing_type, price, direction)
+        for p in strong[-3:]:
+            candidate_levels.append(("Swing", p))
 
-    if trade.get("stage", 0) >= 2 and current_r >= trail_r:
-        trail_multiple = 1.0
-        if mode == "trend":
-            trail_multiple = 1.2
-        elif mode in ("tight", "defensive", "protective"):
-            trail_multiple = 0.75
+    if not candidate_levels:
+        return None
 
-        if direction == "buy":
-            new_sl = max(float(trade["sl"]), float(price) - (risk_distance * trail_multiple))
-        else:
-            new_sl = min(float(trade["sl"]), float(price) + (risk_distance * trail_multiple))
+    # Pick the level that gives the tightest (highest for buy, lowest for sell) stop
+    if direction == "buy":
+        best_level = max(c[1] for c in candidate_levels)
+        best_level -= _atr_buffer(price)
+    else:
+        best_level = min(c[1] for c in candidate_levels)
+        best_level += _atr_buffer(price)
 
-        return {"action": "trail", "sl": new_sl}
+    # Never move stop backwards
+    if direction == "buy" and best_level > current_sl and best_level < price:
+        trade["sl"] = best_level
+        return {"action": "move_sl", "sl": best_level}
+    elif direction == "sell" and best_level < current_sl and best_level > price:
+        trade["sl"] = best_level
+        return {"action": "move_sl", "sl": best_level}
 
     return None
