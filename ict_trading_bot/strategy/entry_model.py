@@ -9,7 +9,6 @@ import os
 
 
 def _normalize_trend(value):
-    """Convert direction/trend strings to 'bullish' or 'bearish'."""
     v = str(value or "").lower().strip()
     if v in ("bullish", "buy", "long"):
         return "bullish"
@@ -19,7 +18,6 @@ def _normalize_trend(value):
 
 
 def _dynamic_stop_loss(data, trend, price):
-    """Calculate a dynamic SL based on swing points and ATR."""
     trend = _normalize_trend(trend) or ""
     atr = abs(float((data or {}).get("atr", 0.0) or 0.0))
     market_condition = str((data or {}).get("market_condition") or "").lower()
@@ -55,10 +53,6 @@ def _dynamic_stop_loss(data, trend, price):
 
 
 def hybrid_entry_model(data):
-    """
-    Minimal signal enrichment – returns a clean dict or None.
-    Does NOT score or block trades.
-    """
     if not isinstance(data, dict):
         return None
 
@@ -68,11 +62,9 @@ def hybrid_entry_model(data):
 
     price = float(data.get("price") or 0.0)
 
-    # Minimal trend strength check (very loose, just to avoid random noise)
     if float(data.get("trend_strength", 0.0) or 0.0) < 0.45:
         return None
 
-    # Check FVG and OB for enrichment (not blocking)
     fvg = data.get("fvg")
     ob = data.get("htf_ob")
     valid_fvg = fvg if isinstance(fvg, dict) and fvg.get("low") is not None and fvg.get("high") is not None else None
@@ -96,19 +88,12 @@ def hybrid_entry_model(data):
     }
 
 
-# ------------------------------------------------------------------------------
-# Keep the other functions below (score_fvg_entry, check_entry, etc.) unchanged
-# ------------------------------------------------------------------------------
-# (I am including them for backward compatibility; they won't affect the binary
-# evaluator unless called elsewhere. If you prefer, you can delete everything
-# below this comment and keep only the functions above.)
-
+# ---- Legacy fallbacks (not used by the new engine) ----
 def score_fvg_entry(price, fvg, trend=None):
     if not isinstance(fvg, dict) or fvg.get("low") is None or fvg.get("high") is None:
         return 0.0
     if not (float(fvg["low"]) <= float(price) <= float(fvg["high"])):
         return 0.0
-    # simple pass-through for compatibility
     return 100.0
 
 
@@ -125,5 +110,4 @@ def explain_entry_failure(trend, price, fib_levels, fvgs, htf_order_blocks, symb
 
 
 def check_entry(trend, price, fib_levels, fvgs, htf_order_blocks, symbol=None, atr=None):
-    """Legacy strict POI validator – kept for backwards compatibility only."""
     return None

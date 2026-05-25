@@ -17,11 +17,6 @@ def _atr_buffer(price):
 
 
 def _closest_ob(obs, price, direction):
-    """
-    Return the most relevant unmitigated OB.
-    For buys: highest bullish OB below price.
-    For sells: lowest bearish OB above price.
-    """
     if not obs:
         return None
     relevant = []
@@ -38,7 +33,6 @@ def _closest_ob(obs, price, direction):
         except Exception:
             continue
         if direction == "buy" and low < price:
-            # The top of the OB is the resistance/support? For trailing a buy, we want the OB's low as support.
             relevant.append(low)
         elif direction == "sell" and high > price:
             relevant.append(high)
@@ -48,14 +42,6 @@ def _closest_ob(obs, price, direction):
 
 
 def _mitigated_fvg_level(fvgs, price, direction):
-    """
-    If an FVG has been mitigated (filled), the candle that created it
-    (the origin) is a structural level. Return that level.
-    For bullish FVG: origin is the low of the preceding candle.
-    For bearish FVG: origin is the high of the preceding candle.
-    Here we approximate: use the FVG's reference_low/reference_high if available,
-    otherwise the FVG boundary.
-    """
     if not fvgs:
         return None
     for fvg in fvgs:
@@ -65,7 +51,6 @@ def _mitigated_fvg_level(fvgs, price, direction):
             continue
         if fvg.get("type") != ("bullish" if direction == "buy" else "bearish"):
             continue
-        # Use reference level if stored
         ref = fvg.get("reference_low" if direction == "buy" else "reference_high")
         if ref is None:
             ref = fvg.get("low" if direction == "buy" else "high")
@@ -77,7 +62,6 @@ def _mitigated_fvg_level(fvgs, price, direction):
 
 
 def _strong_swings(swings, swing_type, price, direction):
-    """Return swing prices that are strong (volume‑confirmed) and on the correct side."""
     candidates = []
     for s in swings:
         if s.get("type") != swing_type:
@@ -86,12 +70,10 @@ def _strong_swings(swings, swing_type, price, direction):
             p = float(s["price"])
         except Exception:
             continue
-        # Filter to correct side
         if direction == "buy" and p >= price:
             continue
         if direction == "sell" and p <= price:
             continue
-        # Prefer strong swings, but accept normal ones; ignore explicitly weak
         if s.get("strength") == "weak":
             continue
         candidates.append(p)
@@ -99,10 +81,6 @@ def _strong_swings(swings, swing_type, price, direction):
 
 
 def manage_trade(trade, price, swings=None, order_blocks=None, fvgs=None, atr=None):
-    """
-    Main trade management call.
-    Returns dict with action 'move_sl' or None.
-    """
     if not trade:
         return None
 

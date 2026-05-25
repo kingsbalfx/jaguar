@@ -16,10 +16,6 @@ except Exception:
 
 
 def _opening_candle_bias(symbol, current_price, trend, topdown_analysis):
-    """
-    ICT Opening Candle Bias (forex/indices only).
-    Uses the most recent D1 candle (midnight open) as reference.
-    """
     from utils.symbol_profile import infer_asset_class
     if infer_asset_class(symbol) == "crypto":
         return True
@@ -44,10 +40,6 @@ def _opening_candle_bias(symbol, current_price, trend, topdown_analysis):
 
 
 def _detect_weekly_opening_gap(symbol):
-    """
-    Detect weekly opening gap (gap between previous week close and current week open).
-    Returns dict with direction, size, filled status, and current price relative position.
-    """
     if mt5 is None:
         return {"direction": "none", "filled": True}
 
@@ -69,7 +61,6 @@ def _detect_weekly_opening_gap(symbol):
         else:
             return {"direction": "none", "filled": True}
 
-        # Check if gap is already filled (current price has retraced into the gap zone)
         tick = mt5.symbol_info_tick(symbol)
         if tick is None:
             return {"direction": "none", "filled": True}
@@ -88,10 +79,6 @@ def _detect_weekly_opening_gap(symbol):
 
 
 def _detect_daily_opening_gap(symbol):
-    """
-    Daily opening gap: yesterday's close vs today's open.
-    Only for forex, metals, indices (exclude crypto).
-    """
     from utils.symbol_profile import infer_asset_class
     if infer_asset_class(symbol) == "crypto":
         return {"direction": "none", "filled": True}
@@ -135,9 +122,6 @@ def _detect_daily_opening_gap(symbol):
 
 
 def extract_features(symbol, current_price, topdown_analysis):
-    """
-    Returns a dict of computed features.
-    """
     mtf = topdown_analysis.get("MTF") or {}
     ltf = topdown_analysis.get("LTF") or {}
     exec_ = topdown_analysis.get("EXECUTION") or {}

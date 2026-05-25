@@ -1,5 +1,6 @@
 """
 PROBABILITY UPDATER – Live learning from trade outcomes.
+Syncs to Supabase after every update.
 """
 
 import json
@@ -42,7 +43,6 @@ def update_probability_table(regime, features, win):
     if sub["total"] > 0:
         sub["probability"] = round(sub["wins"] / sub["total"], 4)
 
-    # Update default
     total_wins = sum(v.get("wins", 0) for v in regime_table.values() if isinstance(v, dict))
     total_trades = sum(v.get("total", 0) for v in regime_table.values() if isinstance(v, dict))
     if total_trades > 0:
@@ -51,3 +51,10 @@ def update_probability_table(regime, features, win):
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, 'w') as f:
         json.dump(table, f, indent=2)
+
+    # Sync to Supabase (best‑effort)
+    try:
+        from strategy.probability_sync import sync_probability_table_to_supabase
+        sync_probability_table_to_supabase(table)
+    except Exception:
+        pass

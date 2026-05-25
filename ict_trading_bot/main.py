@@ -14,7 +14,7 @@
 #   - Deeper lookback (500+ candles for structure)
 #   - Max‑trades per account strictly enforced
 #   - Friday ICT rules (forex/metals only, crypto 24/7)
-#   - Trend‑strength gate (no trades when trend is weak / transitioning)
+#   - Trend‑strength gate (real rhythm from structure)
 # =====================================================
 
 from dotenv import load_dotenv
