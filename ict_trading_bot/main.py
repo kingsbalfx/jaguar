@@ -335,7 +335,7 @@ def run_bot():
                     market_condition = rhythm.get("market_condition", "normal")
 
                     # ---- TREND STRENGTH GATE (reject weak / transitioning trends) ----
-                    if real_trend_strength < 0.55:
+                    if real_trend_strength < 0.60:
                         logger.info(f"[{symbol}] ⏸ Weak trend strength ({real_trend_strength:.2f}) – skipping")
                         continue
 
