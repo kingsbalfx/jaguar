@@ -1,7 +1,7 @@
 """
 MARKET FEATURE EXTRACTION (ICT → MATH)
 Adds AMD, Turtle Soup, Silver Bullet, Opening Candle Bias,
-Weekly Opening Gap, and Daily Opening Gap detection.
+Weekly Opening Gap, Daily Opening Gap, Weekly Profile, and True Daily Bias.
 """
 
 from strategy.amd_detector import detect_amd
@@ -121,6 +121,48 @@ def _detect_daily_opening_gap(symbol):
         return {"direction": "none", "filled": True}
 
 
+def _weekly_profile(symbol):
+    """
+    Determine the weekly bias from the previous completed weekly candle.
+    Returns a dict with 'bias' (bullish/bearish) and 'expansion' (True if range > average).
+    """
+    if mt5 is None:
+        return {"bias": "neutral", "expansion": False}
+    try:
+        # Get last 4 weekly candles to compute average range
+        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_W1, 0, 5)
+        if rates is None or len(rates) < 2:
+            return {"bias": "neutral", "expansion": False}
+
+        # Last completed week is rates[-2] (current week is rates[-1] if incomplete)
+        prev_week = rates[-2]
+        open_p = float(prev_week["open"])
+        close_p = float(prev_week["close"])
+        high_p = float(prev_week["high"])
+        low_p = float(prev_week["low"])
+
+        bias = "bullish" if close_p > open_p else "bearish" if close_p < open_p else "neutral"
+
+        # Average range of last 4 weeks (excluding current)
+        ranges = []
+        for i in range(-4, -1):
+            r = rates[i]
+            ranges.append(float(r["high"]) - float(r["low"]))
+        avg_range = sum(ranges) / len(ranges) if ranges else 0.0
+        current_range = high_p - low_p
+        expansion = current_range > avg_range * 1.1
+
+        return {
+            "bias": bias,
+            "expansion": expansion,
+            "weekly_high": high_p,
+            "weekly_low": low_p,
+            "weekly_close": close_p,
+        }
+    except Exception:
+        return {"bias": "neutral", "expansion": False}
+
+
 def extract_features(symbol, current_price, topdown_analysis):
     mtf = topdown_analysis.get("MTF") or {}
     ltf = topdown_analysis.get("LTF") or {}
@@ -189,6 +231,9 @@ def extract_features(symbol, current_price, topdown_analysis):
     # Daily opening gap
     daily_gap = _detect_daily_opening_gap(symbol)
 
+    # Weekly profile
+    weekly_profile = _weekly_profile(symbol)
+
     return {
         "body_ratio": round(body_ratio, 3),
         "range_percentile": round(range_percentile, 3),
@@ -208,4 +253,5 @@ def extract_features(symbol, current_price, topdown_analysis):
         "opening_bias_aligned": opening_bias,
         "weekly_gap": weekly_gap,
         "daily_gap": daily_gap,
+        "weekly_profile": weekly_profile,
     }

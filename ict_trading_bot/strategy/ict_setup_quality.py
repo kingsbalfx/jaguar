@@ -1,7 +1,7 @@
 """
 ICT SETUP QUALITY ESTIMATOR
 Extended with Silver Bullet, AMD, Turtle Soup,
-Opening Candle Bias, Weekly Opening Gap, and Daily Opening Gap.
+Opening Candle Bias, Weekly Opening Gap, Daily Opening Gap, and Weekly Profile.
 """
 
 import os, json
@@ -100,6 +100,13 @@ def calculate_success_probability(features, regime, killzone_active=False):
         if (trend == "bullish" and daily_gap["direction"] == "bearish") or \
            (trend == "bearish" and daily_gap["direction"] == "bullish"):
             base_prob *= 1.04
+
+    # Weekly profile bias bonus
+    wp = features.get("weekly_profile", {})
+    if wp.get("bias") == "bullish" and features.get("trend", "neutral") == "bullish":
+        base_prob *= 1.03
+    elif wp.get("bias") == "bearish" and features.get("trend", "neutral") == "bearish":
+        base_prob *= 1.03
 
     base_prob = min(0.88, max(0.30, base_prob))
     quality = base_prob * 100

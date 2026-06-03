@@ -2,8 +2,30 @@
 Jaguar Trend Dynamics Analyzer
 Full ICT rhythm metrics: alignment, continuation, displacement,
 OTE zone, and Market Structure Shift (MSS) detection.
-Uses only the existing top‑down analysis – no extra MT5 calls.
+Now adapts weights using the live probability table.
 """
+
+import json
+from pathlib import Path
+
+PROBABILITY_FILE = Path(__file__).resolve().parent.parent / "data" / "ict_probabilities.json"
+
+def _load_regime_stats(regime):
+    """Load the win rate for the current regime from the probability table."""
+    try:
+        with open(PROBABILITY_FILE, 'r') as f:
+            table = json.load(f)
+    except Exception:
+        return None
+    regime_table = table.get(regime)
+    if not regime_table:
+        return None
+    total = regime_table.get("count", 0)
+    if total < 5:
+        return None
+    # compute overall win rate for this regime from the default key (which is the aggregate)
+    win_rate = regime_table.get("default", 0.5)
+    return win_rate
 
 
 def analyze_market_rhythm(analysis: dict, trend: str) -> dict:
@@ -11,11 +33,6 @@ def analyze_market_rhythm(analysis: dict, trend: str) -> dict:
         return {
             "trend_strength": 0.5,
             "market_condition": "normal",
-            "alignment_score": 0.5,
-            "continuation_score": 0.5,
-            "displacement": 0.5,
-            "ote_score": 0.5,
-            "mss": False,
         }
 
     htf = analysis.get("HTF") or {}
@@ -113,7 +130,24 @@ def analyze_market_rhythm(analysis: dict, trend: str) -> dict:
 
     mss = _detect_mss(mtf_swings, trend)
 
-    # --- 6. Combine into final strength ---
+    # --- 6. Adaptive weights from probability table ---
+    regime = None
+    combined_base = (alignment_score * 0.4 + continuation_score * 0.3 + displacement * 0.15 + ote * 0.15)
+    if combined_base >= 0.75:
+        regime = "trending"
+    elif combined_base >= 0.55:
+        regime = "volatile"
+    elif combined_base >= 0.35:
+        regime = "ranging"
+    else:
+        regime = "compressing"
+
+    regime_win_rate = _load_regime_stats(regime)
+    adaptive_multiplier = 1.0
+    if regime_win_rate is not None:
+        adaptive_multiplier = 0.8 + (regime_win_rate * 0.4)
+
+    # --- 7. Combine into final strength ---
     mss_penalty = 0.15 if mss else 0.0
     combined = (
         alignment_score * 0.4 +
@@ -121,9 +155,9 @@ def analyze_market_rhythm(analysis: dict, trend: str) -> dict:
         displacement * 0.15 +
         ote * 0.15
     ) - mss_penalty
-    combined = max(0.0, min(1.0, combined))
+    combined = max(0.0, min(1.0, combined * adaptive_multiplier))
 
-    # --- 7. Market condition ---
+    # --- 8. Market condition ---
     if combined >= 0.75:
         market_condition = "trending"
     elif combined >= 0.55:
@@ -136,9 +170,4 @@ def analyze_market_rhythm(analysis: dict, trend: str) -> dict:
     return {
         "trend_strength": round(combined, 3),
         "market_condition": market_condition,
-        "alignment_score": round(alignment_score, 3),
-        "continuation_score": round(continuation_score, 3),
-        "displacement": round(displacement, 3),
-        "ote_score": round(ote, 3),
-        "mss": mss,
     }

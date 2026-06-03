@@ -15,6 +15,10 @@
 #   - Max‑trades per account strictly enforced
 #   - Friday ICT rules (forex/metals only, crypto 24/7)
 #   - Trend‑strength gate (real rhythm from structure)
+#   - Retracement confirmation (price must be inside OB or FVG)
+#   - Silver Bullet entry model (10‑11 AM NY)
+#   - Portfolio‑level correlation risk filter
+#   - Partial close at initial TP (50 %), trail remainder
 # =====================================================
 
 from dotenv import load_dotenv
@@ -74,6 +78,11 @@ from ict_concepts.smt import detect_smt
 from risk.trade_management import manage_trade
 from risk.trend_dynamics import analyze_market_rhythm
 from risk.rule_based_risk_manager import RuleBasedRiskManager
+
+# =====================================================
+# SILVER BULLET ENTRY
+# =====================================================
+from strategy.silver_bullet import detect_silver_bullet_entry
 
 load_dotenv()
 
@@ -205,6 +214,31 @@ def is_friday_position_close():
     now = datetime.datetime.now(datetime.timezone.utc)
     return now.weekday() == 4 and now.hour >= 16
 
+# --- Portfolio correlation map ---
+CORRELATED_PAIRS = {
+    "EURUSD": "GBPUSD",
+    "GBPUSD": "EURUSD",
+    "AUDUSD": "NZDUSD",
+    "NZDUSD": "AUDUSD",
+    "XAUUSD": "XAGUSD",
+    "XAGUSD": "XAUUSD",
+    "BTCUSD": "ETHUSD",
+    "ETHUSD": "BTCUSD",
+}
+
+def has_correlated_position(symbol, direction):
+    """
+    Check if there is already an open position in the correlated pair in the same direction.
+    Returns True if such a position exists.
+    """
+    corr = CORRELATED_PAIRS.get(symbol)
+    if not corr:
+        return False
+    for pos in (get_open_positions() or []):
+        if pos.get("symbol") == corr and pos.get("direction", "").lower() == direction.lower():
+            return True
+    return False
+
 def run_bot():
     logger.info("="*70)
     logger.info("ICT PROBABILISTIC INTRADAY BOT STARTED")
@@ -282,7 +316,8 @@ def run_bot():
                     action = manage_trade(trade_dict, cur,
                                           swings=pos_swings,
                                           order_blocks=pos_order_blocks,
-                                          fvgs=pos_fvgs)
+                                          fvgs=pos_fvgs,
+                                          atr=None)   # ATR from features if needed
                     if action:
                         action_type = action.get("action")
                         try:
@@ -415,6 +450,63 @@ def run_bot():
                     tp = float(plan["tp"])
                     logger.info(f"[{symbol}] plan: SL={sl:.5f} TP={'trailing' if tp == 0 else f'{tp:.5f}'} ({plan['method']})")
 
+                    # ================================================================
+                    # RETRACEMENT CHECK – price must be inside a valid OB or FVG
+                    # ================================================================
+                    valid_entry = False
+                    entry_ob = None
+                    entry_fvg = None
+
+                    obs = (topdown.get("MTF", {}) or {}).get("order_blocks", [])
+                    fvgs = (topdown.get("LTF", {}) or {}).get("fvgs", [])
+
+                    for ob in obs:
+                        if (isinstance(ob, dict) and
+                            not ob.get("mitigated", False) and
+                            ob.get("type") == ("bullish" if trend == "bullish" else "bearish")):
+                            try:
+                                ob_low = float(ob["low"])
+                                ob_high = float(ob["high"])
+                                if ob_low <= current_price <= ob_high:
+                                    valid_entry = True
+                                    entry_ob = ob
+                                    break
+                            except Exception:
+                                continue
+
+                    if not valid_entry:
+                        for fvg in fvgs:
+                            if (isinstance(fvg, dict) and
+                                fvg.get("active", True) and
+                                not fvg.get("mitigated", False) and
+                                fvg.get("type") == ("bullish" if trend == "bullish" else "bearish")):
+                                try:
+                                    fvg_low = float(fvg["low"])
+                                    fvg_high = float(fvg["high"])
+                                    if fvg_low <= current_price <= fvg_high:
+                                        valid_entry = True
+                                        entry_fvg = fvg
+                                        break
+                                except Exception:
+                                    continue
+
+                    if not valid_entry:
+                        logger.info(f"[{symbol}] ❌ Price not in OB/FVG – no valid retracement")
+                        continue
+
+                    # ================================================================
+                    # SILVER BULLET ENTRY (optional path – bypasses normal entry)
+                    # ================================================================
+                    silver_entry = None
+                    now_utc = datetime.datetime.now(datetime.timezone.utc)
+                    if 14 <= now_utc.hour < 15:   # 10‑11 AM NY
+                        silver_entry = detect_silver_bullet_entry(symbol, current_price, topdown, trend)
+                        if silver_entry:
+                            # Override SL/TP with tighter Silver Bullet levels
+                            sl = silver_entry["sl"]
+                            tp = silver_entry["tp"]
+                            logger.info(f"[{symbol}] 🔫 Silver Bullet entry overrides normal setup")
+
                     # 6. GATES
                     if not news_allows_trade(symbol):
                         record_skip("news", symbol); continue
@@ -429,6 +521,11 @@ def run_bot():
                     # ---- FRIDAY ICT GATE (forex/metals only, crypto 24/7) ----
                     if asset_class != "crypto" and is_friday_ict_cutoff():
                         logger.info(f"[{symbol}] ⛔ Friday cutoff – no new entries after 14:00 UTC")
+                        continue
+
+                    # ---- PORTFOLIO CORRELATION RISK ----
+                    if has_correlated_position(symbol, direction):
+                        logger.info(f"[{symbol}] ⛔ Correlated pair already open in same direction")
                         continue
 
                     if not can_trade(symbol, ""):

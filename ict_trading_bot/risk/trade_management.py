@@ -9,6 +9,7 @@ Prioritises:
 
 Always moves stop to breakeven at 0.5R.
 Never moves stop away from profit.
+Now includes partial close at the initial TP level (50 %) and trail remainder.
 """
 
 def _atr_buffer(price):
@@ -89,12 +90,23 @@ def manage_trade(trade, price, swings=None, order_blocks=None, fvgs=None, atr=No
         entry = float(trade.get("entry", 0))
         current_sl = float(trade.get("sl", 0))
         price = float(price)
+        initial_tp = float(trade.get("tp", 0))
     except Exception:
         return None
 
     risk = abs(entry - current_sl)
     if risk <= 0:
         return None
+
+    # ---- Partial close at initial TP ----
+    if initial_tp > 0:
+        if direction == "buy" and price >= initial_tp:
+            # Close 50 % and move SL to breakeven on the rest
+            trade["tp"] = 0.0  # disable further TP
+            return {"action": "partial_close", "percent": 0.5}
+        elif direction == "sell" and price <= initial_tp:
+            trade["tp"] = 0.0
+            return {"action": "partial_close", "percent": 0.5}
 
     # 1. Breakeven early (0.5R)
     if direction == "buy":
