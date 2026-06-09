@@ -30,7 +30,7 @@ def _candle_confirmation(direction, candles):
     return bearish_rejection or bearish_momentum
 
 
-def choose_order_type(price, fvg, mode="auto", direction=None, candles=None, timing_score=None):
+def choose_order_type(price, fvg, mode="auto", direction=None, candles=None, timing_score=None, entry_price=None):
     if mode == "market":
         return "market"
 
@@ -38,7 +38,7 @@ def choose_order_type(price, fvg, mode="auto", direction=None, candles=None, tim
         return "limit"
 
     if not isinstance(fvg, dict):
-        return "limit"
+        return "market" if _candle_confirmation(direction, candles) else "limit"
 
     low = fvg.get("low")
     high = fvg.get("high")
@@ -55,3 +55,15 @@ def choose_order_type(price, fvg, mode="auto", direction=None, candles=None, tim
         return "market"
 
     return "limit"
+
+
+def choose_entry_price(price, retracement=None, direction=None):
+    """Choose a valid retracement price instead of placing limits at market."""
+    if not isinstance(retracement, dict):
+        return float(price)
+    midpoint = float(retracement.get("midpoint", price) or price)
+    low = float(retracement.get("low", midpoint) or midpoint)
+    high = float(retracement.get("high", midpoint) or midpoint)
+    if str(direction or "").lower() == "buy":
+        return min(float(price), max(low, min(midpoint, high)))
+    return max(float(price), min(high, max(midpoint, low)))

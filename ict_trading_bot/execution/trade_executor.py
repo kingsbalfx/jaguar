@@ -127,6 +127,16 @@ def execute_trade(
     market_price = tick.ask if direction_lower == "buy" else tick.bid
     order_type_lower = (order_type or "market").lower()
 
+    digits = int(getattr(symbol_info, "digits", 5) or 5)
+    volume_step = float(getattr(symbol_info, "volume_step", 0.01) or 0.01)
+    volume_min = float(getattr(symbol_info, "volume_min", 0.01) or 0.01)
+    volume_max = float(getattr(symbol_info, "volume_max", 100.0) or 100.0)
+    lot = int(float(lot) / volume_step) * volume_step
+    lot = min(volume_max, lot)
+    if lot < volume_min:
+        return None
+    sl_price = round(float(sl_price), digits)
+    tp_price = round(float(tp_price), digits)
     request = {
         "symbol": symbol,
         "volume": lot,
@@ -142,7 +152,7 @@ def execute_trade(
         request.update({
             "action": mt5.TRADE_ACTION_PENDING,
             "type": mt5.ORDER_TYPE_BUY_LIMIT if direction_lower == "buy" else mt5.ORDER_TYPE_SELL_LIMIT,
-            "price": entry_price if entry_price is not None else market_price,
+            "price": round(float(entry_price if entry_price is not None else market_price), digits),
             "type_filling": mt5.ORDER_FILLING_RETURN,
         })
     else:
@@ -213,6 +223,46 @@ def execute_trade(
         "mt5_retcode": getattr(result, "retcode", None),
         "mt5_comment": getattr(result, "comment", None),
     }
+
+
+def modify_position(ticket, sl=None, tp=None):
+    _require_mt5()
+    request = {"action": mt5.TRADE_ACTION_SLTP, "position": int(ticket)}
+    if sl is not None:
+        request["sl"] = float(sl)
+    if tp is not None:
+        request["tp"] = float(tp)
+    result = mt5.order_send(request)
+    return result is not None and getattr(result, "retcode", None) in _success_retcodes()
+
+
+def close_position(ticket, symbol, direction, volume):
+    _require_mt5()
+    tick = mt5.symbol_info_tick(symbol)
+    symbol_info = mt5.symbol_info(symbol)
+    if tick is None or symbol_info is None:
+        return False
+    volume_step = float(getattr(symbol_info, "volume_step", 0.01) or 0.01)
+    volume_min = float(getattr(symbol_info, "volume_min", 0.01) or 0.01)
+    volume_max = float(getattr(symbol_info, "volume_max", volume) or volume)
+    normalized_volume = round(round(float(volume) / volume_step) * volume_step, 8)
+    normalized_volume = min(volume_max, normalized_volume)
+    if normalized_volume < volume_min:
+        return False
+    direction_lower = str(direction or "").lower()
+    request = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "position": int(ticket),
+        "symbol": symbol,
+        "volume": normalized_volume,
+        "type": mt5.ORDER_TYPE_SELL if direction_lower == "buy" else mt5.ORDER_TYPE_BUY,
+        "price": tick.bid if direction_lower == "buy" else tick.ask,
+        "deviation": 20,
+        "magic": 202401,
+        "comment": "ICT_CLOSE",
+    }
+    result = mt5.order_send(request)
+    return result is not None and getattr(result, "retcode", None) in _success_retcodes()
 
 
 def apply_trade_action(trade: dict, action: dict):

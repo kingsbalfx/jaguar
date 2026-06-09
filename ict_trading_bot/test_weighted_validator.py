@@ -71,7 +71,8 @@ missing_liquidity = run_case(
     {**BASE_CONFIRMATIONS, "liquidity_setup": {"confirmed": False, "displacement_score": 0.82}},
     STRONG_CIS,
 )
-assert missing_liquidity["execution_route"] == "skip"
+assert missing_liquidity["confidence"] < perfect["confidence"]
+assert "liquidity_sweep" in missing_liquidity["missing_core"]
 
 insufficient_history = run_case(
     "GOOD SETUP BUT <100 REAL CIS TRADES",

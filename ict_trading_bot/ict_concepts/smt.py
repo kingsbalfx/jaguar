@@ -1,4 +1,4 @@
-def detect_smt(pair_a, pair_b):
+def detect_smt(pair_a, pair_b, expected_direction=None):
     """
     pair_a / pair_b:
     {
@@ -29,7 +29,13 @@ def detect_smt(pair_a, pair_b):
         reference = max(abs(float(pair_b["prev_low"])), 1e-9)
         strength = min(1.0, divergence / reference)
 
-    confirmed = direction is not None and timeframe_synced and strength > 0.0
+    expected = str(expected_direction or "").lower()
+    if expected in ("buy", "long"):
+        expected = "bullish"
+    elif expected in ("sell", "short"):
+        expected = "bearish"
+    direction_aligned = not expected or direction == expected
+    confirmed = direction is not None and timeframe_synced and strength > 0.0 and direction_aligned
     score = min(1.0, strength + (0.2 if timeframe_synced else 0.0))
 
     return {
@@ -38,4 +44,5 @@ def detect_smt(pair_a, pair_b):
         "strength": round(strength, 3),
         "score": round(score, 3),
         "timeframe_synced": timeframe_synced,
+        "direction_aligned": direction_aligned,
     }

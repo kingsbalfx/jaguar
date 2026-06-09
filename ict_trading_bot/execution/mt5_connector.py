@@ -177,19 +177,60 @@ def reconnect(credentials=None):
 def ensure_symbol(symbol):
     if not mt5.symbol_select(symbol, True):
         raise RuntimeError(f"Failed to select symbol {symbol}")
+    return symbol
 
 
 def get_price(symbol):
-    """Return last market price (midpoint of ask/bid)."""
+    """Return a bid/ask snapshot for compatibility with every live caller."""
     tick = mt5.symbol_info_tick(symbol)
     if tick is None:
         raise RuntimeError(f"No tick data for {symbol}")
+    return {
+        "bid": float(getattr(tick, "bid", 0.0) or 0.0),
+        "ask": float(getattr(tick, "ask", 0.0) or 0.0),
+        "last": float(getattr(tick, "last", 0.0) or 0.0),
+    }
 
-    # prefer mid price
-    try:
-        return (tick.ask + tick.bid) / 2.0
-    except Exception:
-        return tick.last
+
+def get_tick_snapshot(symbol):
+    _require_mt5()
+    ensure_symbol(symbol)
+    tick = mt5.symbol_info_tick(symbol)
+    info = mt5.symbol_info(symbol)
+    if tick is None or info is None:
+        raise RuntimeError(f"No tick or symbol data for {symbol}")
+    return {
+        "symbol": symbol,
+        "bid": float(getattr(tick, "bid", 0.0) or 0.0),
+        "ask": float(getattr(tick, "ask", 0.0) or 0.0),
+        "last": float(getattr(tick, "last", 0.0) or 0.0),
+        "time": int(getattr(tick, "time", 0) or 0),
+        "time_msc": int(getattr(tick, "time_msc", 0) or 0),
+        "point": float(getattr(info, "point", 0.0) or 0.0),
+        "digits": int(getattr(info, "digits", 5) or 5),
+        "spread_points": max(0.0, (float(tick.ask) - float(tick.bid)) / max(float(getattr(info, "point", 0.0) or 0.0), 1e-12)),
+    }
+
+
+def get_symbol_spec(symbol):
+    _require_mt5()
+    ensure_symbol(symbol)
+    info = mt5.symbol_info(symbol)
+    if info is None:
+        raise RuntimeError(f"Symbol info not found: {symbol}")
+    return {
+        "symbol": symbol,
+        "point": float(getattr(info, "point", 0.0) or 0.0),
+        "digits": int(getattr(info, "digits", 5) or 5),
+        "tick_size": float(getattr(info, "trade_tick_size", 0.0) or 0.0),
+        "tick_value": float(getattr(info, "trade_tick_value", 0.0) or 0.0),
+        "contract_size": float(getattr(info, "trade_contract_size", 0.0) or 0.0),
+        "volume_min": float(getattr(info, "volume_min", 0.01) or 0.01),
+        "volume_max": float(getattr(info, "volume_max", 100.0) or 100.0),
+        "volume_step": float(getattr(info, "volume_step", 0.01) or 0.01),
+        "stops_level": float(getattr(info, "trade_stops_level", 0.0) or 0.0),
+        "trade_mode": getattr(info, "trade_mode", None),
+    }
 
 
 def get_open_positions():
@@ -207,13 +248,16 @@ def get_open_positions():
         try:
             direction = "buy" if getattr(p, "type", buy_type) == buy_type else "sell"
             out.append({
+                "ticket": getattr(p, "ticket", None),
                 "symbol": p.symbol,
                 "volume": p.volume,
                 "price": p.price_open,
+                "sl": getattr(p, "sl", 0.0),
+                "tp": getattr(p, "tp", 0.0),
                 "profit": p.profit,
                 "direction": direction,
-                # risk placeholder (should be computed by risk manager)
-                "risk": 0.5
+                "magic": getattr(p, "magic", None),
+                "time": getattr(p, "time", None),
             })
         except Exception:
             continue
@@ -238,3 +282,27 @@ def get_account_snapshot():
         "currency": getattr(account, "currency", None),
         "company": getattr(account, "company", None),
     }
+
+
+def calculate_volume_for_risk(symbol, entry, stop_loss, risk_amount):
+    """Calculate broker-aware volume using MT5's profit model."""
+    _require_mt5()
+    spec = get_symbol_spec(symbol)
+    entry = float(entry)
+    stop_loss = float(stop_loss)
+    risk_amount = max(0.0, float(risk_amount))
+    if risk_amount <= 0 or entry <= 0 or stop_loss <= 0 or entry == stop_loss:
+        return 0.0
+    order_type = mt5.ORDER_TYPE_BUY if stop_loss < entry else mt5.ORDER_TYPE_SELL
+    one_lot_loss = mt5.order_calc_profit(order_type, symbol, 1.0, entry, stop_loss)
+    if one_lot_loss is None or abs(float(one_lot_loss)) <= 0:
+        tick_size = max(spec["tick_size"], spec["point"], 1e-12)
+        one_lot_loss = -(abs(entry - stop_loss) / tick_size) * max(spec["tick_value"], 1e-9)
+    raw = risk_amount / abs(float(one_lot_loss))
+    step = max(spec["volume_step"], 0.01)
+    normalized = int(raw / step) * step
+    if normalized < spec["volume_min"]:
+        return 0.0
+    normalized = min(normalized, spec["volume_max"])
+    decimals = max(0, len(str(step).rstrip("0").split(".")[-1]) if "." in str(step) else 0)
+    return round(normalized, decimals)

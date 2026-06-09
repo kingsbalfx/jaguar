@@ -119,14 +119,16 @@ def _analyze_timeframe(symbol, timeframe, price, recent_candle_count=500, atr_pe
     except Exception:
         swings = []
 
-    try:
-        liquidity = detect_liquidity_zones(swings) or {"EQL": [], "EQH": []}
-    except Exception:
-        liquidity = {"EQL": [], "EQH": []}
-
     discount = (fib.get("0.25", 0.0), fib.get("0.5", 0.0))
     premium = (fib.get("0.5", 0.0), fib.get("0.75", 0.0))
     recent_candles = _fetch_recent_candles(symbol, timeframe, bars=recent_candle_count)
+    try:
+        liquidity = detect_liquidity_zones(
+            swings,
+            atr=_calculate_atr(recent_candles, period=atr_period),
+        ) or {"EQL": [], "EQH": []}
+    except Exception:
+        liquidity = {"EQL": [], "EQH": []}
     avg_volume = sum(c["volume"] for c in recent_candles) / len(recent_candles) if recent_candles else 0
     current_volume = recent_candles[-1]["volume"] if recent_candles else 0
     sma_50 = _calculate_sma(recent_candles, period=min(50, len(recent_candles)))

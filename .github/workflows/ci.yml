@@ -27,16 +27,15 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install flake8
 
-      - name: Lint (flake8)
+      - name: Critical lint
         working-directory: ict_trading_bot
         run: |
-          # allow missing optional deps in CI by ignoring import errors where needed
-          flake8 --max-line-length=120 || true
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
-      - name: Run basic smoke script (webhook tester)
+      - name: Run unit tests
         working-directory: ict_trading_bot
         run: |
-          python -c "import sys; print('Python OK')"
+          python -m pytest tests -v --tb=short
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2

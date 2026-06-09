@@ -4,6 +4,7 @@ PRE-TRADE VALIDATION ENGINE
 Final checkpoint BEFORE every trade execution.
 """
 import logging
+import os
 from datetime import datetime
 from typing import Dict, Tuple
 
@@ -16,6 +17,8 @@ except Exception as e:
 from risk.intelligence_system import get_cis_decision
 from risk.market_condition import should_trade_pair_based_on_volatility
 from strategy.confirmation_system import get_all_confirmations_for_pair
+from execution.mt5_connector import get_symbol_spec, get_tick_snapshot
+from risk.protection import daily_loss_allows_trade
 
 logger = logging.getLogger(__name__)
 
@@ -317,3 +320,54 @@ def validate_trade_before_entry(
         volume=volume,
     )
     return result.get("approved", False), result
+
+
+def validate_execution_safety(
+    symbol: str,
+    direction: str,
+    entry: float,
+    stop_loss: float,
+    take_profit: float,
+    volume: float,
+    account_snapshot: Dict,
+    open_positions=None,
+) -> Tuple[bool, Dict]:
+    """Hard gates only: reject operationally unsafe orders, never strategy opinions."""
+    checks = {}
+    reasons = []
+    try:
+        tick = get_tick_snapshot(symbol)
+        spec = get_symbol_spec(symbol)
+    except Exception as exc:
+        return False, {"approved": False, "reasons": [f"market_data_unavailable:{exc}"], "checks": checks}
+
+    now_seconds = datetime.utcnow().timestamp()
+    tick_time = float(tick.get("time") or 0.0)
+    max_age = float(os.getenv("MAX_TICK_AGE_SECONDS", "120"))
+    checks["fresh_tick"] = tick_time > 0 and now_seconds - tick_time <= max_age
+
+    max_spread_points = float(os.getenv("MAX_SPREAD_POINTS", "80"))
+    checks["spread"] = float(tick.get("spread_points", 0.0)) <= max_spread_points
+    checks["volume"] = spec["volume_min"] <= float(volume) <= spec["volume_max"]
+    side = str(direction or "").lower()
+    checks["geometry"] = (
+        float(stop_loss) < float(entry) < float(take_profit)
+        if side == "buy"
+        else float(take_profit) < float(entry) < float(stop_loss)
+    )
+    min_distance = spec["stops_level"] * max(spec["point"], 1e-12)
+    checks["stop_distance"] = abs(float(entry) - float(stop_loss)) >= min_distance and abs(float(take_profit) - float(entry)) >= min_distance
+    checks["free_margin"] = float((account_snapshot or {}).get("margin_free") or 0.0) > 0
+    checks["daily_loss"], daily_reason = daily_loss_allows_trade(account_snapshot)
+    existing_same = [
+        pos for pos in (open_positions or [])
+        if str(pos.get("symbol") or "") == symbol and str(pos.get("direction") or "").lower() == side
+    ]
+    checks["duplicate_position"] = len(existing_same) == 0
+
+    for name, passed in checks.items():
+        if not passed:
+            reasons.append(name)
+    if not checks["daily_loss"]:
+        reasons.append(daily_reason)
+    return not reasons, {"approved": not reasons, "reasons": reasons, "checks": checks, "tick": tick, "spec": spec}

@@ -35,7 +35,15 @@ def _zone_record(a, b, fallback_session=None):
     }
 
 
-def detect_liquidity_zones(swings, tolerance=0.0003, session=None):
+def _zone_tolerance(a, b, tolerance=None, atr=None):
+    if tolerance is not None:
+        return abs(float(tolerance))
+    reference = max(abs(_swing_price(a)), abs(_swing_price(b)), 1e-9)
+    atr_tolerance = abs(float(atr or 0.0)) * 0.12
+    return max(reference * 0.00012, atr_tolerance)
+
+
+def detect_liquidity_zones(swings, tolerance=None, session=None, atr=None, min_separation=3):
     """
     swings: list of swing highs/lows
     Returns EQH / EQL zones with session metadata and sweep tracking flags.
@@ -48,14 +56,30 @@ def detect_liquidity_zones(swings, tolerance=0.0003, session=None):
 
     for i in range(len(swings) - 1):
         a = swings[i]
-        b = swings[i + 1]
-        if not isinstance(a, dict) or not isinstance(b, dict):
+        if not isinstance(a, dict):
             continue
-        if a.get("type") != b.get("type"):
-            continue
-
-        if abs(_swing_price(a) - _swing_price(b)) <= tolerance:
+        for b in swings[i + 1 :]:
+            if not isinstance(b, dict) or a.get("type") != b.get("type"):
+                continue
+            separation = abs(int(b.get("index", i + 1)) - int(a.get("index", i)))
+            if separation < max(1, int(min_separation)):
+                continue
+            allowed = _zone_tolerance(a, b, tolerance=tolerance, atr=atr)
+            distance = abs(_swing_price(a) - _swing_price(b))
+            if distance > allowed:
+                continue
             zone = _zone_record(a, b, fallback_session=session)
+            zone.update(
+                {
+                    "tolerance": round(allowed, 8),
+                    "separation": separation,
+                    "untaken": True,
+                    "importance": round(
+                        min(1.0, 0.35 + min(separation, 30) / 60.0 + min(float(a.get("weight", 1.0)), float(b.get("weight", 1.0))) / 6.0),
+                        3,
+                    ),
+                }
+            )
             if a["type"] == "high":
                 eqh.append(zone)
             else:
@@ -91,3 +115,20 @@ def confirm_liquidity_sweep(price, liquidity, direction, tolerance=0.0015):
                 return True
 
     return False
+
+
+def rank_liquidity_zones(liquidity, price, direction):
+    """Rank untaken liquidity in the proposed target direction."""
+    direction = str(direction or "").lower()
+    key = "EQH" if direction in ("buy", "bullish", "long") else "EQL"
+    candidates = []
+    for zone in (liquidity or {}).get(key, []):
+        if not isinstance(zone, dict) or not zone.get("untaken", True):
+            continue
+        level = float(zone.get("level", 0.0) or 0.0)
+        if direction in ("buy", "bullish", "long") and level <= float(price):
+            continue
+        if direction in ("sell", "bearish", "short") and level >= float(price):
+            continue
+        candidates.append(zone)
+    return sorted(candidates, key=lambda item: (-float(item.get("importance", 0.0)), abs(float(item["level"]) - float(price))))

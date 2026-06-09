@@ -15,7 +15,7 @@ from config.symbol_mappings import candidates_for
 from ict_concepts.fvg import detect_fvg_from_df
 from ict_concepts.liquidity import detect_liquidity_zones
 from risk.sl_tp_engine import calculate_sl_tp
-from strategy.entry_model import check_entry
+from strategy.unified_ict_engine import evaluate_unified_setup
 from strategy.setup_confirmations import bos_setup, evaluate_confirmation_quality, liquidity_sweep_or_swing, price_action_setup
 from utils.sessions import in_london_session, in_newyork_session
 from utils.symbol_profile import build_symbol_profile_snapshot, get_entry_profile
@@ -296,11 +296,15 @@ def _analysis_from_frames(symbol, price, frames, profile):
 
     return {
         "overall_trend": overall_trend,
+        "topdown": {"trend": overall_trend, "context_alignment": "mixed"},
         "price": price,
         "timeframes": {"HTF": htf, "MTF": mtf, "LTF": ltf},
         "HTF": analysis[htf],
         "MTF": analysis[mtf],
         "LTF": analysis[ltf],
+        "EXECUTION": analysis[ltf],
+        "m5_candles": analysis[ltf].get("recent_candles", []),
+        "m1_candles": [],
         "D1": analysis.get("D1", {}),
         "correlated": {},
     }
@@ -409,28 +413,33 @@ def run_strategy_backtest(symbols):
                 i += step_bars
                 continue
 
-            signal = check_entry(
-                trend=trend,
-                price=price,
-                fib_levels=analysis["MTF"]["fib"],
-                fvgs=analysis["LTF"]["fvgs"],
-                htf_order_blocks=analysis["MTF"]["order_blocks"],
-                symbol=symbol,
-                atr=analysis["MTF"].get("atr"),
+            unified_setup = evaluate_unified_setup(
+                symbol,
+                price,
+                analysis,
+                smt={"confirmed": False},
+                killzone_active=True,
             )
-            if not isinstance(signal, dict) or not signal:
+            if unified_setup.get("execution_route") == "observe":
                 i += step_bars
                 continue
 
             direction = "buy" if trend == "bullish" else "sell"
-            signal["symbol"] = symbol
-            signal["direction"] = direction
-            signal["trend"] = trend
+            retracement = unified_setup.get("retracement") or {}
+            signal = {
+                "symbol": symbol,
+                "direction": direction,
+                "trend": trend,
+                "fib_zone": unified_setup.get("premium_discount_zone"),
+                "fvg": retracement.get("fvg"),
+                "htf_ob": retracement.get("order_block"),
+                "confidence": unified_setup.get("confidence"),
+            }
 
             liquidity_state = liquidity_sweep_or_swing(price, analysis, direction)
             bos_state = bos_setup(analysis, trend)
             price_action_state = price_action_setup(analysis, trend)
-            smt_ok = True
+            smt_ok = bool(unified_setup.get("components", {}).get("smt"))
             daily_trend = analysis["D1"].get("trend")
             rule_ok = _rule_quality_from_context(signal, daily_trend)
             ml_ok = True
@@ -463,14 +472,8 @@ def run_strategy_backtest(symbols):
                 confirmation_flags["fundamentals"] = True
 
             confirmation_summary = evaluate_confirmation_quality(confirmation_flags, symbol=symbol)
-            if not confirmation_summary["core_ready"]:
-                i += step_bars
-                continue
-            if not confirmation_summary["passed"]:
-                i += step_bars
-                continue
 
-            htf_ob = signal.get("htf_ob") or {}
+            htf_ob = signal.get("htf_ob") or signal.get("fvg") or {}
             if htf_ob.get("low") is None or htf_ob.get("high") is None:
                 i += step_bars
                 continue

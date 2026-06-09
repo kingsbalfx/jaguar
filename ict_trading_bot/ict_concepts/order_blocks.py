@@ -88,6 +88,10 @@ def _build_order_block(df, idx, timeframe, symbol=None, lookahead_bars=200):
         "volume_boost": volume_boost,
         "institutional_footprint": institutional_footprint,
         "quality": round(quality, 3),
+        "midpoint": round((block_high + block_low) / 2.0, 6),
+        "origin_index": int(idx - 1),
+        "caused_structure_break": False,
+        "created_fvg": False,
         "mitigated": mitigated,
         "fresh": not mitigated,
     }
@@ -118,6 +122,38 @@ def detect_order_blocks(df, structure_points):
             obs.append(block)
 
     return obs
+
+
+def qualify_order_blocks(order_blocks, *, direction=None, structure_break=False, liquidity_sweep=False, fvgs=None, fib=None):
+    """Rank order blocks by narrative evidence instead of treating every candle equally."""
+    expected = "bullish" if str(direction or "").lower() in ("buy", "bullish", "long") else "bearish"
+    fvg_origins = {int(fvg.get("origin_index")) for fvg in (fvgs or []) if isinstance(fvg, dict) and fvg.get("origin_index") is not None}
+    qualified = []
+    for ob in order_blocks or []:
+        if not isinstance(ob, dict):
+            continue
+        item = dict(ob)
+        item["caused_structure_break"] = bool(structure_break)
+        item["created_fvg"] = int(item.get("index", -999)) in fvg_origins or int(item.get("index", -999)) + 1 in fvg_origins
+        item["liquidity_sweep_confirmed"] = bool(item.get("liquidity_sweep_confirmed") or liquidity_sweep)
+        midpoint = float(item.get("midpoint", (float(item["low"]) + float(item["high"])) / 2.0))
+        correct_zone = True
+        if fib:
+            correct_zone = midpoint <= float(fib["0.5"]) if expected == "bullish" else midpoint >= float(fib["0.5"])
+        item["premium_discount_aligned"] = correct_zone
+        evidence = [
+            bool(item.get("institutional_footprint")),
+            bool(item.get("displacement", 0.0) >= 0.55),
+            bool(item.get("caused_structure_break")),
+            bool(item.get("created_fvg")),
+            bool(item.get("liquidity_sweep_confirmed")),
+            bool(correct_zone),
+            bool(item.get("fresh")) and not bool(item.get("mitigated")),
+        ]
+        item["narrative_score"] = round(sum(evidence) / len(evidence), 3)
+        item["true_order_block"] = item.get("type") == expected and item["narrative_score"] >= 0.70
+        qualified.append(item)
+    return sorted(qualified, key=lambda item: (not item.get("true_order_block", False), -float(item.get("narrative_score", 0.0)), -float(item.get("quality", 0.0))))
 
 
 def detect_htf_order_blocks(symbol, timeframe, bars=500):

@@ -14,12 +14,23 @@ def _require_mt5():
 
 
 def fib_dealing_range(high, low):
+    high = float(high)
+    low = float(low)
+    if high < low:
+        high, low = low, high
+    spread = high - low
     return {
         "0.0": low,
-        "0.25": low + 0.25 * (high - low),
-        "0.5": low + 0.5 * (high - low),
-        "0.75": low + 0.75 * (high - low),
+        "0.21": low + 0.21 * spread,
+        "0.25": low + 0.25 * spread,
+        "0.382": low + 0.382 * spread,
+        "0.5": low + 0.5 * spread,
+        "0.62": low + 0.62 * spread,
+        "0.705": low + 0.705 * spread,
+        "0.79": low + 0.79 * spread,
+        "0.75": low + 0.75 * spread,
         "1.0": high,
+        "range": spread,
     }
 
 
@@ -37,6 +48,25 @@ def discount_zone(fib):
 
 def premium_zone(fib):
     return float(fib["0.5"]), float(fib["1.0"])
+
+
+def ote_zone(fib, direction):
+    """Return the directional 62%-79% optimal-trade-entry retracement."""
+    low = float(fib["0.0"])
+    high = float(fib["1.0"])
+    spread = high - low
+    if str(direction or "").lower() in ("buy", "bullish", "long"):
+        return high - (spread * 0.79), high - (spread * 0.62)
+    return low + (spread * 0.62), low + (spread * 0.79)
+
+
+def price_zone(price, fib):
+    price = float(price)
+    if in_discount(price, fib):
+        return "discount"
+    if in_premium(price, fib):
+        return "premium"
+    return "outside"
 
 
 def calculate_fib_levels(symbol, timeframe, bars=200):

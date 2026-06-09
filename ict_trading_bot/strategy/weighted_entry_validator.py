@@ -125,6 +125,17 @@ def calculate_entry_confidence(
     force_backtest = cis_history < 100
     execution_route, backtest_required, reasoning = _determine_execution_route(confidence, force_backtest)
 
+    missing_core = [
+        name
+        for name, present in (
+            ("liquidity_sweep", has_liquidity),
+            ("bos", has_bos),
+            ("displacement", has_displacement),
+            ("fvg", has_fvg),
+            ("order_block", has_order_block),
+        )
+        if not present
+    ]
     return {
         "confidence": round(confidence, 1),
         "execution_route": execution_route,
@@ -135,7 +146,7 @@ def calculate_entry_confidence(
         "cis_setup_quality": cis_setup_quality,
         "backtest_required": backtest_required,
         "market_rhythm": market_rhythm,
-        "missing_core": [],  # Keep for compatibility but no longer used for rejection
+        "missing_core": missing_core,
     }
 
 

@@ -3,6 +3,8 @@ import threading
 import json
 import time
 from datetime import datetime
+import os
+import secrets
 from bot_state import get_state, set_running, request_restart
 from utils.logger import bot_log
 
@@ -11,6 +13,24 @@ app = Flask("bot_api")
 # Global storage for webhook signals
 webhook_signals = []
 MAX_WEBHOOK_SIGNALS = 100  # Prevent memory issues
+
+
+def _authorized():
+    expected = os.getenv("BOT_API_TOKEN", "").strip()
+    if not expected:
+        return False
+    supplied = (
+        request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+        or request.headers.get("x-bot-api-token", "").strip()
+        or request.args.get("token", "").strip()
+    )
+    return bool(supplied) and secrets.compare_digest(supplied, expected)
+
+
+def _require_auth():
+    if not _authorized():
+        return jsonify({"error": "unauthorized"}), 401
+    return None
 
 def add_webhook_signal(signal_data):
     """Add a webhook signal to the queue"""
@@ -59,6 +79,9 @@ def tradingview_webhook():
     }
     """
     try:
+        denied = _require_auth()
+        if denied:
+            return denied
         data = request.get_json()
 
         if not data:
@@ -92,6 +115,9 @@ def tradingview_webhook():
 @app.route("/webhook/signals", methods=["GET"])
 def get_signals():
     """Get queued webhook signals"""
+    denied = _require_auth()
+    if denied:
+        return denied
     return jsonify({
         "signals": get_webhook_signals(),
         "count": len(webhook_signals)
@@ -100,6 +126,9 @@ def get_signals():
 @app.route("/webhook/signals", methods=["DELETE"])
 def clear_signals():
     """Clear all webhook signals"""
+    denied = _require_auth()
+    if denied:
+        return denied
     clear_webhook_signals()
     return jsonify({"message": "Signals cleared"}), 200
 
@@ -116,11 +145,17 @@ def health():
 
 @app.route("/status", methods=["GET"])
 def status():
+    denied = _require_auth()
+    if denied:
+        return denied
     return jsonify(get_state())
 
 
 @app.route("/control", methods=["POST"])
 def control():
+    denied = _require_auth()
+    if denied:
+        return denied
     data = request.get_json() or {}
     action = data.get("action")
     if action == "stop":
@@ -137,6 +172,9 @@ def control():
 
 @app.route("/restart", methods=["POST"])
 def restart():
+    denied = _require_auth()
+    if denied:
+        return denied
     request_restart()
     return jsonify({"result": "restart requested"})
 

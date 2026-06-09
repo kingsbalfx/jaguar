@@ -1,4 +1,4 @@
-import random
+import hashlib
 from datetime import datetime
 from typing import Dict, List, Tuple
 
@@ -31,7 +31,10 @@ def _simulate_single_trade_outcome(
 ) -> Tuple[str, float]:
     pip_size = _pip_size(symbol)
     spread_cost = spread_pips * pip_size
-    slippage_cost = random.uniform(0.0, slippage_pips) * pip_size
+    signature = f"{symbol}|{entry_price:.8f}|{sl_price:.8f}|{tp_price:.8f}|{direction}|{displacement_score:.4f}"
+    seed = int(hashlib.sha256(signature.encode("utf-8")).hexdigest()[:12], 16)
+    unit = (seed % 1000000) / 1000000.0
+    slippage_cost = unit * slippage_pips * pip_size
 
     if str(direction or "").lower() == "buy":
         effective_entry = entry_price + spread_cost + slippage_cost
@@ -50,11 +53,11 @@ def _simulate_single_trade_outcome(
     # This accounts for the friction of spread and slippage on win rates
     win_probability = 0.48 + (max(0, displacement_score - 0.70) * 0.2)
     
-    outcome = "win" if random.random() < win_probability else "loss"
+    outcome = "win" if unit < win_probability else "loss"
     pnl = reward if outcome == "win" else -risk
 
-    if random.random() < partial_fill_chance and outcome == "win":
-        pnl *= random.uniform(0.65, 0.9)
+    if ((seed // 1000000) % 10000) / 10000.0 < partial_fill_chance and outcome == "win":
+        pnl *= 0.65 + (unit * 0.25)
 
     return outcome, pnl
 

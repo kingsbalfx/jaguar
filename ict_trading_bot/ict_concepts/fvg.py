@@ -134,6 +134,10 @@ def detect_fvg_from_df(df, trend=None, min_gap_ratio=0.12, min_body_ratio=0.55):
                     "size_ok": size_ok,
                     "context_aligned": context_aligned,
                     "quality": round(quality, 3),
+                    "midpoint": round((float(candidate["low"]) + float(candidate["high"])) / 2.0, 6),
+                    "origin_index": int(i - 1),
+                    "structure_break_confirmed": False,
+                    "liquidity_sweep_confirmed": False,
                     **mitigation,
                     "active": not mitigation["mitigated"],
                 }
@@ -144,6 +148,36 @@ def detect_fvg_from_df(df, trend=None, min_gap_ratio=0.12, min_body_ratio=0.55):
             continue
 
     return fvgs
+
+
+def qualify_fvgs(fvgs, *, direction=None, structure_break=False, liquidity_sweep=False, fib=None):
+    """Attach narrative evidence and rank FVGs without silently discarding them."""
+    qualified = []
+    expected = "bullish" if str(direction or "").lower() in ("buy", "bullish", "long") else "bearish"
+    for fvg in fvgs or []:
+        if not isinstance(fvg, dict):
+            continue
+        item = dict(fvg)
+        item["structure_break_confirmed"] = bool(structure_break)
+        item["liquidity_sweep_confirmed"] = bool(liquidity_sweep)
+        midpoint = float(item.get("midpoint", (float(item["low"]) + float(item["high"])) / 2.0))
+        correct_zone = True
+        if fib:
+            correct_zone = midpoint <= float(fib["0.5"]) if expected == "bullish" else midpoint >= float(fib["0.5"])
+        item["premium_discount_aligned"] = correct_zone
+        evidence = [
+            bool(item.get("displacement_ok")),
+            bool(item.get("size_ok")),
+            bool(item.get("context_aligned")),
+            bool(structure_break),
+            bool(liquidity_sweep),
+            bool(correct_zone),
+            bool(item.get("active")) and not bool(item.get("mitigated")),
+        ]
+        item["narrative_score"] = round(sum(evidence) / len(evidence), 3)
+        item["true_fvg"] = item.get("type") == expected and item["narrative_score"] >= 0.70
+        qualified.append(item)
+    return sorted(qualified, key=lambda item: (not item.get("true_fvg", False), -float(item.get("narrative_score", 0.0)), -float(item.get("quality", 0.0))))
 
 
 def detect_fvgs(symbol, timeframe, bars=200, trend=None):

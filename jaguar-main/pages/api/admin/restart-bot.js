@@ -53,7 +53,14 @@ export default async function handler(req, res) {
     }
 
     const restartUrl = buildBotUrl(baseUrl, "restart");
-    const response = await fetch(restartUrl, { method: "POST" });
+    const botToken = process.env.BOT_API_TOKEN;
+    if (!botToken) {
+      return res.status(500).json({ error: "BOT_API_TOKEN not configured" });
+    }
+    const response = await fetch(restartUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${botToken}` },
+    });
     const text = await response.text();
     let payload = { raw: text };
     try {

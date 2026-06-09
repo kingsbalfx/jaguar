@@ -2,6 +2,10 @@
 .env
 .env.local
 .env.*.local
+.env.production
+.env.*.backup
+ADMIN_CREDENTIALS.txt
+*.env.docx
 
 # dependencies
 node_modules/
@@ -27,6 +31,8 @@ dist/
 .DS_Store
 Thumbs.db
 *.log
+ict_trading_bot/data/*_runtime.json
+ict_trading_bot/data/*.lock
 
 # testing
 .coverage

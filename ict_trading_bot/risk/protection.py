@@ -7,6 +7,21 @@ from utils.symbol_profile import canonical_symbol, infer_asset_class
 
 TRADE_MEMORY = {}
 
+
+def _get_trade_memory_file() -> Path:
+    env_path = os.getenv("TRADE_MEMORY_STORAGE_PATH")
+    if env_path:
+        return Path(env_path)
+    return Path(__file__).resolve().parent.parent / "data" / "trade_memory_runtime.json"
+
+
+def _load_trade_memory():
+    return load_json_file(_get_trade_memory_file(), {"setups": {}, "day": None, "day_start_equity": None})
+
+
+def _save_trade_memory(data):
+    save_json_file(_get_trade_memory_file(), data)
+
 def _get_confidence_file() -> Path:
     env_path = os.getenv("CONFIDENCE_STORAGE_PATH")
     if env_path: return Path(env_path)
@@ -58,14 +73,15 @@ def _normalize_confirmation_score(score):
     return max(0.0, min(value, 100.0)) / 10.0
 
 
-def can_trade(symbol, ob_id, cooldown=300):
+def can_trade(symbol, ob_id=None, cooldown=300, **_ignored):
     """
     Per-symbol trade protection.
     Only prevents multiple trades on the SAME symbol within cooldown period.
     Different symbols trade independently without interference.
     """
-    symbol_key = f"{_symbol_key(symbol)}_last"
-    last_trade = TRADE_MEMORY.get(symbol_key)
+    memory = _load_trade_memory()
+    setup_key = str(ob_id or f"{_symbol_key(symbol)}_general")
+    last_trade = (memory.get("setups") or {}).get(setup_key)
 
     if not last_trade:
         return True
@@ -78,9 +94,41 @@ def can_trade(symbol, ob_id, cooldown=300):
 
 
 def register_trade(symbol, ob_id):
-    """Register trade for symbol (not per order block)."""
-    symbol_key = f"{_symbol_key(symbol)}_last"
-    TRADE_MEMORY[symbol_key] = time.time()
+    """Persist a setup identity so restarts cannot duplicate the same trade."""
+    memory = _load_trade_memory()
+    setup_key = str(ob_id or f"{_symbol_key(symbol)}_general")
+    memory.setdefault("setups", {})[setup_key] = time.time()
+    _save_trade_memory(memory)
+
+
+def setup_identity(symbol, direction, retracement=None):
+    zone = retracement or {}
+    return "|".join(
+        [
+            _symbol_key(symbol),
+            str(direction or "").lower(),
+            str(round(float(zone.get("low", 0.0) or 0.0), 8)),
+            str(round(float(zone.get("high", 0.0) or 0.0), 8)),
+            str(zone.get("kind") or "general"),
+        ]
+    )
+
+
+def daily_loss_allows_trade(account_snapshot):
+    """Hard safety gate based on equity loss from the first snapshot of the UTC day."""
+    if not account_snapshot:
+        return False, "account_snapshot_missing"
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    equity = float(account_snapshot.get("equity") or account_snapshot.get("balance") or 0.0)
+    memory = _load_trade_memory()
+    if memory.get("day") != today or not memory.get("day_start_equity"):
+        memory["day"] = today
+        memory["day_start_equity"] = equity
+        _save_trade_memory(memory)
+    start = float(memory.get("day_start_equity") or equity)
+    max_loss = float(os.getenv("MAX_DAILY_LOSS_PERCENT", "5.0"))
+    loss_pct = max(0.0, (start - equity) / max(start, 1e-9) * 100.0)
+    return loss_pct < max_loss, f"daily_loss={loss_pct:.2f}% max={max_loss:.2f}%"
 
 
 def update_symbol_confidence(symbol, win=True, confirmation_score=0.0):

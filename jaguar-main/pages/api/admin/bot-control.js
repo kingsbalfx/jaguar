@@ -10,7 +10,8 @@ import { getBotTierDefaults } from "../../../lib/pricing-config";
 export default async function handler(req, res) {
   // Verify admin API key
   const adminKey = req.headers["x-admin-api-key"];
-  if (adminKey !== process.env.ADMIN_API_KEY) {
+  const expectedAdminKey = process.env.ADMIN_API_KEY;
+  if (!expectedAdminKey || !adminKey || adminKey !== expectedAdminKey) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
