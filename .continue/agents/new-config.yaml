@@ -1,0 +1,19 @@
+models:
+  - title: "DeepSeek R1 (Local)"
+    provider: "ollama"
+    model: "deepseek-r1:8b"
+    apiBase: "http://localhost:11434"
+
+tabAutocompleteModel:
+  title: "DeepSeek R1 (Local)"
+  provider: "ollama"
+  model: "deepseek-r1:8b"
+  apiBase: "http://localhost:11434"
+
+contextProviders:
+  - name: "code"
+    params: {}
+  - name: "docs"
+    params: {}
+
+mcpServers: []
