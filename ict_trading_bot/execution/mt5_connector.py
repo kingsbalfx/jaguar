@@ -31,7 +31,7 @@ def _build_initialize_kwargs(login_value, password, server):
         try:
             kwargs["timeout"] = int(timeout_raw)
         except ValueError:
-            pass
+            kwargs["timeout"] = 180000
     elif os.getenv("MT5_PORTABLE", "").lower() in ("1", "true", "yes"):
         # Portable terminals often need longer to spin up on first launch.
         kwargs["timeout"] = 180000
@@ -169,8 +169,8 @@ def reconnect(credentials=None):
     _require_mt5()
     try:
         mt5.shutdown()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[BOT] MT5 shutdown before reconnect failed: {exc}")
     return connect(credentials)
 
 

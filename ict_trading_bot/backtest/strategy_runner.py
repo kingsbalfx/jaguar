@@ -14,8 +14,8 @@ from backtest.metrics import calculate_metrics
 from config.symbol_mappings import candidates_for
 from ict_concepts.fvg import detect_fvg_from_df
 from ict_concepts.liquidity import detect_liquidity_zones
-from risk.sl_tp_engine import calculate_sl_tp
-from strategy.unified_ict_engine import evaluate_unified_setup
+from strategy.execution_planner import plan_execution
+from strategy.unified_strategy import evaluate_unified_setup
 from strategy.setup_confirmations import bos_setup, evaluate_confirmation_quality, liquidity_sweep_or_swing, price_action_setup
 from utils.sessions import in_london_session, in_newyork_session
 from utils.symbol_profile import build_symbol_profile_snapshot, get_entry_profile
@@ -420,7 +420,7 @@ def run_strategy_backtest(symbols):
                 smt={"confirmed": False},
                 killzone_active=True,
             )
-            if unified_setup.get("execution_route") == "observe":
+            if not unified_setup.get("executable"):
                 i += step_bars
                 continue
 
@@ -450,10 +450,6 @@ def run_strategy_backtest(symbols):
                 "price_action": price_action_state,
             }
 
-            if profile["rule_quality_required"] and not rule_ok:
-                i += step_bars
-                continue
-
             confirmation_flags = {
                 "liquidity_setup": liquidity_state,
                 "bos": bos_state,
@@ -473,12 +469,14 @@ def run_strategy_backtest(symbols):
 
             confirmation_summary = evaluate_confirmation_quality(confirmation_flags, symbol=symbol)
 
-            htf_ob = signal.get("htf_ob") or signal.get("fvg") or {}
-            if htf_ob.get("low") is None or htf_ob.get("high") is None:
-                i += step_bars
-                continue
-
-            sl, tp = calculate_sl_tp(direction=direction, entry_price=price, htf_ob=htf_ob)
+            plan = plan_execution(
+                symbol,
+                direction,
+                price,
+                {"atr": float((analysis.get("HTF") or {}).get("atr", 0.0) or 0.0)},
+                analysis,
+            )
+            sl, tp = float(plan["sl"]), float(plan["tp"])
             future_df = ltf_df.iloc[i + 1 : i + 1 + lookahead_bars]
             result, bars_held = _simulate_outcome(direction, price, sl, tp, future_df, symbol=symbol)
 

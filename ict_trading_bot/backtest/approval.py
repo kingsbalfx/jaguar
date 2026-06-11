@@ -310,8 +310,8 @@ def ensure_setup_backtest_approval(
             details["match_level"] = report.get("match_level")
             details["matched_symbols"] = report.get("matched_symbols") or []
             details["candidate_symbols"] = report.get("candidate_symbols") or []
-        except Exception:
-            pass
+        except (OSError, TypeError, ValueError) as exc:
+            details["report_read_error"] = str(exc)
 
     metrics = details.get("metrics") or {}
     win_rate = float(details.get("win_rate", metrics.get("win_rate", 0.0)))

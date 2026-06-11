@@ -47,17 +47,19 @@ def _build_order_block(df, idx, timeframe, symbol=None, lookahead_bars=200):
     candle_range = max(current_high - current_low, 1e-9)
     displacement = body / candle_range
     order_type = "bullish" if current_close > current_open else "bearish"
+    previous_open = float(previous["open"])
+    previous_close = float(previous["close"])
+    opposing_candle = (
+        previous_close < previous_open
+        if order_type == "bullish"
+        else previous_close > previous_open
+    )
 
     average_volume = float(df.iloc[max(0, idx - 10) : idx]["tick_volume"].mean()) if "tick_volume" in df.columns else 0.0
     volume_boost = _volume_value(current) >= max(average_volume * 1.15, 1.0)
     liquidity_sweep = _liquidity_sweep_present(df, idx, order_type)
     # RELAXED: Changed from AND to OR - more permissive
-    institutional_footprint = displacement >= 0.55 and (volume_boost or liquidity_sweep)
-
-    # RELAXED: Don't reject blocks, just mark quality lower
-    if not institutional_footprint:
-        # Still create block but with reduced quality
-        pass  # Continue to quality calculation
+    institutional_footprint = displacement >= 0.55 and opposing_candle and (volume_boost or liquidity_sweep)
 
     quality = min(
         1.0,
@@ -87,6 +89,7 @@ def _build_order_block(df, idx, timeframe, symbol=None, lookahead_bars=200):
         "liquidity_sweep_confirmed": liquidity_sweep,
         "volume_boost": volume_boost,
         "institutional_footprint": institutional_footprint,
+        "final_opposing_candle": opposing_candle,
         "quality": round(quality, 3),
         "midpoint": round((block_high + block_low) / 2.0, 6),
         "origin_index": int(idx - 1),
@@ -143,6 +146,7 @@ def qualify_order_blocks(order_blocks, *, direction=None, structure_break=False,
         item["premium_discount_aligned"] = correct_zone
         evidence = [
             bool(item.get("institutional_footprint")),
+            bool(item.get("final_opposing_candle", item.get("institutional_footprint"))),
             bool(item.get("displacement", 0.0) >= 0.55),
             bool(item.get("caused_structure_break")),
             bool(item.get("created_fvg")),

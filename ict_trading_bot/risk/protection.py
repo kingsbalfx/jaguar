@@ -37,8 +37,8 @@ def _save_symbol_confidence(data):
     """Persist symbol confidence memory so restart/network issues do not wipe it."""
     try:
         save_json_file(_get_confidence_file(), data)
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[RISK] Unable to persist symbol confidence: {exc}")
 
 
 SYMBOL_CONFIDENCE = _load_symbol_confidence()  # Track per-symbol performance for conditional backtesting

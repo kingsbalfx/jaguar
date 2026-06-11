@@ -41,7 +41,7 @@ def _coerce_utc(dt=None):
         try:
             return _coerce_utc(dt.to_pydatetime())
         except Exception:
-            pass
+            return _utc_now()
 
     if hasattr(dt, "astype"):
         try:
@@ -51,7 +51,7 @@ def _coerce_utc(dt=None):
                 ts = float(dt.astype("datetime64[ns]").astype("int64")) / 1e9
                 return datetime.fromtimestamp(ts, tz=UTC)
         except Exception:
-            pass
+            return _utc_now()
 
     # Last-chance: attempt float coercion, otherwise fall back to "now" to avoid crashing the bot loop.
     try:
@@ -127,3 +127,12 @@ def asset_trading_open(asset_class: str, dt=None) -> bool:
         return False
 
     return True
+
+
+def friday_entry_allowed(asset_class: str, dt=None) -> bool:
+    """Block new non-crypto entries after the configured Friday UTC cutoff."""
+    if str(asset_class or "").lower().strip() == "crypto":
+        return True
+    now = _coerce_utc(dt)
+    cutoff = int(os.getenv("FRIDAY_ENTRY_CUTOFF_HOUR_UTC", "14"))
+    return not (now.weekday() == 4 and now.hour >= cutoff)

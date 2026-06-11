@@ -14,7 +14,6 @@ except Exception as e:
     mt5 = None
     _MT5_IMPORT_ERROR = e
 
-from risk.intelligence_system import get_cis_decision
 from risk.market_condition import should_trade_pair_based_on_volatility
 from strategy.confirmation_system import get_all_confirmations_for_pair
 from execution.mt5_connector import get_symbol_spec, get_tick_snapshot
@@ -177,34 +176,15 @@ class PreTradeValidator:
             return False
 
     def _check_cis_approval(self, symbol: str, direction: str, timeframe: str = "H1", entry_price: float = None) -> bool:
-        try:
-            cis_result = get_cis_decision(symbol, direction, timeframe=timeframe, entry_price=entry_price)
-            self.latest_cis_result = cis_result
-            verdict = cis_result.get("final_verdict", "ERROR")
-            confidence = float(cis_result.get("confidence_score", 0.0) or 0.0)
-            sequence = cis_result.get("ict_sequence") or {}
-
-            if verdict != "TRADE":
-                self._check("CIS Approval", False, f"CIS verdict {verdict} (conf: {confidence:.2f})")
-                return False
-
-            # Use the new flexible approval logic based on timeframe alignment
-            standalone_approval = bool(sequence.get("standalone_approval", False))
-            timeframe_alignment = sequence.get("timeframe_alignment", "unknown")
-            flexible_mode = bool(sequence.get("flexible_mode", False))
-
-            if standalone_approval:
-                mode_desc = "FLEXIBLE (H4 aligned)" if flexible_mode else "STRICT (all conditions)"
-                self._check("CIS Approval", True, f"ICT sequence approved ({mode_desc}) - conf: {confidence:.2f}")
-                return True
-            else:
-                mode_desc = "FLEXIBLE (H4 aligned)" if flexible_mode else "STRICT (all conditions)"
-                self._check("CIS Approval", False, f"ICT sequence failed ({mode_desc}) - conf: {confidence:.2f}")
-                return False
-
-        except Exception as exc:
-            self._check("CIS Approval", False, f"CIS check error: {exc}")
-            return False
+        self.latest_cis_result = {
+            "symbol": symbol,
+            "direction": direction,
+            "timeframe": timeframe,
+            "entry_price": entry_price,
+            "source": "strategy.unified_strategy",
+        }
+        self._check("ICT State Machine", True, "Strategy approval is supplied by the unified ICT state machine")
+        return True
 
     def _check_risk_parameters(self, symbol: str, entry: float, stop_loss: float, take_profit: float, volume: float) -> bool:
         try:
