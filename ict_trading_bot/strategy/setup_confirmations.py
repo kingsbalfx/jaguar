@@ -1,5 +1,4 @@
 from utils.sessions import intelligence_session_open
-from utils.symbol_profile import get_confirmation_profile
 
 CORE_CONFIRMATION_FLAGS = (
     "liquidity_setup",
@@ -24,7 +23,7 @@ def _filter_swings(swings, swing_type):
     return [s for s in swings if isinstance(s, dict) and s.get("type") == swing_type]
 
 
-def _displacement_score(candles, direction):
+def _displacement_body_ratio(candles, direction):
     if not isinstance(candles, list) or len(candles) < 2:
         return 0.0
 
@@ -163,7 +162,7 @@ def liquidity_sweep_or_swing(price, analysis, direction):
             return _empty_sweep()
         if float(disp_candle["close"]) <= swing_price:
             return _empty_sweep()
-        displacement_score = disp_body / disp_range
+        displacement_body_ratio = disp_body / disp_range
 
         # ---- HTF SWING VERIFICATION ----
         htf_swings = htf.get("swings", [])
@@ -197,7 +196,7 @@ def liquidity_sweep_or_swing(price, analysis, direction):
             return _empty_sweep()
         if float(disp_candle["close"]) >= swing_price:
             return _empty_sweep()
-        displacement_score = disp_body / disp_range
+        displacement_body_ratio = disp_body / disp_range
 
         # ---- HTF SWING VERIFICATION ----
         htf_swings = htf.get("swings", [])
@@ -215,7 +214,7 @@ def liquidity_sweep_or_swing(price, analysis, direction):
         "ltf_swing": True,
         "execution_swing": True,
         "displacement": True,
-        "displacement_score": round(displacement_score, 3),
+        "displacement_body_ratio": round(displacement_body_ratio, 3),
         "session_ok": True,
         "killzone_active": True,
         "failed_step": None,
@@ -232,15 +231,12 @@ def _empty_sweep():
         "ltf_swing": False,
         "execution_swing": False,
         "displacement": False,
-        "displacement_score": 0.0,
+        "displacement_body_ratio": 0.0,
         "session_ok": True,
         "killzone_active": False,
         "failed_step": "liquidity_sweep",
     }
 
-
-# (Keep the price_action_setup and evaluate_confirmation_quality functions unchanged)
-# I am including them for completeness
 
 def _recent_candles(timeframe_state):
     candles = (timeframe_state or {}).get("recent_candles") or []
@@ -431,10 +427,8 @@ def _confirmation_passed(flag):
     return False
 
 
-def evaluate_confirmation_quality(confirmation_flags, symbol=None):
-    profile = get_confirmation_profile(symbol)
-    weights = profile["weights"]
-
+def validate_confirmations(confirmation_flags, symbol=None):
+    del symbol
     met_flags = {
         name: _confirmation_passed(flag)
         for name, flag in (confirmation_flags or {}).items()
@@ -444,24 +438,9 @@ def evaluate_confirmation_quality(confirmation_flags, symbol=None):
     if not _confirmation_passed((confirmation_flags or {}).get("order_block_confirmed", False)):
         missing_core.append("order_block_confirmed")
 
-    weighted_flags = {
-        name: float(weights.get(name, 1.0))
-        for name, passed in sorted(met_flags.items())
-        if passed
-    }
-    score = sum(weighted_flags.values())
-    min_score = max(float(profile["min_score"]), 4.0)
-
-    if missing_core:
-        score = 0.0
-
     return {
-        "asset_class": profile["asset_class"],
-        "score": score,
-        "min_score": min_score,
-        "passed": score >= min_score and not missing_core,
+        "passed": not missing_core and all(met_flags.values()),
         "met_flags": sorted(name for name, passed in met_flags.items() if passed),
-        "weighted_flags": weighted_flags,
         "missing_core": missing_core,
         "core_ready": not missing_core,
     }

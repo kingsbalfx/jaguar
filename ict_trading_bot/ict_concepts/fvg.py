@@ -119,11 +119,6 @@ def detect_fvg_from_df(df, trend=None, min_gap_ratio=0.12, min_body_ratio=0.55):
                 size_ok = size_ratio >= min_gap_ratio
                 context_aligned = trend is None or trend == candidate["type"]
                 mitigation = _mitigation_state(df, i, {**candidate, "gap_size": gap_size})
-                quality = min(
-                    1.0,
-                    (size_ratio * 0.55) + (middle_body_ratio * 0.35) + (0.10 if context_aligned else 0.0),
-                )
-
                 record = {
                     **candidate,
                     "index": int(i),
@@ -133,7 +128,6 @@ def detect_fvg_from_df(df, trend=None, min_gap_ratio=0.12, min_body_ratio=0.55):
                     "displacement_ok": displacement_ok,
                     "size_ok": size_ok,
                     "context_aligned": context_aligned,
-                    "quality": round(quality, 3),
                     "midpoint": round((float(candidate["low"]) + float(candidate["high"])) / 2.0, 6),
                     "origin_index": int(i - 1),
                     "structure_break_confirmed": False,
@@ -151,7 +145,7 @@ def detect_fvg_from_df(df, trend=None, min_gap_ratio=0.12, min_body_ratio=0.55):
 
 
 def qualify_fvgs(fvgs, *, direction=None, structure_break=False, liquidity_sweep=False, fib=None):
-    """Attach narrative evidence and rank FVGs without silently discarding them."""
+    """Validate FVGs against the preceding ICT sequence."""
     qualified = []
     expected = "bullish" if str(direction or "").lower() in ("buy", "bullish", "long") else "bearish"
     for fvg in fvgs or []:
@@ -165,7 +159,8 @@ def qualify_fvgs(fvgs, *, direction=None, structure_break=False, liquidity_sweep
         if fib:
             correct_zone = midpoint <= float(fib["0.5"]) if expected == "bullish" else midpoint >= float(fib["0.5"])
         item["premium_discount_aligned"] = correct_zone
-        evidence = [
+        item["true_fvg"] = all((
+            item.get("type") == expected,
             bool(item.get("displacement_ok")),
             bool(item.get("size_ok")),
             bool(item.get("context_aligned")),
@@ -173,11 +168,9 @@ def qualify_fvgs(fvgs, *, direction=None, structure_break=False, liquidity_sweep
             bool(liquidity_sweep),
             bool(correct_zone),
             bool(item.get("active")) and not bool(item.get("mitigated")),
-        ]
-        item["narrative_score"] = round(sum(evidence) / len(evidence), 3)
-        item["true_fvg"] = item.get("type") == expected and item["narrative_score"] >= 0.70
+        ))
         qualified.append(item)
-    return sorted(qualified, key=lambda item: (not item.get("true_fvg", False), -float(item.get("narrative_score", 0.0)), -float(item.get("quality", 0.0))))
+    return sorted(qualified, key=lambda item: (not item.get("true_fvg", False), int(item.get("index", 0))))
 
 
 def detect_fvgs(symbol, timeframe, bars=200, trend=None):

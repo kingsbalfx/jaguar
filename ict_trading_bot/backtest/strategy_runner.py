@@ -14,9 +14,9 @@ from backtest.metrics import calculate_metrics
 from config.symbol_mappings import candidates_for
 from ict_concepts.fvg import detect_fvg_from_df
 from ict_concepts.liquidity import detect_liquidity_zones
+from risk.profitability_guard import normalize_rr_after_sl_adjustment
 from strategy.execution_planner import plan_execution
 from strategy.unified_strategy import evaluate_unified_setup
-from strategy.setup_confirmations import bos_setup, evaluate_confirmation_quality, liquidity_sweep_or_swing, price_action_setup
 from utils.sessions import in_london_session, in_newyork_session
 from utils.symbol_profile import build_symbol_profile_snapshot, get_entry_profile
 
@@ -57,17 +57,11 @@ def _profile_snapshot():
         "htf_timeframe": os.getenv("HTF_TIMEFRAME", "H4"),
         "mtf_timeframe": os.getenv("MTF_TIMEFRAME", "H1"),
         "ltf_timeframe": os.getenv("LTF_TIMEFRAME", "M15"),
-        "min_extra_confirmations": max(3, int(os.getenv("MIN_EXTRA_CONFIRMATIONS", "3"))),
-        "count_fundamentals_as_confirmation": os.getenv("COUNT_FUNDAMENTALS_AS_CONFIRMATION", "false").lower() in ("1", "true", "yes"),
         "default_rr_ratio": float(os.getenv("DEFAULT_RR_RATIO", "3.0")),
         "min_rr_ratio": float(os.getenv("MIN_RR_RATIO", "2.0")),
-        "relax_liquidity_rule": False,
         "liquidity_tolerance_ratio": float(os.getenv("LIQUIDITY_TOLERANCE_RATIO", "0.0015")),
-        "relax_fvg_requirement": False,
         "entry_fib_buffer_ratio": float(os.getenv("ENTRY_FIB_BUFFER_RATIO", "0.08")),
-        "allow_ltf_trend_fallback": False,
         "news_filter_strict": os.getenv("NEWS_FILTER_STRICT", "false").lower() in ("1", "true", "yes"),
-        "rule_quality_required": os.getenv("RULE_QUALITY_REQUIRED", "false").lower() in ("1", "true", "yes"),
     }
     profile.update(build_symbol_profile_snapshot())
     return profile
@@ -99,20 +93,10 @@ def _swings_from_df(df):
     swings = []
     if df is None or len(df) < 5:
         return swings
-    average_range = float((df["high"] - df["low"]).mean())
-    average_volume = float(df.get("tick_volume", pd.Series([0.0] * len(df))).mean())
     for i in range(2, len(df) - 2):
         row = df.iloc[i]
         high = row["high"]
         low = row["low"]
-        candle_range = float(row["high"] - row["low"])
-        volume = float(row.get("tick_volume", 0.0))
-        weight = min(
-            3.0,
-            ((candle_range / max(average_range, 1e-9)) * 0.6)
-            + ((volume / max(average_volume, 1e-9)) * 0.4 if average_volume > 0 else 0.4),
-        )
-        strength = "strong" if weight >= 1.2 else "weak"
         if high > df.iloc[i - 1]["high"] and high > df.iloc[i + 1]["high"]:
             swings.append(
                 {
@@ -120,8 +104,6 @@ def _swings_from_df(df):
                     "price": float(high),
                     "index": int(i),
                     "time": row["time"],
-                    "weight": round(weight, 3),
-                    "strength": strength,
                 }
             )
         if low < df.iloc[i - 1]["low"] and low < df.iloc[i + 1]["low"]:
@@ -131,8 +113,6 @@ def _swings_from_df(df):
                     "price": float(low),
                     "index": int(i),
                     "time": row["time"],
-                    "weight": round(weight, 3),
-                    "strength": strength,
                 }
             )
     return swings
@@ -188,10 +168,6 @@ def _order_blocks_from_df(symbol, timeframe, df):
         if not institutional_footprint:
             continue
 
-        quality = min(
-            1.0,
-            (displacement * 0.55) + (0.20 if volume_boost else 0.0) + (0.25 if liquidity_sweep else 0.0),
-        )
         obs.append(
             {
                 "type": order_type,
@@ -204,7 +180,13 @@ def _order_blocks_from_df(symbol, timeframe, df):
                 "liquidity_sweep_confirmed": liquidity_sweep,
                 "volume_boost": volume_boost,
                 "institutional_footprint": institutional_footprint,
-                "quality": round(quality, 3),
+                "final_opposing_candle": (
+                    float(previous["close"]) < float(previous["open"])
+                    if order_type == "bullish"
+                    else float(previous["close"]) > float(previous["open"])
+                ),
+                "fresh": True,
+                "mitigated": False,
             }
         )
     return obs
@@ -289,13 +271,9 @@ def _analysis_from_frames(symbol, price, frames, profile):
         mtf_trend = analysis[mtf]["trend"]
         if mtf_trend in ("bullish", "bearish"):
             overall_trend = mtf_trend
-        elif profile["allow_ltf_trend_fallback"]:
-            ltf_trend = analysis[ltf]["trend"]
-            if ltf_trend in ("bullish", "bearish"):
-                overall_trend = ltf_trend
-
     return {
         "overall_trend": overall_trend,
+        "daily_trend": analysis.get("D1", {}).get("trend"),
         "topdown": {"trend": overall_trend, "context_alignment": "mixed"},
         "price": price,
         "timeframes": {"HTF": htf, "MTF": mtf, "LTF": ltf},
@@ -310,25 +288,9 @@ def _analysis_from_frames(symbol, price, frames, profile):
     }
 
 
-def _rule_quality_from_context(signal, daily_trend):
-    score = 0
-    if signal.get("fib_zone") in ["discount", "premium"]:
-        score += 1
-    fvg = signal.get("fvg")
-    if isinstance(fvg, dict) and fvg.get("timeframe") == "M15":
-        score += 1
-    htf_ob = signal.get("htf_ob")
-    if isinstance(htf_ob, dict) and htf_ob.get("timeframe") in ["H1", "H4"]:
-        score += 1
-    if daily_trend == signal.get("trend"):
-        score += 1
-    return score >= 3
-
-
 def _simulate_outcome(direction, entry, sl, tp, future_df, symbol=""):
     spread_pips = float(os.getenv("BACKTEST_SPREAD_PIPS", "1.0"))
     slippage_pips = float(os.getenv("BACKTEST_SLIPPAGE_PIPS", "0.2"))
-    partial_fill_chance = float(os.getenv("BACKTEST_PARTIAL_FILL_CHANCE", "0.15"))
     pip_size = 0.01 if "JPY" in str(symbol) else 0.0001
     spread_cost = spread_pips * pip_size
     slippage_cost = slippage_pips * pip_size
@@ -338,7 +300,6 @@ def _simulate_outcome(direction, entry, sl, tp, future_df, symbol=""):
     else:
         effective_entry = entry - spread_cost - slippage_cost
 
-    reward_multiplier = 0.85 if partial_fill_chance > 0 else 1.0
     for offset, (_, candle) in enumerate(future_df.iterrows(), start=1):
         high = float(candle["high"])
         low = float(candle["low"])
@@ -347,14 +308,14 @@ def _simulate_outcome(direction, entry, sl, tp, future_df, symbol=""):
                 return -1.0, offset
             if high >= tp:
                 risk = abs(effective_entry - sl)
-                reward = abs(tp - effective_entry) * reward_multiplier
+                reward = abs(tp - effective_entry)
                 return reward / risk if risk else 0.0, offset
         else:
             if high >= sl:
                 return -1.0, offset
             if low <= tp:
                 risk = abs(sl - effective_entry)
-                reward = abs(effective_entry - tp) * reward_multiplier
+                reward = abs(effective_entry - tp)
                 return reward / risk if risk else 0.0, offset
     return 0.0, len(future_df)
 
@@ -424,50 +385,8 @@ def run_strategy_backtest(symbols):
                 i += step_bars
                 continue
 
-            direction = "buy" if trend == "bullish" else "sell"
+            direction = unified_setup["direction"]
             retracement = unified_setup.get("retracement") or {}
-            signal = {
-                "symbol": symbol,
-                "direction": direction,
-                "trend": trend,
-                "fib_zone": unified_setup.get("premium_discount_zone"),
-                "fvg": retracement.get("fvg"),
-                "htf_ob": retracement.get("order_block"),
-                "confidence": unified_setup.get("confidence"),
-            }
-
-            liquidity_state = liquidity_sweep_or_swing(price, analysis, direction)
-            bos_state = bos_setup(analysis, trend)
-            price_action_state = price_action_setup(analysis, trend)
-            smt_ok = bool(unified_setup.get("components", {}).get("smt"))
-            daily_trend = analysis["D1"].get("trend")
-            rule_ok = _rule_quality_from_context(signal, daily_trend)
-            ml_ok = True
-
-            signal["setup_context"] = {
-                "liquidity": liquidity_state,
-                "bos": bos_state,
-                "price_action": price_action_state,
-            }
-
-            confirmation_flags = {
-                "liquidity_setup": liquidity_state,
-                "bos": bos_state,
-                "displacement": {
-                    "confirmed": bool(liquidity_state.get("displacement")),
-                    "score": float(liquidity_state.get("displacement_score", 0.0) or 0.0),
-                },
-                "price_action": price_action_state,
-                "fvg": {"confirmed": bool(signal.get("fvg"))},
-                "order_block_confirmed": bool(signal.get("htf_ob")),
-                "smt": smt_ok,
-                "rule_quality": rule_ok,
-                "ml": ml_ok,
-            }
-            if profile["count_fundamentals_as_confirmation"]:
-                confirmation_flags["fundamentals"] = True
-
-            confirmation_summary = evaluate_confirmation_quality(confirmation_flags, symbol=symbol)
 
             plan = plan_execution(
                 symbol,
@@ -475,8 +394,17 @@ def run_strategy_backtest(symbols):
                 price,
                 {"atr": float((analysis.get("HTF") or {}).get("atr", 0.0) or 0.0)},
                 analysis,
+                unified_setup.get("target_liquidity"),
             )
-            sl, tp = float(plan["sl"]), float(plan["tp"])
+            sl, tp, rr_check = normalize_rr_after_sl_adjustment(
+                direction,
+                price,
+                float(plan["sl"]),
+                float(plan["tp"]),
+            )
+            if not rr_check["valid"]:
+                i += step_bars
+                continue
             future_df = ltf_df.iloc[i + 1 : i + 1 + lookahead_bars]
             result, bars_held = _simulate_outcome(direction, price, sl, tp, future_df, symbol=symbol)
 
@@ -489,7 +417,8 @@ def run_strategy_backtest(symbols):
                 "result": result,
                 "opened_at": current_time.isoformat(),
                 "bars_held": bars_held,
-                "confirmations": confirmation_summary.get("met_flags", []),
+                "sequence": [state["name"] for state in unified_setup["states"]],
+                "retracement": retracement,
             }
             all_trades.append(trade)
             symbol_trades.append(trade)

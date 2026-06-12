@@ -78,7 +78,7 @@ def _fvg_level(fvgs, current_price, direction):
         return max(relevant)
 
 
-def plan_execution(symbol, direction, current_price, features, topdown_analysis):
+def plan_execution(symbol, direction, current_price, features, topdown_analysis, target_liquidity=None):
     try:
         current_price = float(current_price)
     except Exception:
@@ -150,7 +150,17 @@ def plan_execution(symbol, direction, current_price, features, topdown_analysis)
 
     # Priority: swing point → OB → FVG
     tp = None
-    opposing_level = _closest_opposing_level(swings, current_price, direction, atr)
+    opposing_level = None
+    for zone in target_liquidity or []:
+        try:
+            level = float(zone["level"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if (direction == "buy" and level > current_price) or (direction == "sell" and level < current_price):
+            opposing_level = level
+            break
+    if opposing_level is None:
+        opposing_level = _closest_opposing_level(swings, current_price, direction, atr)
     if opposing_level is not None:
         tp = opposing_level - tp_buffer if direction == "buy" else opposing_level + tp_buffer
     else:

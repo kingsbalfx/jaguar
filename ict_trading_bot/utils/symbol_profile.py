@@ -269,39 +269,6 @@ def get_backtest_thresholds(symbol: str = None) -> Dict[str, float]:
     }
 
 
-def get_confirmation_profile(symbol: str = None) -> Dict[str, object]:
-    asset_class = infer_asset_class(symbol)
-    defaults = {
-        "forex": {"min_score": 5.0},
-        "metals": {"min_score": 5.0},
-        "crypto": {"min_score": 4.0},
-        "other": {"min_score": 4.0},
-    }
-    default_weights = {
-        "liquidity_setup": 2.0,
-        "bos": 1.0,
-        "price_action": 2.0,
-        "smt": 1.0,
-        "rule_quality": 2.0,
-        "ml": 1.0,
-        "fundamentals": 1.0,
-    }
-    baseline = defaults.get(asset_class, defaults["other"])
-    asset_key = asset_class.upper()
-    weights = {
-        key: _float_env(f"CONFIRMATION_WEIGHT_{key.upper()}", value)
-        for key, value in default_weights.items()
-    }
-    return {
-        "asset_class": asset_class,
-        "min_score": _float_env(
-            f"MIN_CONFIRMATION_SCORE_{asset_key}",
-            _float_env("MIN_CONFIRMATION_SCORE", baseline["min_score"]),
-        ),
-        "weights": weights,
-    }
-
-
 def related_symbols(symbol: str) -> List[str]:
     normalized = normalize_symbol(symbol)
     canonical = canonical_symbol(normalized)
@@ -344,8 +311,6 @@ def related_symbols(symbol: str) -> List[str]:
 def build_symbol_profile_snapshot() -> Dict[str, object]:
     snapshot = {
         "setup_backtest_max_peer_symbols": _int_env("SETUP_BACKTEST_MAX_PEER_SYMBOLS", 8),
-        "setup_backtest_same_symbol_min_score": _int_env("SETUP_BACKTEST_SAME_SYMBOL_MIN_SCORE", 6),
-        "setup_backtest_asset_class_min_score": _int_env("SETUP_BACKTEST_ASSET_CLASS_MIN_SCORE", 5),
         "setup_backtest_asset_class_fallback": os.getenv("SETUP_BACKTEST_ASSET_CLASS_FALLBACK", "true").lower() in ("1", "true", "yes"),
         "entry_atr_period": _int_env("ENTRY_ATR_PERIOD", 14),
     }
@@ -353,7 +318,6 @@ def build_symbol_profile_snapshot() -> Dict[str, object]:
         example_symbol = ASSET_CLASS_EXAMPLES[asset_key.lower()]
         entry_profile = get_entry_profile(example_symbol)
         backtest_thresholds = get_backtest_thresholds(example_symbol)
-        confirmation_profile = get_confirmation_profile(example_symbol)
         snapshot[f"entry_fib_buffer_ratio_{asset_key.lower()}"] = _float_env(
             f"ENTRY_FIB_BUFFER_RATIO_{asset_key}",
             entry_profile["fib_buffer_ratio"],
@@ -385,14 +349,5 @@ def build_symbol_profile_snapshot() -> Dict[str, object]:
         snapshot[f"backtest_max_drawdown_{asset_key.lower()}"] = _float_env(
             f"BACKTEST_MAX_DRAWDOWN_{asset_key}",
             backtest_thresholds["max_drawdown"],
-        )
-        snapshot[f"min_confirmation_score_{asset_key.lower()}"] = _float_env(
-            f"MIN_CONFIRMATION_SCORE_{asset_key}",
-            confirmation_profile["min_score"],
-        )
-    for key in ("liquidity_setup", "bos", "price_action", "smt", "rule_quality", "ml", "fundamentals"):
-        snapshot[f"confirmation_weight_{key}"] = _float_env(
-            f"CONFIRMATION_WEIGHT_{key.upper()}",
-            get_confirmation_profile("EURUSD")["weights"][key],
         )
     return snapshot

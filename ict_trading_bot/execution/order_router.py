@@ -30,7 +30,7 @@ def _candle_confirmation(direction, candles):
     return bearish_rejection or bearish_momentum
 
 
-def choose_order_type(price, fvg, mode="auto", direction=None, candles=None, timing_score=None, entry_price=None):
+def choose_order_type(price, fvg, mode="auto", direction=None, candles=None):
     if mode == "market":
         return "market"
 
@@ -46,9 +46,6 @@ def choose_order_type(price, fvg, mode="auto", direction=None, candles=None, tim
         return "limit"
 
     if not intelligence_session_open():
-        return "limit"
-
-    if timing_score is not None and float(timing_score or 0.0) < 0.60:
         return "limit"
 
     if float(low) <= float(price) <= float(high) and _candle_confirmation(direction, candles):

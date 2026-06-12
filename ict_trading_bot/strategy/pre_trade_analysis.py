@@ -231,10 +231,6 @@ def analyze_market_top_down(
     execution_state = analysis[execution_tf]
 
     overall_trend = _majority_trend([h1_state, m30_state, m15_state])
-    if overall_trend not in ("bullish", "bearish") and os.getenv("ALLOW_LTF_TREND_FALLBACK", "false").lower() in ("1", "true", "yes"):
-        execution_trend = execution_state.get("trend")
-        if execution_trend in ("bullish", "bearish"):
-            overall_trend = execution_trend
 
     context_alignment = _context_alignment(overall_trend, [daily_state, h4_state])
 

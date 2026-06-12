@@ -89,22 +89,6 @@ def hybrid_entry_model(data):
 
 
 # ---- Legacy fallbacks (not used by the new engine) ----
-def score_fvg_entry(price, fvg, trend=None):
-    if not isinstance(fvg, dict) or fvg.get("low") is None or fvg.get("high") is None:
-        return 0.0
-    if not (float(fvg["low"]) <= float(price) <= float(fvg["high"])):
-        return 0.0
-    return 100.0
-
-
-def score_ob_entry(price, ob, trend=None):
-    if not isinstance(ob, dict) or ob.get("low") is None or ob.get("high") is None:
-        return 0.0
-    if not (float(ob["low"]) <= float(price) <= float(ob["high"])):
-        return 0.0
-    return 100.0
-
-
 def explain_entry_failure(trend, price, fib_levels, fvgs, htf_order_blocks, symbol=None, atr=None):
     return "not_applicable"
 

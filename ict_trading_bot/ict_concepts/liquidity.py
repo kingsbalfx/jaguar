@@ -74,10 +74,6 @@ def detect_liquidity_zones(swings, tolerance=None, session=None, atr=None, min_s
                     "tolerance": round(allowed, 8),
                     "separation": separation,
                     "untaken": True,
-                    "importance": round(
-                        min(1.0, 0.35 + min(separation, 30) / 60.0 + min(float(a.get("weight", 1.0)), float(b.get("weight", 1.0))) / 6.0),
-                        3,
-                    ),
                 }
             )
             if a["type"] == "high":
@@ -131,4 +127,4 @@ def rank_liquidity_zones(liquidity, price, direction):
         if direction in ("sell", "bearish", "short") and level >= float(price):
             continue
         candidates.append(zone)
-    return sorted(candidates, key=lambda item: (-float(item.get("importance", 0.0)), abs(float(item["level"]) - float(price))))
+    return sorted(candidates, key=lambda item: (-int(item.get("touches", 0)), -int(item.get("separation", 0)), abs(float(item["level"]) - float(price))))

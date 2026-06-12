@@ -30,7 +30,6 @@ def build_strategy_profile() -> Dict[str, object]:
         "entry_fib_buffer_ratio": float(os.getenv("ENTRY_FIB_BUFFER_RATIO", "0.08")),
         "allow_ltf_trend_fallback": False,
         "news_filter_strict": os.getenv("NEWS_FILTER_STRICT", "false").lower() in ("1", "true", "yes"),
-        "rule_quality_required": os.getenv("RULE_QUALITY_REQUIRED", "false").lower() in ("1", "true", "yes"),
     }
     profile.update(build_symbol_profile_snapshot())
     return profile

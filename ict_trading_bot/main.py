@@ -233,7 +233,6 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
         analysis,
         smt=smt,
         killzone_active=in_london_session() or in_newyork_session(),
-        minimum_score=float(os.getenv("MIN_ICT_STATE_SCORE", "70")),
     )
     if not setup["executable"]:
         return None, setup, {"reason": setup["reason"]}
@@ -243,7 +242,7 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
         return None, setup, {"reason": "correlated_position_conflict"}
 
     features = {"atr": float((analysis.get("HTF") or {}).get("atr", 0.0) or 0.0)}
-    plan = plan_execution(symbol, direction, price, features, analysis)
+    plan = plan_execution(symbol, direction, price, features, analysis, setup.get("target_liquidity"))
     entry = choose_entry_price(price, setup.get("retracement"), direction)
     order_type = choose_order_type(
         price=price,
@@ -251,15 +250,16 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
         direction=direction,
         candles=analysis.get("m5_candles"),
         mode=os.getenv("ORDER_ROUTING_MODE", "auto"),
-        entry_price=entry,
     )
     if order_type == "market":
         entry = tick["ask"] if direction == "buy" else tick["bid"]
-    sl, tp, _ = normalize_rr_after_sl_adjustment(direction, entry, float(plan["sl"]), float(plan["tp"]))
+    sl, tp, rr_check = normalize_rr_after_sl_adjustment(direction, entry, float(plan["sl"]), float(plan["tp"]))
+    if not rr_check["valid"]:
+        return None, setup, {"reason": rr_check["reason"], "rr": rr_check}
 
-    news_multiplier = 1.0 if news_allows_trade(symbol) else float(os.getenv("NEWS_RISK_MULTIPLIER", "0.25"))
-    score_multiplier = max(0.25, min(setup["score"] / setup["maximum_score"], 1.0))
-    risk_amount = float(account["balance"]) * (_risk_percent() / 100.0) * score_multiplier * news_multiplier
+    if not news_allows_trade(symbol):
+        return None, setup, {"reason": "news_blackout"}
+    risk_amount = float(account["balance"]) * (_risk_percent() / 100.0)
     volume = calculate_volume_for_risk(symbol, entry, sl, risk_amount)
     if volume <= 0:
         return None, setup, {"reason": "broker_minimum_volume_exceeds_risk"}
@@ -335,10 +335,10 @@ def run_bot() -> None:
                     if not trade:
                         continue
                     register_trade(symbol, request["identity"])
-                    payload = {**request, "score": setup["score"], "state_machine": setup, "status": "open"}
+                    payload = {**request, "state_machine": setup, "status": "open"}
                     persist_signal_to_supabase(payload)
                     push_trade(payload)
-                    bot_log("trade_opened", f"[{symbol}] strict ICT trade opened at {setup['score']}/100", payload)
+                    bot_log("trade_opened", f"[{symbol}] strict ICT sequence confirmed and trade opened", payload)
                 except (KeyError, RuntimeError, TypeError, ValueError) as exc:
                     bot_log("symbol_error", f"[{symbol}] evaluation failed: {exc}", {"trace": traceback.format_exc()})
             time.sleep(max(15, int(os.getenv("SCAN_INTERVAL_SECONDS", "60"))))

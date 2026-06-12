@@ -35,22 +35,10 @@ def get_swings(symbol, timeframe, bars=200):
     if rates is None or len(rates) == 0:
         return swings
 
-    average_range = sum(float(rate["high"] - rate["low"]) for rate in rates) / max(1, len(rates))
-    average_volume = sum(float(rate["tick_volume"]) for rate in rates) / max(1, len(rates))
-
     for i in range(2, len(rates) - 2):
         current = rates[i]
         high = float(current["high"])
         low = float(current["low"])
-        candle_range = float(current["high"] - current["low"])
-        volume = float(current["tick_volume"])
-        weight = min(
-            3.0,
-            ((candle_range / max(average_range, 1e-9)) * 0.6)
-            + ((volume / max(average_volume, 1e-9)) * 0.4),
-        )
-        strength = "strong" if weight >= 1.2 else "weak"
-
         current_time = current["time"] if "time" in current.dtype.names else None
         if high > float(rates[i - 1]["high"]) and high > float(rates[i + 1]["high"]):
             swings.append(
@@ -58,8 +46,6 @@ def get_swings(symbol, timeframe, bars=200):
                     "type": "high",
                     "price": high,
                     "index": i,
-                    "weight": round(weight, 3),
-                    "strength": strength,
                     "time": current_time,
                 }
             )
@@ -70,8 +56,6 @@ def get_swings(symbol, timeframe, bars=200):
                     "type": "low",
                     "price": low,
                     "index": i,
-                    "weight": round(weight, 3),
-                    "strength": strength,
                     "time": current_time,
                 }
             )

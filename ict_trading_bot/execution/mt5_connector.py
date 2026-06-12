@@ -301,6 +301,15 @@ def calculate_volume_for_risk(symbol, entry, stop_loss, risk_amount):
     raw = risk_amount / abs(float(one_lot_loss))
     step = max(spec["volume_step"], 0.01)
     normalized = int(raw / step) * step
+    account = mt5.account_info()
+    margin_free = float(getattr(account, "margin_free", 0.0) or 0.0) if account is not None else 0.0
+    if margin_free <= 0:
+        return 0.0
+    while normalized >= spec["volume_min"]:
+        margin = mt5.order_calc_margin(order_type, symbol, normalized, entry)
+        if margin is not None and float(margin) <= margin_free:
+            break
+        normalized = round(normalized - step, 10)
     if normalized < spec["volume_min"]:
         return 0.0
     normalized = min(normalized, spec["volume_max"])

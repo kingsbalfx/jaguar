@@ -15,7 +15,6 @@ except Exception as e:
     _MT5_IMPORT_ERROR = e
 
 from risk.market_condition import should_trade_pair_based_on_volatility
-from strategy.confirmation_system import get_all_confirmations_for_pair
 from execution.mt5_connector import get_symbol_spec, get_tick_snapshot
 from risk.protection import daily_loss_allows_trade
 
@@ -159,22 +158,6 @@ class PreTradeValidator:
             self._check("Volatility Acceptable", False, f"Volatility check error: {exc}")
             return False
 
-    def _check_technical_confirmations(self, symbol: str, timeframe: str) -> bool:
-        try:
-            confirmations = get_all_confirmations_for_pair(symbol, timeframe)
-            if not confirmations:
-                self._check("Technical Confirmations", False, "No confirmation data available")
-                return False
-            confirm_count = sum(1 for value in confirmations.values() if value >= 0.6)
-            if confirm_count < 4:
-                self._check("Technical Confirmations", False, f"Only {confirm_count} confirmations (need >=4)")
-                return False
-            self._check("Technical Confirmations", True, f"{confirm_count} confirmations present")
-            return True
-        except Exception as exc:
-            self._check("Technical Confirmations", False, f"Confirmation check error: {exc}")
-            return False
-
     def _check_cis_approval(self, symbol: str, direction: str, timeframe: str = "H1", entry_price: float = None) -> bool:
         self.latest_cis_result = {
             "symbol": symbol,
@@ -246,7 +229,6 @@ class PreTradeValidator:
                 ("Account health insufficient", lambda: self._check_account_health()),
                 ("Conflicting position exists", lambda: self._check_no_conflicting_positions(symbol, direction)),
                 ("Volatility unsuitable", lambda: self._check_volatility_acceptable(symbol)),
-                ("Technical confirmations insufficient", lambda: self._check_technical_confirmations(symbol, timeframe)),
                 ("CIS sequence validation failed", lambda: self._check_cis_approval(symbol, direction, timeframe=timeframe, entry_price=entry)),
             ]
 

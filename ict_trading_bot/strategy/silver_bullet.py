@@ -39,7 +39,7 @@ def detect_silver_bullet_entry(symbol, current_price, topdown, trend):
         return None
 
     # Displacement must be strong on M1
-    if liq_state.get("displacement_score", 0) < 0.7:
+    if not liq_state.get("displacement"):
         return None
 
     # Check retracement into an M1 OB or FVG
@@ -88,7 +88,7 @@ def detect_silver_bullet_entry(symbol, current_price, topdown, trend):
 
     if trend == "bullish":
         # SL below the sweep low
-        sl = liq_state.get("displacement_score", 0) * 0 + current_price - atr * 0.5  # fallback if no sweep price
+        sl = current_price - atr * 0.5
         # TP at the next opposing swing high on M1 (closest high above)
         swings = m1_analysis["EXECUTION"]["recent_candles"][-20:]
         highs = [c["high"] for c in swings]
@@ -99,6 +99,7 @@ def detect_silver_bullet_entry(symbol, current_price, topdown, trend):
             tp = current_price + atr * 2.0
     else:
         sl = current_price + atr * 0.5
+        swings = m1_analysis["EXECUTION"]["recent_candles"][-20:]
         lows = [c["low"] for c in swings]
         targets = [l for l in lows if l < current_price]
         if targets:
