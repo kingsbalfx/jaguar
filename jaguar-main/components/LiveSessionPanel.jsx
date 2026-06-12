@@ -1,103 +1,43 @@
-import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import EmbeddedLivePlayer from "./EmbeddedLivePlayer";
+import { useEffect, useState } from "react";
 
-const TwilioVideoClient = dynamic(() => import("./TwilioVideoClient"), { ssr: false });
+const WebRTCRoom = dynamic(() => import("./WebRTCRoom"), { ssr: false });
+const Chat = dynamic(() => import("./Chat"), { ssr: false });
 
-export default function LiveSessionPanel({ heading = "Live Session" }) {
+export default function LiveSessionPanel({ heading = "Live Mentorship" }) {
   const [session, setSession] = useState(null);
-  const [status, setStatus] = useState("loading");
+  const [role, setRole] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let active = true;
-
-    async function loadSession() {
-      try {
-        const res = await fetch("/api/live-session");
-        const data = await res.json();
-        if (!active) return;
-
-        if (!res.ok) {
-          setError(data?.error || "Unable to load live session.");
-          setStatus("error");
-          return;
-        }
-
-        setSession(data?.session || null);
-        setStatus("ready");
-      } catch (err) {
-        if (!active) return;
-        setError("Unable to load live session.");
-        setStatus("error");
-      }
-    }
-
-    loadSession();
-    return () => {
-      active = false;
-    };
+    fetch("/api/live-session")
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error || "Unable to load live session.");
+        setSession(data.session || null);
+        setRole(data.role || "");
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
   }, []);
 
-  if (status === "loading") {
-    return (
-      <div className="glass-panel rounded-2xl p-5">
-        <div className="text-sm text-gray-300">Loading live session...</div>
-      </div>
-    );
-  }
-
-  if (status === "error") {
-    return (
-      <div className="glass-panel rounded-2xl p-5">
-        <div className="text-sm text-gray-300">{error}</div>
-      </div>
-    );
-  }
-
-  if (!session) {
-    return (
-      <div className="glass-panel rounded-2xl p-5">
-        <div className="text-sm text-gray-300">No live session scheduled yet.</div>
-      </div>
-    );
-  }
+  if (loading) return <div className="glass-panel rounded-2xl p-5 text-sm text-gray-300">Loading mentorship room...</div>;
+  if (error) return <div className="glass-panel rounded-2xl p-5 text-sm text-red-300">{error}</div>;
+  if (!session) return <div className="glass-panel rounded-2xl p-5 text-sm text-gray-300">No mentorship room is active for your account.</div>;
 
   return (
-    <div className="glass-panel rounded-2xl p-5">
-      <div className="text-xs uppercase tracking-widest text-emerald-200">{heading}</div>
-      <div className="mt-2 text-lg font-semibold text-white">
-        {session.title || "Next Live Session"}
+    <div className="space-y-4">
+      <div className="glass-panel rounded-2xl p-5 text-white">
+        <div className="text-xs uppercase tracking-widest text-emerald-200">{heading}</div>
+        <div className="mt-2 text-xl font-semibold">{session.title || "Live mentorship session"}</div>
+        <div className="mt-1 text-sm text-gray-300">
+          {session.starts_at ? new Date(session.starts_at).toLocaleString() : "Available now"}
+          {session.room_mode ? ` · ${session.room_mode === "one_to_one" ? "Private 1:1" : "Group room"}` : ""}
+        </div>
       </div>
-      <div className="mt-1 text-sm text-gray-300">
-        {session.starts_at ? new Date(session.starts_at).toLocaleString() : "Time not set"}
-        {session.ends_at ? ` - ${new Date(session.ends_at).toLocaleTimeString()}` : ""}
-        {session.timezone ? ` (${session.timezone})` : ""}
-      </div>
-
-      <div className="mt-4">
-        {["youtube", "videosdk", "embed"].includes(session.media_type) && session.media_url && (
-          <EmbeddedLivePlayer
-            mediaType={session.media_type}
-            mediaUrl={session.media_url}
-            title={session.title || "Live Session"}
-          />
-        )}
-
-        {["twilio_video", "twilio_audio", "twilio_screen"].includes(session.media_type) && (
-          <div className="mt-3">
-            <TwilioVideoClient
-              roomName={session.room_name || "global-room"}
-              audioOnly={Boolean(session.audio_only)}
-              allowScreenShare={session.media_type === "twilio_screen"}
-            />
-          </div>
-        )}
-
-        {!session.media_type && (
-          <div className="text-sm text-gray-300">Live session media is not configured yet.</div>
-        )}
-      </div>
+      <WebRTCRoom roomName={session.room_name || session.id} displayName={role || "Subscriber"} />
+      <Chat channel={session.segment || role || "mentorship"} roomId={session.room_name || session.id} />
     </div>
   );
 }

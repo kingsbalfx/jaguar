@@ -9,7 +9,7 @@ import { PRICING_TIERS, formatPrice } from "../lib/pricing-config";
 import { useRouter } from "next/router";
 import EmbeddedLivePlayer from "../components/EmbeddedLivePlayer";
 
-const TwilioVideoClient = dynamic(() => import("../components/TwilioVideoClient"), { ssr: false });
+const WebRTCRoom = dynamic(() => import("../components/WebRTCRoom"), { ssr: false });
 
 const ROLE_RANK = {
   free: 0,
@@ -93,7 +93,11 @@ export async function getServerSideProps(ctx) {
     const canViewLive =
       Boolean(session?.user) &&
       subscriberRoles.has(viewerRole) &&
-      (liveSession ? canAccess(viewerRole, liveSession.segment || "all") : false);
+      (liveSession
+        ? Array.isArray(liveSession.target_user_ids) && liveSession.target_user_ids.length
+          ? liveSession.target_user_ids.includes(session.user.id) || viewerRole === "admin"
+          : canAccess(viewerRole, liveSession.segment || "all")
+        : false);
 
     return { props: { initialMessages: data || [], liveSession, canViewLive, isAuthenticated: Boolean(session?.user) } };
   } catch (err) {
@@ -267,17 +271,9 @@ export default function Home({ initialMessages = [], liveSession = null, canView
                         title={liveSession.title || "Live Session"}
                       />
                     )}
-                  {["twilio_video", "twilio_audio", "twilio_screen"].includes(
-                    liveSession.media_type
-                  ) && (
+                  {liveSession.media_type === "webrtc" && (
                     <div className="mt-3">
-                      <TwilioVideoClient
-                        roomName={liveSession.room_name || "global-room"}
-                        audioOnly={Boolean(liveSession.audio_only)}
-                        allowScreenShare={liveSession.media_type === "twilio_screen"}
-                        joinAudio={false}
-                        joinVideo={false}
-                      />
+                      <WebRTCRoom roomName={liveSession.room_name || liveSession.id} displayName="Subscriber" />
                     </div>
                   )}
                 </div>

@@ -63,7 +63,9 @@ export default async function handler(req, res) {
   }
 
   const segment = sessionData.segment || "all";
-  if (!canAccess(role, segment)) {
+  const targets = Array.isArray(sessionData.target_user_ids) ? sessionData.target_user_ids : [];
+  const allowed = targets.length > 0 ? targets.includes(session.user.id) || role === "admin" : canAccess(role, segment);
+  if (!allowed) {
     return res.status(200).json({ session: null, role });
   }
 

@@ -41,18 +41,21 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "GET") {
-      const { data, error } = await supabaseAdmin
+      const [{ data, error }, { data: users }] = await Promise.all([
+        supabaseAdmin
         .from("live_sessions")
         .select("*")
         .eq("active", true)
         .order("starts_at", { ascending: true })
         .limit(1)
-        .maybeSingle();
+        .maybeSingle(),
+        supabaseAdmin.from("profiles").select("id,email,role").order("email"),
+      ]);
 
       if (error && error.code !== "42P01") {
         return res.status(500).json({ error: "failed to load live session" });
       }
-      return res.status(200).json({ session: data || null });
+      return res.status(200).json({ session: data || null, users: users || [] });
     }
 
     const {
@@ -66,12 +69,17 @@ export default async function handler(req, res) {
       roomName,
       segment,
       audioOnly,
+      roomMode,
+      targetUserIds,
     } = req.body || {};
     const starts_at = parseIso(startsAt);
     const ends_at = parseIso(endsAt);
 
     if (!title || !starts_at) {
       return res.status(400).json({ error: "title and startsAt are required" });
+    }
+    if (roomMode === "one_to_one" && (!Array.isArray(targetUserIds) || targetUserIds.length !== 1)) {
+      return res.status(400).json({ error: "one-to-one rooms require exactly one selected subscriber" });
     }
 
     await supabaseAdmin.from("live_sessions").update({ active: false }).eq("active", true);
@@ -87,11 +95,13 @@ export default async function handler(req, res) {
         ends_at,
         timezone: timezone || "Africa/Lagos",
         status: status || "scheduled",
-        media_type: mediaType || "twilio_video",
+        media_type: "webrtc",
         media_url: mediaUrl || null,
         room_name: roomName || "global-room",
         segment: segment || "all",
         audio_only: Boolean(audioOnly),
+        room_mode: roomMode === "one_to_one" ? "one_to_one" : "group",
+        target_user_ids: Array.isArray(targetUserIds) ? targetUserIds : [],
         active: true,
         updated_at: new Date().toISOString(),
       })
@@ -101,27 +111,8 @@ export default async function handler(req, res) {
     inserted = fullInsert.data || null;
     insertError = fullInsert.error || null;
 
-    if (insertError && insertError.code === "42703") {
-      // Fallback insert if the table schema is missing newer columns.
-      const fallback = await supabaseAdmin
-        .from("live_sessions")
-        .insert({
-          title: String(title).trim(),
-          starts_at,
-          ends_at,
-          timezone: timezone || "Africa/Lagos",
-          status: status || "scheduled",
-          active: true,
-          updated_at: new Date().toISOString(),
-        })
-        .select("*")
-        .maybeSingle();
-      inserted = fallback.data || null;
-      insertError = fallback.error || null;
-    }
-
     if (insertError) {
-      return res.status(500).json({ error: "failed to save live session" });
+      return res.status(500).json({ error: "failed to save live session; run the WebRTC mentorship SQL migration", details: insertError.message });
     }
 
     return res.status(200).json({ session: inserted });
