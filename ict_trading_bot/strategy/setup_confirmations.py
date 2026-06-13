@@ -110,7 +110,47 @@ def bos_setup(analysis, trend):
     }
 
 
-def liquidity_sweep_or_swing(price, analysis, direction):
+def _external_sweep_sequence(candles, liquidity, direction):
+    side = "EQL" if direction == "buy" else "EQH"
+    zones = [zone for zone in (liquidity or {}).get(side, []) if isinstance(zone, dict)]
+    for sweep_idx in range(max(0, len(candles) - 10), len(candles) - 1):
+        sweep_candle = candles[sweep_idx]
+        for zone in zones:
+            level = float(zone.get("level", 0.0) or 0.0)
+            reclaimed = (
+                float(sweep_candle["low"]) < level < float(sweep_candle["close"])
+                if direction == "buy"
+                else float(sweep_candle["high"]) > level > float(sweep_candle["close"])
+            )
+            if not reclaimed:
+                continue
+            displacement_idx = sweep_idx + 1
+            displacement_candle = candles[displacement_idx]
+            body = abs(float(displacement_candle["close"]) - float(displacement_candle["open"]))
+            candle_range = max(float(displacement_candle["high"]) - float(displacement_candle["low"]), 1e-9)
+            directional = (
+                float(displacement_candle["close"]) > float(displacement_candle["open"])
+                if direction == "buy"
+                else float(displacement_candle["close"]) < float(displacement_candle["open"])
+            )
+            if directional and body / candle_range >= 0.60:
+                return {
+                    "confirmed": True,
+                    "liquidity_sweep": True,
+                    "displacement": True,
+                    "displacement_body_ratio": round(body / candle_range, 3),
+                    "sweep_index": sweep_idx,
+                    "displacement_index": displacement_idx,
+                    "swept_level": level,
+                    "swept_source": zone.get("source"),
+                    "swept_timeframe": zone.get("timeframe"),
+                    "sweep_extreme": float(sweep_candle["low"] if direction == "buy" else sweep_candle["high"]),
+                    "failed_step": None,
+                }
+    return _empty_sweep()
+
+
+def liquidity_sweep_or_swing(price, analysis, direction, external_liquidity=None):
     """
     Strict ICT liquidity sweep detection.
     Requires: a structural swing point, a break (stop‑hunt), a displacement reversal,
@@ -125,6 +165,8 @@ def liquidity_sweep_or_swing(price, analysis, direction):
     execution_candles = execution.get("recent_candles") or []
     if len(execution_candles) < 5:
         return _empty_sweep()
+    if external_liquidity is not None:
+        return _external_sweep_sequence(execution_candles, external_liquidity, direction)
 
     # Get swing points
     mtf_swings = mtf.get("swings", []) or ltf.get("swings", [])
@@ -163,6 +205,8 @@ def liquidity_sweep_or_swing(price, analysis, direction):
         if float(disp_candle["close"]) <= swing_price:
             return _empty_sweep()
         displacement_body_ratio = disp_body / disp_range
+        displacement_idx = sweep_idx + 1
+        sweep_extreme = float(sweep_candle["low"])
 
         # ---- HTF SWING VERIFICATION ----
         htf_swings = htf.get("swings", [])
@@ -197,6 +241,8 @@ def liquidity_sweep_or_swing(price, analysis, direction):
         if float(disp_candle["close"]) >= swing_price:
             return _empty_sweep()
         displacement_body_ratio = disp_body / disp_range
+        displacement_idx = sweep_idx + 1
+        sweep_extreme = float(sweep_candle["high"])
 
         # ---- HTF SWING VERIFICATION ----
         htf_swings = htf.get("swings", [])
@@ -215,6 +261,10 @@ def liquidity_sweep_or_swing(price, analysis, direction):
         "execution_swing": True,
         "displacement": True,
         "displacement_body_ratio": round(displacement_body_ratio, 3),
+        "sweep_index": sweep_idx,
+        "displacement_index": displacement_idx,
+        "swept_level": swing_price,
+        "sweep_extreme": sweep_extreme,
         "session_ok": True,
         "killzone_active": True,
         "failed_step": None,

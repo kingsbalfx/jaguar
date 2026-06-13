@@ -1,199 +1,17 @@
+"""Strict three-candle fair value gap detection."""
+
 try:
     import MetaTrader5 as mt5
 except Exception:
     mt5 = None
+
 import pandas as pd
 
 
-def _require_mt5():
+def _tf_to_mt5(timeframe):
     if mt5 is None:
-        raise RuntimeError(
-            "MetaTrader5 package not available on this platform. "
-            "Run the bot on Windows with MT5 installed."
-        )
-
-
-def _avg_range(df, end_index, lookback=14):
-    start = max(0, end_index - lookback + 1)
-    window = df.iloc[start : end_index + 1]
-    if window.empty:
-        return 0.0
-    ranges = (window["high"] - window["low"]).astype(float)
-    return float(ranges.mean()) if len(ranges) else 0.0
-
-
-def _fill_progress(candidate, candle):
-    low = float(candidate["low"])
-    high = float(candidate["high"])
-    gap_size = max(float(candidate["gap_size"]), 1e-9)
-
-    if candidate["type"] == "bullish":
-        future_low = float(candle["low"])
-        if future_low >= high:
-            return 0.0
-        penetrated = high - max(future_low, low)
-        return max(0.0, min(1.0, penetrated / gap_size))
-
-    future_high = float(candle["high"])
-    if future_high <= low:
-        return 0.0
-    penetrated = min(future_high, high) - low
-    return max(0.0, min(1.0, penetrated / gap_size))
-
-
-def _mitigation_state(df, start_index, candidate):
-    best_fill_ratio = 0.0
-    mitigation_index = None
-
-    for j in range(start_index + 1, len(df)):
-        fill_ratio = _fill_progress(candidate, df.iloc[j])
-        if fill_ratio > best_fill_ratio:
-            best_fill_ratio = fill_ratio
-            mitigation_index = int(j)
-        if fill_ratio >= 1.0:
-            break
-
+        return None
     return {
-        "fill_ratio": round(best_fill_ratio, 3),
-        "mitigated": best_fill_ratio >= 1.0,
-        "partially_mitigated": 0.0 < best_fill_ratio < 1.0,
-        "mitigation_index": mitigation_index,
-    }
-
-
-def detect_fvg_from_df(df, trend=None, min_gap_ratio=0.12, min_body_ratio=0.55):
-    fvgs = []
-
-    if df is None or len(df) < 3:
-        return fvgs
-    if not set(["high", "low", "open", "close"]).issubset(df.columns):
-        return fvgs
-
-    for i in range(2, len(df)):
-        try:
-            c1 = df.iloc[i - 2]
-            c2 = df.iloc[i - 1]
-            c3 = df.iloc[i]
-
-            middle_open = float(c2["open"])
-            middle_close = float(c2["close"])
-            middle_high = float(c2["high"])
-            middle_low = float(c2["low"])
-            middle_range = max(middle_high - middle_low, 1e-9)
-            middle_body_ratio = abs(middle_close - middle_open) / middle_range
-            displacement_ok = middle_body_ratio >= min_body_ratio
-
-            average_range = max(_avg_range(df, i), 1e-9)
-
-            candidates = []
-            high1 = float(c1["high"])
-            low1 = float(c1["low"])
-            high3 = float(c3["high"])
-            low3 = float(c3["low"])
-
-            if high1 < low3:
-                candidates.append(
-                    {
-                        "type": "bullish",
-                        "low": high1,
-                        "high": low3,
-                        "reference_low": low1,
-                        "reference_high": high3,
-                    }
-                )
-
-            if low1 > high3:
-                candidates.append(
-                    {
-                        "type": "bearish",
-                        "low": high3,
-                        "high": low1,
-                        "reference_low": low3,
-                        "reference_high": high1,
-                    }
-                )
-
-            for candidate in candidates:
-                gap_size = float(candidate["high"]) - float(candidate["low"])
-                size_ratio = gap_size / average_range
-                size_ok = size_ratio >= min_gap_ratio
-                context_aligned = trend is None or trend == candidate["type"]
-                mitigation = _mitigation_state(df, i, {**candidate, "gap_size": gap_size})
-                record = {
-                    **candidate,
-                    "index": int(i),
-                    "gap_size": round(gap_size, 6),
-                    "gap_ratio": round(size_ratio, 3),
-                    "middle_body_ratio": round(middle_body_ratio, 3),
-                    "displacement_ok": displacement_ok,
-                    "size_ok": size_ok,
-                    "context_aligned": context_aligned,
-                    "midpoint": round((float(candidate["low"]) + float(candidate["high"])) / 2.0, 6),
-                    "origin_index": int(i - 1),
-                    "structure_break_confirmed": False,
-                    "liquidity_sweep_confirmed": False,
-                    **mitigation,
-                    "active": not mitigation["mitigated"],
-                }
-
-                if size_ok and displacement_ok and context_aligned:
-                    fvgs.append(record)
-        except Exception:
-            continue
-
-    return fvgs
-
-
-def qualify_fvgs(fvgs, *, direction=None, structure_break=False, liquidity_sweep=False, fib=None):
-    """Validate FVGs against the preceding ICT sequence."""
-    qualified = []
-    expected = "bullish" if str(direction or "").lower() in ("buy", "bullish", "long") else "bearish"
-    for fvg in fvgs or []:
-        if not isinstance(fvg, dict):
-            continue
-        item = dict(fvg)
-        item["structure_break_confirmed"] = bool(structure_break)
-        item["liquidity_sweep_confirmed"] = bool(liquidity_sweep)
-        midpoint = float(item.get("midpoint", (float(item["low"]) + float(item["high"])) / 2.0))
-        correct_zone = True
-        if fib:
-            correct_zone = midpoint <= float(fib["0.5"]) if expected == "bullish" else midpoint >= float(fib["0.5"])
-        item["premium_discount_aligned"] = correct_zone
-        item["true_fvg"] = all((
-            item.get("type") == expected,
-            bool(item.get("displacement_ok")),
-            bool(item.get("size_ok")),
-            bool(item.get("context_aligned")),
-            bool(structure_break),
-            bool(liquidity_sweep),
-            bool(correct_zone),
-            bool(item.get("active")) and not bool(item.get("mitigated")),
-        ))
-        qualified.append(item)
-    return sorted(qualified, key=lambda item: (not item.get("true_fvg", False), int(item.get("index", 0))))
-
-
-def detect_fvgs(symbol, timeframe, bars=200, trend=None):
-    _require_mt5()
-    tf = _tf_to_mt5(timeframe)
-    rates = mt5.copy_rates_from_pos(symbol, tf, 0, bars)
-    if rates is None or len(rates) == 0:
-        return []
-
-    df = pd.DataFrame(rates)
-    for col in ["high", "low", "open", "close"]:
-        if col not in df.columns:
-            return []
-
-    fvgs = detect_fvg_from_df(df, trend=trend)
-    for fvg in fvgs:
-        fvg["timeframe"] = timeframe
-    return fvgs
-
-
-def _tf_to_mt5(tf):
-    _require_mt5()
-    mapping = {
         "M1": mt5.TIMEFRAME_M1,
         "M5": mt5.TIMEFRAME_M5,
         "M15": mt5.TIMEFRAME_M15,
@@ -201,5 +19,158 @@ def _tf_to_mt5(tf):
         "H1": mt5.TIMEFRAME_H1,
         "H4": mt5.TIMEFRAME_H4,
         "D1": mt5.TIMEFRAME_D1,
+    }.get(str(timeframe).upper())
+
+
+def _as_frame(candles):
+    if isinstance(candles, pd.DataFrame):
+        return candles.reset_index(drop=True).copy()
+    return pd.DataFrame(candles or []).reset_index(drop=True)
+
+
+def _true_ranges(frame):
+    ranges = []
+    previous_close = None
+    for _, candle in frame.iterrows():
+        high = float(candle["high"])
+        low = float(candle["low"])
+        close = float(candle["close"])
+        ranges.append(
+            high - low
+            if previous_close is None
+            else max(high - low, abs(high - previous_close), abs(low - previous_close))
+        )
+        previous_close = close
+    return ranges
+
+
+def _atr_at(frame, index, period=14):
+    ranges = _true_ranges(frame.iloc[: index + 1])
+    window = ranges[-max(1, min(period, len(ranges))):]
+    return sum(window) / len(window) if window else 0.0
+
+
+def _mitigation(frame, creation_index, low, high):
+    touched = False
+    fully_filled = False
+    mitigation_index = None
+    for index in range(creation_index + 1, len(frame)):
+        candle = frame.iloc[index]
+        if float(candle["low"]) <= high and float(candle["high"]) >= low:
+            touched = True
+            mitigation_index = index
+        if float(candle["low"]) <= low and float(candle["high"]) >= high:
+            fully_filled = True
+            break
+    return touched, fully_filled, mitigation_index
+
+
+def detect_displacement_fvg(candles, displacement_index, direction, timeframe="M5", atr_period=14):
+    """Return only the FVG whose middle candle is the named displacement candle."""
+    frame = _as_frame(candles)
+    direction = str(direction or "").lower()
+    expected = "bullish" if direction in ("buy", "bullish", "long") else "bearish"
+    middle = int(displacement_index)
+    if len(frame) < 3 or middle < 1 or middle + 1 >= len(frame):
+        return None
+    if not {"open", "high", "low", "close"}.issubset(frame.columns):
+        return None
+
+    first = frame.iloc[middle - 1]
+    impulse = frame.iloc[middle]
+    third = frame.iloc[middle + 1]
+    candle_range = max(float(impulse["high"]) - float(impulse["low"]), 1e-12)
+    body = abs(float(impulse["close"]) - float(impulse["open"]))
+    atr = max(_atr_at(frame, middle, atr_period), 1e-12)
+    directional = (
+        float(impulse["close"]) > float(impulse["open"])
+        if expected == "bullish"
+        else float(impulse["close"]) < float(impulse["open"])
+    )
+    if body / candle_range < 0.60 or candle_range < atr or not directional:
+        return None
+
+    if expected == "bullish":
+        low, high = float(first["high"]), float(third["low"])
+    else:
+        low, high = float(third["high"]), float(first["low"])
+    if high <= low:
+        return None
+
+    creation_index = middle + 1
+    touched, filled, mitigation_index = _mitigation(frame, creation_index, low, high)
+    return {
+        "type": expected,
+        "low": low,
+        "high": high,
+        "midpoint": (low + high) / 2.0,
+        "gap_size": high - low,
+        "index": creation_index,
+        "origin_index": middle,
+        "displacement_index": middle,
+        "timeframe": str(timeframe).upper(),
+        "displacement_ok": True,
+        "atr_normalized": True,
+        "fresh": not touched,
+        "active": not filled,
+        "mitigated": filled,
+        "mitigation_index": mitigation_index,
     }
-    return mapping.get(tf, tf)
+
+
+def detect_fvg_from_df(df, trend=None, min_gap_ratio=0.0, min_body_ratio=0.60):
+    del min_gap_ratio, min_body_ratio
+    frame = _as_frame(df)
+    direction = trend or "bullish"
+    results = []
+    for middle in range(1, len(frame) - 1):
+        for candidate_direction in ([direction] if trend else ["bullish", "bearish"]):
+            fvg = detect_displacement_fvg(frame, middle, candidate_direction, timeframe="dynamic")
+            if fvg:
+                results.append(fvg)
+    return results
+
+
+def qualify_fvgs(fvgs, *, direction=None, structure_break=False, liquidity_sweep=False, fib=None):
+    expected = "bullish" if str(direction or "").lower() in ("buy", "bullish", "long") else "bearish"
+    qualified = []
+    for source in fvgs or []:
+        if not isinstance(source, dict):
+            continue
+        item = dict(source)
+        midpoint = float(item.get("midpoint", (float(item["low"]) + float(item["high"])) / 2.0))
+        correct_zone = True
+        if fib and "0.5" in fib:
+            correct_zone = midpoint <= float(fib["0.5"]) if expected == "bullish" else midpoint >= float(fib["0.5"])
+        item["structure_break_confirmed"] = bool(structure_break)
+        item["liquidity_sweep_confirmed"] = bool(liquidity_sweep)
+        item["premium_discount_aligned"] = correct_zone
+        item["true_fvg"] = all(
+            (
+                item.get("type") == expected,
+                bool(item.get("displacement_ok")),
+                bool(item.get("atr_normalized", True)),
+                bool(structure_break),
+                bool(liquidity_sweep),
+                bool(correct_zone),
+                str(item.get("timeframe", "M5")).upper() in ("M1", "M5", "DYNAMIC"),
+                bool(item.get("active", True)),
+            )
+        )
+        qualified.append(item)
+    return qualified
+
+
+def detect_fvgs(symbol, timeframe, bars=200, trend=None):
+    if mt5 is None:
+        return []
+    mapped = _tf_to_mt5(timeframe)
+    if mapped is None:
+        return []
+    rates = mt5.copy_rates_from_pos(symbol, mapped, 0, bars)
+    if rates is None or len(rates) == 0:
+        return []
+    results = detect_fvg_from_df(pd.DataFrame(rates), trend=trend)
+    for item in results:
+        item["timeframe"] = str(timeframe).upper()
+    return results

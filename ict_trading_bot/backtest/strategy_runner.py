@@ -14,8 +14,6 @@ from backtest.metrics import calculate_metrics
 from config.symbol_mappings import candidates_for
 from ict_concepts.fvg import detect_fvg_from_df
 from ict_concepts.liquidity import detect_liquidity_zones
-from risk.profitability_guard import normalize_rr_after_sl_adjustment
-from strategy.execution_planner import plan_execution
 from strategy.unified_strategy import evaluate_unified_setup
 from utils.sessions import in_london_session, in_newyork_session
 from utils.symbol_profile import build_symbol_profile_snapshot, get_entry_profile
@@ -387,22 +385,12 @@ def run_strategy_backtest(symbols):
 
             direction = unified_setup["direction"]
             retracement = unified_setup.get("retracement") or {}
-
-            plan = plan_execution(
-                symbol,
-                direction,
-                price,
-                {"atr": float((analysis.get("HTF") or {}).get("atr", 0.0) or 0.0)},
-                analysis,
-                unified_setup.get("target_liquidity"),
-            )
-            sl, tp, rr_check = normalize_rr_after_sl_adjustment(
-                direction,
-                price,
-                float(plan["sl"]),
-                float(plan["tp"]),
-            )
-            if not rr_check["valid"]:
+            plan = unified_setup.get("plan") or {}
+            sl = float(plan.get("sl", 0.0) or 0.0)
+            tp = float(plan.get("tp", 0.0) or 0.0)
+            risk = abs(price - sl)
+            reward = abs(tp - price)
+            if plan.get("order_type") != "market" or risk <= 0 or reward < risk * 1.5:
                 i += step_bars
                 continue
             future_df = ltf_df.iloc[i + 1 : i + 1 + lookahead_bars]

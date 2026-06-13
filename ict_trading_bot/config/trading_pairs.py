@@ -35,9 +35,12 @@ class TradingPairs:
         "GBPCHF",  # British Pound vs Swiss Franc
         "GBPAUD",  # British Pound vs Australian Dollar
         "GBPCAD",  # British Pound vs Canadian Dollar
+        "EURNZD",  # Euro vs New Zealand Dollar
+        "GBPNZD",  # British Pound vs New Zealand Dollar
         "AUDJPY",  # Australian Dollar vs Yen
         "AUDCAD",  # Australian Dollar vs Canadian Dollar
         "AUDCHF",  # Australian Dollar vs Swiss Franc
+        "NZDCHF",  # New Zealand Dollar vs Swiss Franc
         "CADJPY",  # Canadian Dollar vs Yen
         "CHFJPY",  # Swiss Franc vs Yen
         "NZDJPY",  # New Zealand Dollar vs Yen

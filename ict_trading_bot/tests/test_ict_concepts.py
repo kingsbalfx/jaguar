@@ -6,9 +6,12 @@ from ict_concepts.fib import fib_dealing_range, ote_zone, price_zone
 from ict_concepts.fvg import detect_fvg_from_df, qualify_fvgs
 from ict_concepts.liquidity import detect_liquidity_zones, rank_liquidity_zones
 from ict_concepts.order_blocks import qualify_order_blocks
+from ict_concepts.smt import detect_smt
+from config.smt_correlations import correlated_markets
 from risk.backtest_engine import generate_setup_occurrence_report
 from strategy.ict_setup_quality import validate_setup
-from strategy.unified_strategy import SEQUENCE, evaluate_strategy
+from strategy.setup_confirmations import liquidity_sweep_or_swing
+from strategy.unified_strategy import SEQUENCE, _external_liquidity, _retracement_zone, evaluate_strategy
 
 
 def _analysis():
@@ -57,7 +60,10 @@ def _analysis():
         "swings": swings,
         "fvgs": [fvg],
         "order_blocks": [order_block],
-        "liquidity": {"EQH": [{"type": "high", "level": 1.1080, "touches": 2, "separation": 7, "untaken": True}], "EQL": []},
+        "liquidity": {
+            "EQH": [{"type": "high", "level": 1.1080, "touches": 2, "separation": 7, "untaken": True}],
+            "EQL": [{"type": "low", "level": 1.0980, "touches": 2, "separation": 7, "untaken": True}],
+        },
         "recent_candles": candles,
         "atr": 0.001,
     }
@@ -88,6 +94,50 @@ def test_liquidity_is_ranked_in_target_direction():
     zones = detect_liquidity_zones(swings, atr=0.001, min_separation=3)
     ranked = rank_liquidity_zones(zones, 1.1020, "buy")
     assert ranked[0]["level"] > 1.1020
+
+
+def test_external_liquidity_uses_h1_h4_d1_and_w1_when_available():
+    analysis = _analysis()
+    analysis["HTF"]["timeframe"] = "H1"
+    analysis["H4_CONTEXT"] = {"liquidity": {"EQH": [{"level": 1.1100}], "EQL": []}}
+    analysis["DAILY"] = {"liquidity": {"EQH": [{"level": 1.1200}], "EQL": []}}
+    analysis["WEEKLY"] = {"liquidity": {"EQH": [{"level": 1.1400}], "EQL": []}}
+    liquidity = _external_liquidity(analysis)
+    assert {zone["timeframe"] for zone in liquidity["EQH"]} == {"H1", "H4", "D1", "W1"}
+
+
+def test_retracement_accepts_fvg_at_quarter_level_without_ob_overlap():
+    fvg = {"low": 1.1000, "high": 1.1040, "midpoint": 1.1020}
+    order_block = {"low": 1.0950, "high": 1.0980, "midpoint": 1.0965}
+    retracement = _retracement_zone(1.1010, fvg, order_block)
+    assert retracement["confirmed"]
+    assert retracement["kind"] == "fvg"
+    assert retracement["nearest_reference_level"] == "25"
+
+
+def test_retracement_accepts_order_block_without_fvg_touch():
+    fvg = {"low": 1.1000, "high": 1.1040, "midpoint": 1.1020}
+    order_block = {"low": 1.0950, "high": 1.0980, "midpoint": 1.0965}
+    retracement = _retracement_zone(1.0975, fvg, order_block)
+    assert retracement["confirmed"]
+    assert retracement["kind"] == "order_block"
+    assert retracement["nearest_reference_level"] == "75"
+
+
+def test_sweep_confirmation_uses_the_supplied_external_liquidity_source():
+    analysis = _analysis()
+    analysis["EXECUTION"]["recent_candles"] = [
+        {"open": 1.1010, "high": 1.1020, "low": 1.1000, "close": 1.1015},
+        {"open": 1.1015, "high": 1.1020, "low": 1.1005, "close": 1.1010},
+        {"open": 1.1010, "high": 1.1015, "low": 1.0975, "close": 1.0990},
+        {"open": 1.0990, "high": 1.1030, "low": 1.0988, "close": 1.1028},
+        {"open": 1.1028, "high": 1.1040, "low": 1.1020, "close": 1.1035},
+    ]
+    external = {"EQL": [{"level": 1.0980, "source": "D1_external_liquidity", "timeframe": "D1"}], "EQH": []}
+    result = liquidity_sweep_or_swing(1.1035, analysis, "buy", external_liquidity=external)
+    assert result["confirmed"]
+    assert result["swept_source"] == "D1_external_liquidity"
+    assert result["swept_timeframe"] == "D1"
 
 
 def test_true_fvg_and_order_block_require_sequence_evidence():
@@ -129,12 +179,24 @@ def test_unified_strategy_stops_at_first_missing_state():
 def test_unified_strategy_executes_only_when_every_state_is_confirmed(monkeypatch):
     import strategy.unified_strategy as unified
 
-    monkeypatch.setattr(unified, "liquidity_sweep_or_swing", lambda *_args, **_kwargs: {"confirmed": True, "displacement": True})
-    monkeypatch.setattr(unified, "bos_setup", lambda *_args, **_kwargs: {"confirmed": True, "structure_signal": "bos"})
-    monkeypatch.setattr(unified, "price_action_setup", lambda *_args, **_kwargs: {"confirmed": True})
+    monkeypatch.setattr(unified, "liquidity_sweep_or_swing", lambda *_args, **_kwargs: {
+        "confirmed": True,
+        "displacement": True,
+        "displacement_body_ratio": 0.8,
+        "displacement_index": 2,
+        "sweep_extreme": 1.0980,
+    })
+    monkeypatch.setattr(unified, "_market_structure_shift", lambda *_args, **_kwargs: {"confirmed": True, "structure_signal": "bos"})
+    monkeypatch.setattr(unified, "detect_displacement_fvg", lambda *_args, **_kwargs: {
+        "type": "bullish", "low": 1.1000, "high": 1.1020, "midpoint": 1.1010, "timeframe": "M5"
+    })
+    monkeypatch.setattr(unified, "find_true_order_block", lambda *_args, **_kwargs: {
+        "type": "bullish", "low": 1.0995, "high": 1.1015, "midpoint": 1.1005, "timeframe": "M5"
+    })
+    monkeypatch.setattr(unified, "price_action_setup", lambda *_args, **_kwargs: {"execution_confirmed": True})
     result = unified.evaluate_strategy(
         "EURUSD",
-        1.1020,
+        1.1010,
         _analysis(),
         smt={"confirmed": True, "direction": "bullish"},
         killzone_active=True,
@@ -161,3 +223,31 @@ def test_backtest_uses_observed_future_path():
         {"session_filter_enabled": False, "spread_pips": 0.0, "slippage_pips": 0.0},
     )
     assert report["metrics"]["wins"] == 1
+
+
+def test_configured_smt_correlations_are_bidirectional_and_dxy_is_inverse():
+    assert correlated_markets("EURUSD") == [{"symbol": "GBPUSD", "mode": "positive"}]
+    assert correlated_markets("GBPUSD") == [{"symbol": "EURUSD", "mode": "positive"}]
+    assert correlated_markets("DXY") == [
+        {"symbol": "USDJPY", "mode": "inverse"},
+        {"symbol": "USDCHF", "mode": "inverse"},
+    ]
+    assert correlated_markets("USDJPY") == [{"symbol": "DXY", "mode": "inverse"}]
+
+
+def test_positive_smt_detects_one_market_failing_to_confirm_lower_low():
+    left = {"high": 10, "low": 7, "prev_high": 10, "prev_low": 8, "timeframe": "M5"}
+    right = {"high": 20, "low": 18, "prev_high": 20, "prev_low": 18, "timeframe": "M5"}
+    result = detect_smt(left, right, expected_direction="buy", correlation_mode="positive")
+    assert result["confirmed"]
+    assert result["direction"] == "bullish"
+
+
+def test_inverse_smt_requires_opposite_side_confirmation():
+    dxy = {"high": 101, "low": 99, "prev_high": 100, "prev_low": 99, "timeframe": "M5"}
+    usdjpy_confirms = {"high": 150, "low": 147, "prev_high": 150, "prev_low": 148, "timeframe": "M5"}
+    usdjpy_fails = {"high": 150, "low": 148, "prev_high": 150, "prev_low": 148, "timeframe": "M5"}
+    assert not detect_smt(dxy, usdjpy_confirms, correlation_mode="inverse")["confirmed"]
+    result = detect_smt(dxy, usdjpy_fails, expected_direction="sell", correlation_mode="inverse")
+    assert result["confirmed"]
+    assert result["direction"] == "bearish"

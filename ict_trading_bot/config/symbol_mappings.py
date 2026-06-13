@@ -44,6 +44,7 @@ METAL_MAPPINGS = {
     "XPTUSD": ["XPTUSD", "XPT", "PLATINUM", "PLATINUMUSD", "XPT/USD"],
     "XPDUSD": ["XPDUSD", "XPD", "PALLADIUM", "PALLADIUMUSD", "XPD/USD"],
 }
+DXY_ALIASES = ["DXY", "USDX", "USDINDEX", "US DOLLAR INDEX", "DOLLARINDEX"]
 
 
 def _dedupe(items):
@@ -92,6 +93,11 @@ for _canonical, _aliases in METAL_MAPPINGS.items():
 
 MAPPINGS["DOGEUSD"] = _dedupe(["DOGUSD", *MAPPINGS["DOGEUSD"]])
 MAPPINGS["ETHBTC"] = ["ETHBTC", "ETHBTC.i", "ETH/BTC", "ETH-BTC", "ETHBTCm", "ETHBTC.raw", "ETHUSD", "ETH"]
+MAPPINGS["DXY"] = _dedupe(
+    alias_with_suffix
+    for alias in DXY_ALIASES
+    for alias_with_suffix in [alias, *(f"{alias}{suffix}" for suffix in BROKER_SUFFIXES)]
+)
 
 
 def _infer_crypto_asset(base):

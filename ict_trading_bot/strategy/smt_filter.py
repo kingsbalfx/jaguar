@@ -16,7 +16,9 @@ def smt_confirmed(signal, correlated_data):
     try:
         smt = detect_smt(
             correlated_data["main"],
-            correlated_data["correlated"]
+            correlated_data["correlated"],
+            expected_direction=signal.get("direction"),
+            correlation_mode=correlated_data.get("correlation_mode", "positive"),
         )
     except Exception:
         return True
@@ -27,5 +29,4 @@ def smt_confirmed(signal, correlated_data):
     if not smt.get("confirmed"):
         return True
 
-    signal_direction = str(signal.get("direction") or "").lower()
-    return smt.get("direction") == signal_direction
+    return bool(smt.get("direction_aligned"))

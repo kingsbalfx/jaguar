@@ -1,0 +1,16 @@
+models:
+  - title: "DeepSeek V4 Pro"
+    provider: "deepseek"
+    model: "deepseek-v4-pro"
+    apiKey: "sk-b64430c6de2a46a0b-fa91de7419c38cd"
+
+  - title: "DeepSeek V4 Flash"
+    provider: "deepseek"
+    model: "deepseek-v4-flash"
+    apiKey: "sk-b64430c6de2a46a0b-fa91de7419c38cd"
+
+tabAutocompleteModel:
+  title: "DeepSeek V4 Flash"
+  provider: "deepseek"
+  model: "deepseek-v4-flash"
+  apiKey: "sk-b64430c6de2a46a0b-fa91de7419c38cd"

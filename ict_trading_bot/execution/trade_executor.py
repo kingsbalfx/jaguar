@@ -103,13 +103,7 @@ def execute_trade(
     order_type: str = "market",
     entry_price: float | None = None,
 ):
-    """
-    Execute an MT5 trade request.
-
-    order_type:
-      - market (default)
-      - limit
-    """
+    """Execute a confirmed market order. Pending orders are forbidden."""
     _require_mt5()
 
     symbol_info = mt5.symbol_info(symbol)
@@ -126,6 +120,8 @@ def execute_trade(
 
     market_price = tick.ask if direction_lower == "buy" else tick.bid
     order_type_lower = (order_type or "market").lower()
+    if order_type_lower != "market":
+        raise RuntimeError("Strict state machine permits market orders only")
 
     digits = int(getattr(symbol_info, "digits", 5) or 5)
     volume_step = float(getattr(symbol_info, "volume_step", 0.01) or 0.01)
@@ -148,28 +144,17 @@ def execute_trade(
         "type_time": mt5.ORDER_TIME_GTC,
     }
 
-    if order_type_lower == "limit":
-        request.update({
-            "action": mt5.TRADE_ACTION_PENDING,
-            "type": mt5.ORDER_TYPE_BUY_LIMIT if direction_lower == "buy" else mt5.ORDER_TYPE_SELL_LIMIT,
-            "price": round(float(entry_price if entry_price is not None else market_price), digits),
-            "type_filling": mt5.ORDER_FILLING_RETURN,
-        })
-    else:
-        request.update({
-            "action": mt5.TRADE_ACTION_DEAL,
-            "type": mt5.ORDER_TYPE_BUY if direction_lower == "buy" else mt5.ORDER_TYPE_SELL,
-            "price": market_price,
-        })
+    request.update({
+        "action": mt5.TRADE_ACTION_DEAL,
+        "type": mt5.ORDER_TYPE_BUY if direction_lower == "buy" else mt5.ORDER_TYPE_SELL,
+        "price": market_price,
+    })
 
     result = None
     attempts = []
-    if order_type_lower == "limit":
-        attempts = [request]
-    else:
-        for filling_mode in _supported_filling_modes(symbol_info, order_type_lower):
-            attempts.append({**request, "type_filling": filling_mode})
-        attempts.append({k: v for k, v in request.items() if k != "type_filling"})
+    for filling_mode in _supported_filling_modes(symbol_info, order_type_lower):
+        attempts.append({**request, "type_filling": filling_mode})
+    attempts.append({k: v for k, v in request.items() if k != "type_filling"})
 
     success_retcodes = _success_retcodes()
     retryable_retcodes = {
@@ -206,7 +191,7 @@ def execute_trade(
     print(
         f"[{datetime.now()}] Trade placed -> "
         f"{symbol} {direction_upper(direction_lower)} | {lot} lots | "
-        f"Type {order_type_lower.upper()} | Entry {placed_price} | SL {sl_price} | TP {tp_price}"
+        f"Type {order_type_lower.upper()} | strict ICT state machine confirmed"
     )
 
     return {

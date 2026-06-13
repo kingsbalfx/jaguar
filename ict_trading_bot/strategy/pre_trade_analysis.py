@@ -186,6 +186,48 @@ def _context_alignment(overall_trend, context_states):
     return "mixed"
 
 
+def _external_liquidity(h1_state, daily_state):
+    """Build H1-or-higher external liquidity without scoring or clustering."""
+    result = {"EQH": [], "EQL": []}
+    for swing in (h1_state.get("swings") or [])[-20:]:
+        if not isinstance(swing, dict) or swing.get("type") not in ("high", "low"):
+            continue
+        zone = {
+            "type": swing["type"],
+            "level": float(swing["price"]),
+            "prices": (float(swing["price"]), float(swing["price"])),
+            "source": "H1_major_swing",
+            "touches": 1,
+            "separation": 1,
+            "untaken": True,
+        }
+        result["EQH" if swing["type"] == "high" else "EQL"].append(zone)
+
+    daily = daily_state.get("recent_candles") or []
+    if daily:
+        previous_day = daily[-2] if len(daily) >= 2 else daily[-1]
+        week = daily[-6:-1] if len(daily) >= 6 else daily
+        levels = (
+            ("EQH", max(float(item["high"]) for item in week), "previous_week_high"),
+            ("EQL", min(float(item["low"]) for item in week), "previous_week_low"),
+            ("EQH", float(previous_day["high"]), "previous_day_high"),
+            ("EQL", float(previous_day["low"]), "previous_day_low"),
+        )
+        for key, level, source in levels:
+            result[key].append(
+                {
+                    "type": "high" if key == "EQH" else "low",
+                    "level": level,
+                    "prices": (level, level),
+                    "source": source,
+                    "touches": 1,
+                    "separation": 1,
+                    "untaken": True,
+                }
+            )
+    return result
+
+
 def _detect_htf_liquidity_sweep(symbol, htf_tf, price, direction):
     from ict_concepts.liquidity import detect_liquidity_zones
     from ict_concepts.market_structure import get_swings
@@ -229,6 +271,7 @@ def analyze_market_top_down(
     m30_state = analysis[mtf]
     m15_state = analysis[ltf]
     execution_state = analysis[execution_tf]
+    h1_state["liquidity"] = _external_liquidity(h1_state, daily_state)
 
     overall_trend = _majority_trend([h1_state, m30_state, m15_state])
 

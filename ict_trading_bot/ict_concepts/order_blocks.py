@@ -1,180 +1,141 @@
+"""Strict true order block detection."""
+
 try:
     import MetaTrader5 as mt5
 except Exception:
     mt5 = None
+
 import pandas as pd
 
 
-def _require_mt5():
-    if mt5 is None:
-        raise RuntimeError(
-            "MetaTrader5 package not available on this platform. "
-            "Run the bot on Windows with MT5 installed."
-        )
+def _as_frame(candles):
+    if isinstance(candles, pd.DataFrame):
+        return candles.reset_index(drop=True).copy()
+    return pd.DataFrame(candles or []).reset_index(drop=True)
 
 
-def _volume_value(row):
-    return float(row.get("tick_volume", row.get("volume", 0.0)) or 0.0)
-
-
-def _liquidity_sweep_present(df, idx, order_type):
-    if idx < 2:
-        return False
-
-    current = df.iloc[idx]
-    previous_window = df.iloc[max(0, idx - 4) : idx]
-    if previous_window.empty:
-        return False
-
-    if order_type == "bullish":
-        prior_low = float(previous_window["low"].min())
-        return float(current["low"]) < prior_low and float(current["close"]) > float(current["open"])
-    prior_high = float(previous_window["high"].max())
-    return float(current["high"]) > prior_high and float(current["close"]) < float(current["open"])
-
-
-def _build_order_block(df, idx, timeframe, symbol=None, lookahead_bars=200):
-    if idx < 1:
+def find_true_order_block(candles, displacement_index, direction, timeframe="M5", search_bars=8):
+    """Find the final opposing candle immediately preceding an impulse."""
+    frame = _as_frame(candles)
+    direction = str(direction or "").lower()
+    bullish = direction in ("buy", "bullish", "long")
+    displacement_index = int(displacement_index)
+    if displacement_index < 1 or displacement_index >= len(frame):
+        return None
+    impulse = frame.iloc[displacement_index]
+    impulse_range = max(float(impulse["high"]) - float(impulse["low"]), 1e-12)
+    impulse_body = abs(float(impulse["close"]) - float(impulse["open"]))
+    impulse_directional = (
+        float(impulse["close"]) > float(impulse["open"])
+        if bullish
+        else float(impulse["close"]) < float(impulse["open"])
+    )
+    if impulse_body / impulse_range < 0.60 or not impulse_directional:
         return None
 
-    current = df.iloc[idx]
-    previous = df.iloc[idx - 1]
-    current_close = float(current["close"])
-    current_open = float(current["open"])
-    current_high = float(current["high"])
-    current_low = float(current["low"])
-    body = abs(current_close - current_open)
-    candle_range = max(current_high - current_low, 1e-9)
-    displacement = body / candle_range
-    order_type = "bullish" if current_close > current_open else "bearish"
-    previous_open = float(previous["open"])
-    previous_close = float(previous["close"])
-    opposing_candle = (
-        previous_close < previous_open
-        if order_type == "bullish"
-        else previous_close > previous_open
-    )
+    origin = None
+    for index in range(displacement_index - 1, max(-1, displacement_index - search_bars - 1), -1):
+        candle = frame.iloc[index]
+        opposing = (
+            float(candle["close"]) < float(candle["open"])
+            if bullish
+            else float(candle["close"]) > float(candle["open"])
+        )
+        if opposing:
+            origin = index
+            break
+    if origin is None:
+        return None
 
-    average_volume = float(df.iloc[max(0, idx - 10) : idx]["tick_volume"].mean()) if "tick_volume" in df.columns else 0.0
-    volume_boost = _volume_value(current) >= max(average_volume * 1.15, 1.0)
-    liquidity_sweep = _liquidity_sweep_present(df, idx, order_type)
-    institutional_footprint = displacement >= 0.55 and opposing_candle and volume_boost and liquidity_sweep
-
-    block_high = float(previous["high"])
-    block_low = float(previous["low"])
-    future = df.iloc[idx + 1 : min(len(df), idx + 1 + max(10, int(lookahead_bars)))]
-    mitigated = False
-    if not future.empty and {"high", "low"}.issubset(future.columns):
-        try:
-            touched = (future["low"].astype(float) <= block_high) & (future["high"].astype(float) >= block_low)
-            mitigated = bool(touched.any())
-        except Exception:
-            mitigated = False
-
-    block = {
-        "type": order_type,
-        "high": block_high,
-        "low": block_low,
-        "index": int(idx),
-        "timeframe": timeframe,
-        "displacement": round(displacement, 3),
-        "liquidity_sweep_confirmed": liquidity_sweep,
-        "volume_boost": volume_boost,
-        "institutional_footprint": institutional_footprint,
-        "final_opposing_candle": opposing_candle,
-        "midpoint": round((block_high + block_low) / 2.0, 6),
-        "origin_index": int(idx - 1),
-        "caused_structure_break": False,
-        "created_fvg": False,
-        "mitigated": mitigated,
-        "fresh": not mitigated,
+    candle = frame.iloc[origin]
+    body_low = min(float(candle["open"]), float(candle["close"]))
+    body_high = max(float(candle["open"]), float(candle["close"]))
+    touched = False
+    mitigation_index = None
+    for index in range(displacement_index + 1, len(frame)):
+        future = frame.iloc[index]
+        if float(future["low"]) <= body_high and float(future["high"]) >= body_low:
+            touched = True
+            mitigation_index = index
+            break
+    return {
+        "type": "bullish" if bullish else "bearish",
+        "low": body_low,
+        "high": body_high,
+        "wick_low": float(candle["low"]),
+        "wick_high": float(candle["high"]),
+        "midpoint": (body_low + body_high) / 2.0,
+        "origin_index": origin,
+        "displacement_index": displacement_index,
+        "index": displacement_index,
+        "timeframe": str(timeframe).upper(),
+        "final_opposing_candle": True,
+        "displacement_ok": True,
+        "fresh": not touched,
+        "mitigated": touched,
+        "mitigation_index": mitigation_index,
     }
-    if symbol:
-        block["id"] = f"{symbol}|{timeframe}|{order_type}|{idx}"
-    return block
 
 
 def detect_order_blocks(df, structure_points):
-    obs = []
-    if df is None or len(df) == 0:
-        return obs
-
+    frame = _as_frame(df)
+    blocks = []
     for point in structure_points or []:
-        try:
-            if isinstance(point, dict):
-                tag = point.get("event", point.get("tag"))
-                idx = int(point.get("index"))
-            else:
-                tag, idx, _ = point
-        except Exception:
-            continue
-
-        if tag != "BOS":
-            continue
-        block = _build_order_block(df, idx, timeframe="dynamic")
+        if isinstance(point, dict):
+            index = point.get("index")
+            direction = point.get("direction") or point.get("trend")
+        else:
+            _, index, direction = point
+        block = find_true_order_block(frame, int(index), direction, timeframe="dynamic")
         if block:
-            obs.append(block)
-
-    return obs
+            blocks.append(block)
+    return blocks
 
 
 def qualify_order_blocks(order_blocks, *, direction=None, structure_break=False, liquidity_sweep=False, fvgs=None, fib=None):
-    """Validate order blocks against the preceding ICT sequence."""
     expected = "bullish" if str(direction or "").lower() in ("buy", "bullish", "long") else "bearish"
-    fvg_origins = {int(fvg.get("origin_index")) for fvg in (fvgs or []) if isinstance(fvg, dict) and fvg.get("origin_index") is not None}
+    fvg_origins = {
+        int(item.get("displacement_index", item.get("origin_index")))
+        for item in fvgs or []
+        if isinstance(item, dict) and item.get("displacement_index", item.get("origin_index")) is not None
+    }
     qualified = []
-    for ob in order_blocks or []:
-        if not isinstance(ob, dict):
+    for source in order_blocks or []:
+        if not isinstance(source, dict):
             continue
-        item = dict(ob)
-        item["caused_structure_break"] = bool(structure_break)
-        item["created_fvg"] = int(item.get("index", -999)) in fvg_origins or int(item.get("index", -999)) + 1 in fvg_origins
-        item["liquidity_sweep_confirmed"] = bool(item.get("liquidity_sweep_confirmed") or liquidity_sweep)
+        item = dict(source)
         midpoint = float(item.get("midpoint", (float(item["low"]) + float(item["high"])) / 2.0))
         correct_zone = True
-        if fib:
+        if fib and "0.5" in fib:
             correct_zone = midpoint <= float(fib["0.5"]) if expected == "bullish" else midpoint >= float(fib["0.5"])
+        displacement_index = int(item.get("displacement_index", int(item.get("index", -2)) + 1))
+        same_impulse = displacement_index in fvg_origins
+        item["caused_structure_break"] = bool(structure_break)
+        item["liquidity_sweep_confirmed"] = bool(liquidity_sweep)
+        item["created_fvg"] = same_impulse
         item["premium_discount_aligned"] = correct_zone
-        item["true_order_block"] = all((
-            item.get("type") == expected,
-            bool(item.get("institutional_footprint")),
-            bool(item.get("final_opposing_candle", item.get("institutional_footprint"))),
-            bool(item.get("displacement", 0.0) >= 0.55),
-            bool(item.get("caused_structure_break")),
-            bool(item.get("created_fvg")),
-            bool(item.get("liquidity_sweep_confirmed")),
-            bool(correct_zone),
-            bool(item.get("fresh")) and not bool(item.get("mitigated")),
-        ))
+        item["true_order_block"] = all(
+            (
+                item.get("type") == expected,
+                bool(item.get("final_opposing_candle")),
+                bool(item.get("displacement_ok", float(item.get("displacement", 0.0) or 0.0) >= 0.60)),
+                bool(structure_break),
+                bool(liquidity_sweep),
+                same_impulse,
+                correct_zone,
+                str(item.get("timeframe", "M5")).upper() in ("M1", "M5", "DYNAMIC"),
+                bool(item.get("fresh", True)) and not bool(item.get("mitigated", False)),
+            )
+        )
         qualified.append(item)
-    return sorted(qualified, key=lambda item: (not item.get("true_order_block", False), int(item.get("index", 0))))
+    return qualified
 
 
 def detect_htf_order_blocks(symbol, timeframe, bars=500):
+    """Compatibility API. Entry logic rejects these because they are not M1/M5."""
     if mt5 is None:
         return []
-    tf = _tf_to_mt5(timeframe)
-    rates = mt5.copy_rates_from_pos(symbol, tf, 0, bars)
-    if rates is None or len(rates) == 0:
-        return []
-
-    df = pd.DataFrame(rates)
-    if not set(["high", "low", "close", "open"]).issubset(df.columns) or len(df) < 5:
-        return []
-
-    obs = []
-    for i in range(2, len(df) - 2):
-        block = _build_order_block(df, i, timeframe=timeframe, symbol=symbol)
-        if block:
-            obs.append(block)
-
-    return obs
-
-
-def _tf_to_mt5(tf):
-    if mt5 is None:
-        return None
-    mapping = {
+    mapped = {
         "M1": mt5.TIMEFRAME_M1,
         "M5": mt5.TIMEFRAME_M5,
         "M15": mt5.TIMEFRAME_M15,
@@ -182,5 +143,17 @@ def _tf_to_mt5(tf):
         "H1": mt5.TIMEFRAME_H1,
         "H4": mt5.TIMEFRAME_H4,
         "D1": mt5.TIMEFRAME_D1,
-    }
-    return mapping.get(tf, tf)
+    }.get(str(timeframe).upper())
+    if mapped is None:
+        return []
+    rates = mt5.copy_rates_from_pos(symbol, mapped, 0, bars)
+    if rates is None:
+        return []
+    frame = pd.DataFrame(rates)
+    blocks = []
+    for index in range(1, len(frame)):
+        for direction in ("bullish", "bearish"):
+            block = find_true_order_block(frame, index, direction, timeframe=timeframe)
+            if block:
+                blocks.append(block)
+    return blocks

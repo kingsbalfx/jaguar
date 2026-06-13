@@ -7,12 +7,12 @@ REQUIRED_FLAGS = (
     "sweep",
     "displacement",
     "bos",
-    "ob_exists",
     "fvg_exists",
-    "retracement",
+    "ob_exists",
     "premium_discount",
     "target_liquidity",
-    "smt",
+    "retracement",
+    "lower_timeframe_confirmation",
 )
 
 
@@ -21,10 +21,9 @@ def _confirmed(value: Any) -> bool:
 
 
 def validate_setup(features: Dict[str, Any], regime: str, killzone_active: bool = False) -> Dict[str, Any]:
+    del regime, killzone_active
     features = features or {}
     checks = {name: _confirmed(features.get(name)) for name in REQUIRED_FLAGS}
-    checks["trend_regime"] = str(regime or "").lower() == "trending"
-    checks["killzone"] = bool(killzone_active)
     failed = next((name for name, confirmed in checks.items() if not confirmed), None)
     return {
         "confirmed": failed is None,

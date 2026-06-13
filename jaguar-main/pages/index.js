@@ -9,7 +9,9 @@ import { PRICING_TIERS, formatPrice } from "../lib/pricing-config";
 import { useRouter } from "next/router";
 import EmbeddedLivePlayer from "../components/EmbeddedLivePlayer";
 
-const WebRTCRoom = dynamic(() => import("../components/WebRTCRoom"), { ssr: false });
+const WebRTCRoom = dynamic(() => import("../components/WebRTCRoom"), {
+  ssr: false,
+});
 
 const ROLE_RANK = {
   free: 0,
@@ -53,14 +55,28 @@ export async function getServerSideProps(ctx) {
   } = await authClient.auth.getSession();
   const supabaseAdmin = getSupabaseClient({ server: true });
   if (!supabaseAdmin) {
-    return { props: { initialMessages: [], liveSession: null, canViewLive: false, isAuthenticated: Boolean(session?.user) } };
+    return {
+      props: {
+        initialMessages: [],
+        liveSession: null,
+        canViewLive: false,
+        isAuthenticated: Boolean(session?.user),
+      },
+    };
   }
 
   try {
     const { data, error } = await fetchMessagesWithFallback(supabaseAdmin);
     if (error) {
       console.error("Landing messages error:", error);
-      return { props: { initialMessages: [], liveSession: null, canViewLive: false, isAuthenticated: Boolean(session?.user) } };
+      return {
+        props: {
+          initialMessages: [],
+          liveSession: null,
+          canViewLive: false,
+          isAuthenticated: Boolean(session?.user),
+        },
+      };
     }
 
     let liveSession = null;
@@ -89,37 +105,98 @@ export async function getServerSideProps(ctx) {
         .maybeSingle();
       viewerRole = (profile?.role || "user").toLowerCase();
     }
-    const subscriberRoles = new Set(["premium", "vip", "pro", "lifetime", "admin"]);
+    const subscriberRoles = new Set([
+      "premium",
+      "vip",
+      "pro",
+      "lifetime",
+      "admin",
+    ]);
     const canViewLive =
       Boolean(session?.user) &&
       subscriberRoles.has(viewerRole) &&
       (liveSession
-        ? Array.isArray(liveSession.target_user_ids) && liveSession.target_user_ids.length
-          ? liveSession.target_user_ids.includes(session.user.id) || viewerRole === "admin"
+        ? Array.isArray(liveSession.target_user_ids) &&
+          liveSession.target_user_ids.length
+          ? liveSession.target_user_ids.includes(session.user.id) ||
+            viewerRole === "admin"
           : canAccess(viewerRole, liveSession.segment || "all")
         : false);
 
-    return { props: { initialMessages: data || [], liveSession, canViewLive, isAuthenticated: Boolean(session?.user) } };
+    return {
+      props: {
+        initialMessages: data || [],
+        liveSession,
+        canViewLive,
+        isAuthenticated: Boolean(session?.user),
+      },
+    };
   } catch (err) {
     console.error("Landing messages error:", err);
-    return { props: { initialMessages: [], liveSession: null, canViewLive: false, isAuthenticated: Boolean(session?.user) } };
+    return {
+      props: {
+        initialMessages: [],
+        liveSession: null,
+        canViewLive: false,
+        isAuthenticated: Boolean(session?.user),
+      },
+    };
   }
 }
 
-export default function Home({ initialMessages = [], liveSession = null, canViewLive = false, isAuthenticated = false }) {
+export default function Home({
+  initialMessages = [],
+  liveSession = null,
+  canViewLive = false,
+  isAuthenticated = false,
+}) {
   const router = useRouter();
   const [mode, setMode] = useState("free"); // free | premium | vip | pro | lifetime
   const defaultMessages = [
-    { id: 1, text: "Precision entries. Disciplined exits. Every signal measured.", segments: ["all"] },
-    { id: 2, text: "VIP weekly signals are live with full trade walkthroughs.", segments: ["vip"] },
-    { id: 3, text: "New lesson drop: Market Structure & Liquidity Sweeps.", segments: ["premium", "vip"] },
-    { id: 4, text: "Premium & VIP challenge starts this week - join the desk.", segments: ["premium", "vip"] },
-    { id: 5, text: "VIP 1:1 mentorship slots open for serious traders.", segments: ["vip"] },
-    { id: 6, text: "Pro tier unlocks 1:1 coaching, custom strategies, and advanced analytics.", segments: ["pro"] },
-    { id: 7, text: "Lifetime members get permanent access to every update, session, and signal.", segments: ["lifetime"] },
-    { id: 8, text: "Pro & Lifetime tiers include priority execution and concierge support.", segments: ["pro", "lifetime"] },
+    {
+      id: 1,
+      text: "Precision entries. Disciplined exits. Every signal measured.",
+      segments: ["all"],
+    },
+    {
+      id: 2,
+      text: "VIP weekly signals are live with full trade walkthroughs.",
+      segments: ["vip"],
+    },
+    {
+      id: 3,
+      text: "New lesson drop: Market Structure & Liquidity Sweeps.",
+      segments: ["premium", "vip"],
+    },
+    {
+      id: 4,
+      text: "Premium & VIP challenge starts this week - join the desk.",
+      segments: ["premium", "vip"],
+    },
+    {
+      id: 5,
+      text: "VIP 1:1 mentorship slots open for serious traders.",
+      segments: ["vip"],
+    },
+    {
+      id: 6,
+      text: "Pro tier unlocks 1:1 coaching, custom strategies, and advanced analytics.",
+      segments: ["pro"],
+    },
+    {
+      id: 7,
+      text: "Lifetime members get permanent access to every update, session, and signal.",
+      segments: ["lifetime"],
+    },
+    {
+      id: 8,
+      text: "Pro & Lifetime tiers include priority execution and concierge support.",
+      segments: ["pro", "lifetime"],
+    },
   ];
-  const normalizedMessages = (initialMessages.length ? initialMessages : defaultMessages).map((m, i) => {
+  const normalizedMessages = (
+    initialMessages.length ? initialMessages : defaultMessages
+  ).map((m, i) => {
     const segments = Array.isArray(m.segments)
       ? m.segments
       : m.segment
@@ -137,25 +214,42 @@ export default function Home({ initialMessages = [], liveSession = null, canView
     premium: "Premium adds daily signals, bot access, and advanced analytics.",
     vip: "VIP unlocks mentorship sessions, priority support, and deeper trade guidance.",
     pro: "Pro gives 1:1 coaching, custom strategies, and elite execution rules.",
-    lifetime: "Lifetime members keep every upgrade, session, and signal forever.",
+    lifetime:
+      "Lifetime members keep every upgrade, session, and signal forever.",
   };
 
   const toggleStyles = {
-    free: { color: "#fbbf24", border: "rgba(251, 191, 36, 0.6)", label: "Free Trial" },
-    premium: { color: "#3b82f6", border: "rgba(59, 130, 246, 0.6)", label: "Premium" },
+    free: {
+      color: "#fbbf24",
+      border: "rgba(251, 191, 36, 0.6)",
+      label: "Free Trial",
+    },
+    premium: {
+      color: "#3b82f6",
+      border: "rgba(59, 130, 246, 0.6)",
+      label: "Premium",
+    },
     vip: { color: "#a855f7", border: "rgba(168, 85, 247, 0.6)", label: "VIP" },
     pro: { color: "#6366f1", border: "rgba(99, 102, 241, 0.6)", label: "Pro" },
-    lifetime: { color: "#ec4899", border: "rgba(236, 72, 153, 0.6)", label: "Lifetime" },
+    lifetime: {
+      color: "#ec4899",
+      border: "rgba(236, 72, 153, 0.6)",
+      label: "Lifetime",
+    },
   };
 
   const visibleMessages = normalizedMessages.filter(
-    (m) => m.segments.includes("all") || m.segments.includes(mode)
+    (m) => m.segments.includes("all") || m.segments.includes(mode),
   );
 
   const tierKey = mode.toUpperCase();
   const tier = PRICING_TIERS[tierKey];
   const tierPrice =
-    tier?.price === 0 ? "Free" : tier ? formatPrice(tier.price, tier.currency) : "";
+    tier?.price === 0
+      ? "Free"
+      : tier
+        ? formatPrice(tier.price, tier.currency)
+        : "";
   const tierBadge = tier?.badge || "Access";
   const tierHighlights = tier?.features
     ? [
@@ -173,19 +267,20 @@ export default function Home({ initialMessages = [], liveSession = null, canView
   return (
     <main className="flex-grow app-bg text-white relative overflow-hidden">
       <div className="candle-backdrop" aria-hidden="true" />
-      <div className="app-content container mx-auto px-6 py-14">
-        <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] items-center">
+      <div className="app-content landing-shell container mx-auto px-6 py-14">
+        <div className="landing-hero grid gap-10 lg:grid-cols-[1.1fr_0.9fr] items-center">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/40 bg-indigo-500/10 px-3 py-1 text-xs uppercase tracking-widest text-indigo-200">
               KingsBalfx Trading Lab
             </div>
             <h1 className="display-font mt-4 text-4xl md:text-6xl font-bold leading-tight">
-              Forex mentorship, live signals, and a bot engine built for consistency.
+              Forex mentorship, live signals, and a bot engine built for
+              consistency.
             </h1>
             <p className="mt-4 text-lg text-gray-300 max-w-2xl">
-              Build your edge with guided ICT strategy, disciplined risk controls, and signals tuned
-              to your tier. Every plan delivers actionable setups, clean execution, and a clear
-              growth path.
+              Build your edge with guided ICT strategy, disciplined risk
+              controls, and signals tuned to your tier. Every plan delivers
+              actionable setups, clean execution, and a clear growth path.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link href="/pricing">
@@ -199,7 +294,7 @@ export default function Home({ initialMessages = [], liveSession = null, canView
                 </a>
               </Link>
             </div>
-            <div className="mt-8 grid gap-4 sm:grid-cols-3">
+            <div className="landing-metrics mt-8 grid gap-4 sm:grid-cols-3">
               <div className="glass-panel rounded-2xl p-4">
                 <div className="text-xs text-gray-400">Signals / Day</div>
                 <div className="mt-2 text-lg font-semibold">Up to 30+</div>
@@ -215,37 +310,46 @@ export default function Home({ initialMessages = [], liveSession = null, canView
             </div>
           </div>
 
-          <div className="glass-panel rounded-3xl p-6 relative overflow-hidden">
+          <div className="glass-panel landing-snapshot rounded-3xl p-6 relative overflow-hidden">
             <div className="absolute -top-20 -right-24 h-48 w-48 rounded-full bg-indigo-500/20 blur-3xl" />
             <div className="absolute -bottom-24 -left-16 h-48 w-48 rounded-full bg-yellow-400/10 blur-3xl" />
             <div className="relative space-y-4">
               <div className="text-sm text-indigo-200">Live Bot Snapshot</div>
               <div className="rounded-2xl border border-white/10 bg-black/50 p-4">
                 <div className="text-xs text-gray-400">Signal Quality</div>
-                <div className="mt-1 text-xl font-semibold">Premium Confidence</div>
+                <div className="mt-1 text-xl font-semibold">
+                  Premium Confidence
+                </div>
                 <p className="mt-2 text-sm text-gray-300">
-                  Filters tuned to liquidity sweeps, structure shifts, and HTF momentum.
+                  Filters tuned to liquidity sweeps, structure shifts, and HTF
+                  momentum.
                 </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/50 p-4">
                 <div className="text-xs text-gray-400">Execution Layer</div>
-                <div className="mt-1 text-xl font-semibold">Risk‑Locked Entries</div>
+                <div className="mt-1 text-xl font-semibold">
+                  Risk‑Locked Entries
+                </div>
                 <p className="mt-2 text-sm text-gray-300">
-                  Dynamic lot sizing with max‑trade guards and tiered exposure rules.
+                  Dynamic lot sizing with max‑trade guards and tiered exposure
+                  rules.
                 </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/50 p-4">
                 <div className="text-xs text-gray-400">Community</div>
-                <div className="mt-1 text-xl font-semibold">Mentor‑Led Rooms</div>
+                <div className="mt-1 text-xl font-semibold">
+                  Mentor‑Led Rooms
+                </div>
                 <p className="mt-2 text-sm text-gray-300">
-                  Daily breakdowns, session recaps, and accountability check‑ins.
+                  Daily breakdowns, session recaps, and accountability
+                  check‑ins.
                 </p>
               </div>
             </div>
           </div>
         </div>
 
-        <section className="mt-12">
+        <section className="landing-section mt-12">
           {liveSession && (
             <div className="mb-6 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-4">
               <div className="text-xs uppercase tracking-widest text-emerald-200 mb-2">
@@ -258,12 +362,16 @@ export default function Home({ initialMessages = [], liveSession = null, canView
                 {liveSession.starts_at
                   ? new Date(liveSession.starts_at).toLocaleString()
                   : "Time not set"}
-                {liveSession.ends_at ? ` — ${new Date(liveSession.ends_at).toLocaleTimeString()}` : ""}
+                {liveSession.ends_at
+                  ? ` — ${new Date(liveSession.ends_at).toLocaleTimeString()}`
+                  : ""}
                 {liveSession.timezone ? ` (${liveSession.timezone})` : ""}
               </div>
               {canViewLive ? (
                 <div className="mt-4">
-                  {["youtube", "videosdk", "embed"].includes(liveSession.media_type) &&
+                  {["youtube", "videosdk", "embed"].includes(
+                    liveSession.media_type,
+                  ) &&
                     liveSession.media_url && (
                       <EmbeddedLivePlayer
                         mediaType={liveSession.media_type}
@@ -273,7 +381,10 @@ export default function Home({ initialMessages = [], liveSession = null, canView
                     )}
                   {liveSession.media_type === "webrtc" && (
                     <div className="mt-3">
-                      <WebRTCRoom roomName={liveSession.room_name || liveSession.id} displayName="Subscriber" />
+                      <WebRTCRoom
+                        roomName={liveSession.room_name || liveSession.id}
+                        displayName="Subscriber"
+                      />
                     </div>
                   )}
                 </div>
@@ -284,7 +395,7 @@ export default function Home({ initialMessages = [], liveSession = null, canView
               )}
             </div>
           )}
-          <div className="flex flex-wrap gap-3 mb-3">
+          <div className="tier-switcher flex flex-wrap gap-3 mb-3">
             {Object.keys(toggleStyles).map((key) => {
               const style = toggleStyles[key];
               const isActive = mode === key;
@@ -350,9 +461,12 @@ export default function Home({ initialMessages = [], liveSession = null, canView
             </div>
           )}
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="message-grid grid gap-4 md:grid-cols-2">
             {visibleMessages.map((m) => (
-              <div key={m.id} className="glass-panel rounded-2xl p-4 moving-italic">
+              <div
+                key={m.id}
+                className="glass-panel rounded-2xl p-4 moving-italic"
+              >
                 <span>{m.text}</span>
               </div>
             ))}
@@ -368,7 +482,7 @@ export default function Home({ initialMessages = [], liveSession = null, canView
           )}
         </section>
 
-        <section className="mt-12 relative overflow-hidden rounded-2xl border border-indigo-500/30 bg-gradient-to-br from-slate-950 via-indigo-950/60 to-black p-8">
+        <section className="landing-engine mt-12 relative overflow-hidden rounded-2xl border border-indigo-500/30 bg-gradient-to-br from-slate-950 via-indigo-950/60 to-black p-8">
           <div className="absolute -top-24 -right-24 h-64 w-64 rounded-full bg-indigo-500/20 blur-3xl" />
           <div className="absolute -bottom-28 -left-16 h-64 w-64 rounded-full bg-yellow-400/10 blur-3xl" />
 
@@ -381,23 +495,30 @@ export default function Home({ initialMessages = [], liveSession = null, canView
                 Automated entries, disciplined risk, and live signal delivery.
               </h2>
               <p className="mt-4 text-gray-300">
-                Our bot blends ICT structure with tiered signal quality, protecting your capital while
-                hunting high‑probability setups. Premium and VIP unlock stronger filters, higher
-                trade limits, and priority execution logic.
+                Our bot blends ICT structure with tiered signal quality,
+                protecting your capital while hunting high‑probability setups.
+                Premium and VIP unlock stronger filters, higher trade limits,
+                and priority execution logic.
               </p>
 
               <div className="mt-6 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-xl border border-white/10 bg-black/40 p-4">
                   <div className="text-xs text-gray-400">Signal Quality</div>
-                  <div className="mt-1 text-lg font-semibold text-white">Tiered AI Scoring</div>
+                  <div className="mt-1 text-lg font-semibold text-white">
+                    Tiered AI Scoring
+                  </div>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-black/40 p-4">
                   <div className="text-xs text-gray-400">Trade Limits</div>
-                  <div className="mt-1 text-lg font-semibold text-white">Smart Risk Caps</div>
+                  <div className="mt-1 text-lg font-semibold text-white">
+                    Smart Risk Caps
+                  </div>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-black/40 p-4">
                   <div className="text-xs text-gray-400">Execution</div>
-                  <div className="mt-1 text-lg font-semibold text-white">Real‑time Alerts</div>
+                  <div className="mt-1 text-lg font-semibold text-white">
+                    Real‑time Alerts
+                  </div>
                 </div>
               </div>
 
@@ -427,7 +548,8 @@ export default function Home({ initialMessages = [], liveSession = null, canView
               <div className="rounded-2xl border border-yellow-400/20 bg-gradient-to-br from-yellow-500/10 to-transparent p-6">
                 <div className="text-sm text-yellow-200">Pro Tip</div>
                 <p className="mt-3 text-sm text-gray-200">
-                  Combine the bot with mentorship sessions to fast‑track consistency and decision‑making.
+                  Combine the bot with mentorship sessions to fast‑track
+                  consistency and decision‑making.
                 </p>
               </div>
             </div>
@@ -437,4 +559,3 @@ export default function Home({ initialMessages = [], liveSession = null, canView
     </main>
   );
 }
-

@@ -1,123 +1,34 @@
-"""
-Comprehensive validation for the strict ICT architecture.
-"""
+"""Architecture smoke test for strict binary entry behavior."""
 
-import os
-import sys
-
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from strategy.weighted_entry_validator import calculate_entry_confidence
+from strategy.strict_entry_validator import validate_strict_entry
 
 
-BASE_SIGNAL = {
-    "direction": "buy",
-    "price": 1.2040,
-    "fib_zone": "discount",
-    "valid_fvg": True,
-    "valid_order_block": True,
-    "displacement": 0.84,
-}
-
-BASE_ANALYSIS = {
-    "overall_trend": "bullish",
-    "topdown": {"trend": "bullish", "context_alignment": "aligned"},
-    "HTF": {"trend": "bullish"},
-    "MTF": {"trend": "bullish"},
-    "LTF": {"trend": "bullish"},
-}
-
-BASE_CONFIRMATIONS = {
-    "liquidity_setup": {"confirmed": True, "displacement_score": 0.84},
-    "bos": {"confirmed": True},
-    "displacement": {"confirmed": True, "score": 0.84},
-    "fvg": {"confirmed": True},
+FLAGS = {
+    "external_liquidity": True,
+    "liquidity_sweep": True,
+    "displacement": True,
+    "bos": True,
+    "fvg": True,
     "order_block_confirmed": True,
-    "price_action": {"confirmed": True, "patterns": ["engulfing", "rejection"]},
-    "smt": True,
-    "rule_quality": True,
-    "ml": True,
-}
-
-STRONG_CIS = {
-    "final_verdict": "TRADE",
-    "confidence_score": 0.85,
-    "history_count": 140,
-    "component_scores": {"timing": 0.90, "setup_quality": 0.88},
+    "premium_discount": True,
+    "target_liquidity": True,
+    "retracement": True,
+    "lower_timeframe_confirmation": True,
 }
 
 
-def print_result(name, passed, result):
-    status = "PASS" if passed else "FAIL"
-    print(f"{status}: {name} -> confidence={result['confidence']} route={result['execution_route']}")
+perfect = validate_strict_entry(analysis={"context_alignment": "aligned"}, confirmation_flags=FLAGS)
+assert perfect["passed"] and perfect["execution_route"] == "market"
 
-
-def run_test(name, signal, analysis, confirmations, cis, predicate):
-    result = calculate_entry_confidence(
-        signal=signal,
-        analysis=analysis,
-        trend="bullish",
-        price=signal["price"],
-        confirmation_flags=confirmations,
-        cis_decision=cis,
+for name in FLAGS:
+    result = validate_strict_entry(
+        analysis={"context_alignment": "aligned"},
+        confirmation_flags={**FLAGS, name: False},
     )
-    passed = predicate(result)
-    print_result(name, passed, result)
-    return passed
+    assert not result["passed"], name
+    assert result["execution_route"] == "reject", name
 
-
-results = [
-    run_test(
-        "Perfect strict setup",
-        BASE_SIGNAL,
-        BASE_ANALYSIS,
-        BASE_CONFIRMATIONS,
-        STRONG_CIS,
-        lambda result: result["execution_route"] in ("elite", "standard") and not result["backtest_required"],
-    ),
-    run_test(
-        "Missing liquidity sweep reduces confidence",
-        BASE_SIGNAL,
-        BASE_ANALYSIS,
-        {**BASE_CONFIRMATIONS, "liquidity_setup": {"confirmed": False, "displacement_score": 0.84}},
-        STRONG_CIS,
-        lambda result: result["confidence"] < 100 and "liquidity_sweep" in result["missing_core"],
-    ),
-    run_test(
-        "Missing BOS reduces confidence",
-        BASE_SIGNAL,
-        BASE_ANALYSIS,
-        {**BASE_CONFIRMATIONS, "bos": {"confirmed": False}},
-        STRONG_CIS,
-        lambda result: result["confidence"] < 100 and "bos" in result["missing_core"],
-    ),
-    run_test(
-        "Weak displacement is reported",
-        {**BASE_SIGNAL, "displacement": 0.40},
-        BASE_ANALYSIS,
-        {**BASE_CONFIRMATIONS, "displacement": {"confirmed": False, "score": 0.40}, "liquidity_setup": {"confirmed": True, "displacement_score": 0.40}},
-        STRONG_CIS,
-        lambda result: "displacement" in result["missing_core"],
-    ),
-    run_test(
-        "Topdown conflict reduces route quality",
-        BASE_SIGNAL,
-        {**BASE_ANALYSIS, "topdown": {"trend": "bearish", "context_alignment": "opposed"}},
-        BASE_CONFIRMATIONS,
-        STRONG_CIS,
-        lambda result: result["confidence"] < 70 and result["execution_route"] != "elite",
-    ),
-    run_test(
-        "Insufficient live history forces backtest",
-        BASE_SIGNAL,
-        BASE_ANALYSIS,
-        BASE_CONFIRMATIONS,
-        {"final_verdict": "TRADE", "confidence_score": 0.80, "history_count": 30, "component_scores": {"timing": 0.82, "setup_quality": 0.85}},
-        lambda result: result["backtest_required"] and result["execution_route"] in ("standard_validated", "conservative"),
-    ),
-]
-
-print(f"\nSUMMARY: {sum(results)}/{len(results)} tests passed")
-raise SystemExit(0 if all(results) else 1)
+conflict = validate_strict_entry(analysis={"context_alignment": "opposed"}, confirmation_flags=FLAGS)
+assert not conflict["passed"]
+assert conflict["failed_step"] == "narrative"
+print("PASS: strict binary architecture")
