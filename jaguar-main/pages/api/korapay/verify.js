@@ -1,6 +1,7 @@
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 import { verifyKorapayCharge } from "../../../lib/korapay";
 import { PRICING_TIERS, getBotTierDefaults } from "../../../lib/pricing-config";
+import { validatePlanPayment } from "../../../lib/payment-amount";
 
 function buildProfilePlanUpdate(plan) {
   const defaults = getBotTierDefaults(plan);
@@ -42,8 +43,8 @@ function getReference(req) {
 }
 
 function extractPlan(metadata) {
-  if (!metadata) return "user";
-  return metadata.plan || metadata.product || metadata.tier || "user";
+  if (!metadata) return null;
+  return metadata.plan || metadata.product || metadata.tier || null;
 }
 
 function getPlanEndDate(planId) {
@@ -60,6 +61,9 @@ export default async function handler(req, res) {
   if (!reference) {
     return res.status(400).json({ error: "Missing reference parameter" });
   }
+  if (process.env.NODE_ENV === "production" && reference.startsWith("SIMULATED_")) {
+    return res.status(400).json({ error: "Simulated payments are not accepted in production" });
+  }
 
   try {
     const result = await verifyKorapayCharge(reference);
@@ -71,6 +75,10 @@ export default async function handler(req, res) {
     const plan = extractPlan(metadata);
     const userId = metadata.userId || metadata.user_id || null;
     const buyerEmail = result.email || metadata.email || null;
+    const paymentValidation = validatePlanPayment({ amount: result.amount, currency: result.currency, plan });
+    if (!paymentValidation.valid) {
+      return res.status(400).json({ error: paymentValidation.error });
+    }
 
     const supabaseAdmin = getSupabaseClient({ server: true });
     if (supabaseAdmin) {

@@ -1,5 +1,7 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
+import { getPaidAccess } from "../../../lib/subscription-status";
+import { getPricingTier } from "../../../lib/pricing-config";
 
 function latestByAccount(rows) {
   const byKey = new Map();
@@ -80,6 +82,20 @@ export default async function handler(req, res) {
   }
 
   const adminScope = (role === "admin" || isAdminEmail) && req.query.scope === "all";
+  const access = await getPaidAccess({ supabaseAdmin, email: session.user.email, role: isAdminEmail ? "admin" : role });
+  if (!access.active) {
+    return res.status(403).json({ error: "active subscription required" });
+  }
+  const testingAllowed =
+    role === "admin" ||
+    isAdminEmail ||
+    access.plans?.some((plan) => {
+      const tier = getPricingTier(plan);
+      return tier?.features?.botAccess || tier?.features?.privateTestingOnly;
+    });
+  if (!testingAllowed) {
+    return res.status(403).json({ error: "private bot testing is not included in the active plan" });
+  }
 
   const { data, error } = await supabaseAdmin
     .from("bot_logs")

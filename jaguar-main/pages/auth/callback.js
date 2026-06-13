@@ -235,24 +235,6 @@ export const getServerSideProps = async (ctx) => {
       console.warn("Subscription lookup failed:", e?.message || e);
     }
 
-    try {
-      const { data } = await supabaseAdmin
-        .from("payments")
-        .select("plan, status, received_at")
-        .eq("customer_email", user.email)
-        .in("status", ["success", "successful", "completed", "paid", "approved"])
-        .order("received_at", { ascending: false })
-        .limit(5);
-      if (Array.isArray(data) && data.length > 0) {
-        const priority = ["lifetime", "pro", "vip", "premium"];
-        for (const plan of priority) {
-          if (data.some((row) => row.plan === plan)) return plan;
-        }
-        return data[0]?.plan || null;
-      }
-    } catch (e) {
-      console.warn("Payments lookup failed:", e?.message || e);
-    }
     return null;
   }
 
@@ -264,51 +246,20 @@ export const getServerSideProps = async (ctx) => {
     }
   }
 
-  // Use server admin client for secure payments table checks
-
-  async function hasPaid(plan) {
-    try {
-      if (!supabaseAdmin) return false;
-      const { data, error } = await supabaseAdmin
-        .from("payments")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("plan", plan)
-        .eq("status", "success")
-        .limit(1);
-      if (error) {
-        console.error("hasPaid error:", error);
-        return false;
-      }
-      return Array.isArray(data) && data.length > 0;
-    } catch (e) {
-      console.error("hasPaid exception:", e);
-      return false;
-    }
-  }
-
   if (effectiveRole === "vip") {
-    const paid = await hasPaid("vip");
-    const dest = validatedNext || (paid ? "/dashboard/vip" : `/checkout?plan=vip&next=/auth/callback`);
-    return { redirect: { destination: dest, permanent: false } };
+    return { redirect: { destination: validatedNext || "/dashboard/vip", permanent: false } };
   }
 
   if (effectiveRole === "premium") {
-    const paid = await hasPaid("premium");
-    const dest = validatedNext || (paid ? "/dashboard/premium" : `/checkout?plan=premium&next=/auth/callback`);
-    return { redirect: { destination: dest, permanent: false } };
+    return { redirect: { destination: validatedNext || "/dashboard/premium", permanent: false } };
   }
 
   if (effectiveRole === "pro") {
-    const paid = await hasPaid("pro");
-    const dest = validatedNext || (paid ? "/dashboard/pro" : `/checkout?plan=pro&next=/auth/callback`);
-    return { redirect: { destination: dest, permanent: false } };
+    return { redirect: { destination: validatedNext || "/dashboard/pro", permanent: false } };
   }
 
   if (effectiveRole === "lifetime") {
-    const paid = await hasPaid("lifetime");
-    const dest = validatedNext || (paid ? "/dashboard/lifetime" : `/checkout?plan=lifetime&next=/auth/callback`);
-    return { redirect: { destination: dest, permanent: false } };
+    return { redirect: { destination: validatedNext || "/dashboard/lifetime", permanent: false } };
   }
 
   // default

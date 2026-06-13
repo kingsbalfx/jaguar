@@ -26,6 +26,9 @@ export default async function handler(req, res) {
     "";
 
   const secret = process.env.KORAPAY_WEBHOOK_SECRET || process.env.KORAPAY_SECRET_KEY;
+  if (!secret && process.env.NODE_ENV === "production") {
+    return res.status(503).json({ error: "Webhook verification is not configured" });
+  }
   if (secret) {
     const isValid = verifyKorapaySignature(rawBody, signature, secret);
     if (!isValid) {

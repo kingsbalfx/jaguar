@@ -31,8 +31,10 @@ export default async function handler(req, res) {
     try {
       if (set) {
         await supabaseAdmin.from("subscriptions").upsert({ email, plan: "lifetime", status: "active" }, { onConflict: ["email", "plan"] });
+        await supabaseAdmin.from("profiles").update({ role: "lifetime" }).eq("email", email);
       } else {
         await supabaseAdmin.from("subscriptions").update({ status: "revoked" }).eq("email", email).eq("plan", "lifetime");
+        await supabaseAdmin.from("profiles").update({ role: "user" }).eq("email", email).eq("role", "lifetime");
       }
     } catch (e) {
       console.warn("Could not upsert subscriptions:", e.message || e);

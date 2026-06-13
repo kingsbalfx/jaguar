@@ -1,8 +1,8 @@
 import crypto from "crypto";
 import fetch from "node-fetch";
 import { getSupabaseClient } from "./supabaseClient.js";
-import { getBotTierDefaults } from "./pricing-config.js";
-import { PRICING_TIERS } from "./pricing-config.js";
+import { getBotTierDefaults, PRICING_TIERS } from "./pricing-config.js";
+import { validatePlanPayment } from "./payment-amount.js";
 
 const DEFAULT_API_BASE = "https://api.korapay.com/merchant/api/v1";
 
@@ -204,8 +204,13 @@ export async function handleKorapayEvent(rawBody, eventJson) {
       typeof status === "string"
         ? ["success", "successful", "completed", "paid", "approved"].includes(status.toLowerCase())
         : Boolean(status);
+    const paymentValidation = validatePlanPayment({
+      amount,
+      currency: payload.currency || "NGN",
+      plan,
+    });
 
-    if (isSuccess && plan) {
+    if (isSuccess && paymentValidation.valid) {
       try {
         const profileUpdate = buildProfilePlanUpdate(plan);
         if (userId) {
@@ -247,6 +252,8 @@ export async function handleKorapayEvent(rawBody, eventJson) {
           { onConflict: "email,plan" }
         );
       }
+    } else if (isSuccess) {
+      console.warn("Korapay event did not activate access:", paymentValidation.error);
     }
   } catch (e) {
     console.warn("Failed saving Korapay event to supabase:", e.message || e);

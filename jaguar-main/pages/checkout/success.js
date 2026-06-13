@@ -3,6 +3,7 @@ import React from "react";
 import Link from "next/link";
 import { verifyKorapayCharge } from "../../lib/korapay";
 import { PRICING_TIERS, getBotTierDefaults } from "../../lib/pricing-config";
+import { validatePlanPayment } from "../../lib/payment-amount";
 
 function buildProfilePlanUpdate(plan) {
   const defaults = getBotTierDefaults(plan);
@@ -116,9 +117,13 @@ export async function getServerSideProps(context) {
       metadata.plan ||
       metadata.product ||
       metadata.tier ||
-      (typeof context.query.plan === "string" ? context.query.plan : null);
+      null;
     const userId = metadata.userId || metadata.user_id || null;
     const buyerEmail = result.email || metadata.email || null;
+    const paymentValidation = validatePlanPayment({ amount: result.amount, currency: result.currency, plan });
+    if (!paymentValidation.valid) {
+      return { props: { success: false, message: paymentValidation.error, reference, plan: null } };
+    }
     const tier = PRICING_TIERS[String(plan || "").toUpperCase()];
     const endedAt =
       tier?.billingCycle === "monthly"

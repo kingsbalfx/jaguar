@@ -44,6 +44,11 @@ app.prepare().then(() => {
           req.headers["x-korapay-signature".toLowerCase()] ||
           req.headers["x-kora-signature".toLowerCase()];
         const secret = process.env.KORAPAY_WEBHOOK_SECRET || process.env.KORAPAY_SECRET_KEY;
+        if (!secret && process.env.NODE_ENV === "production") {
+          res.statusCode = 503;
+          res.end("webhook verification is not configured");
+          return;
+        }
         if (secret) {
           if (!verifyKorapaySignature(body, sig, secret)) {
             res.statusCode = 401;

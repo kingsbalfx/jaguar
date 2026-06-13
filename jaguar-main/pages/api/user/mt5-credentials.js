@@ -1,6 +1,8 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 import { encryptMt5Password } from "../../../lib/mt5-crypto";
+import { getPaidAccess } from "../../../lib/subscription-status";
+import { getPricingTier } from "../../../lib/pricing-config";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -18,6 +20,20 @@ export default async function handler(req, res) {
     }
     const supabaseAdmin = getSupabaseClient({ server: true });
     if (!supabaseAdmin) return res.status(500).json({ error: "Supabase admin client not configured" });
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("role")
+      .eq("id", session.user.id)
+      .maybeSingle();
+    const role = String(profile?.role || "user").toLowerCase();
+    const access = await getPaidAccess({ supabaseAdmin, email: session.user.email, role });
+    const testingAllowed = access.plans?.some((plan) => {
+      const tier = getPricingTier(plan);
+      return tier?.features?.botAccess || tier?.features?.privateTestingOnly;
+    });
+    if (!access.active || !testingAllowed) {
+      return res.status(403).json({ error: "Private bot testing is not included in your active plan" });
+    }
     const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
     const now = new Date().toISOString();
     const payload = {
