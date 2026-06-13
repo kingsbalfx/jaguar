@@ -1,5 +1,6 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
+import { encryptMt5Password } from "../../../lib/mt5-crypto";
 
 function isMissingActiveColumn(error) {
   const msg = String(error?.message || "").toLowerCase();
@@ -193,6 +194,9 @@ export default async function handler(req, res) {
     const cleanLogin = String(login || "").trim();
     const cleanServer = String(server || "").trim();
     const cleanPassword = String(password || "");
+    if (!process.env.MT5_CREDENTIALS_SECRET && process.env.NODE_ENV === "production") {
+      return res.status(503).json({ error: "credential encryption is not configured" });
+    }
 
     if (!cleanLogin || !cleanServer) {
       return res
@@ -205,7 +209,10 @@ export default async function handler(req, res) {
       error: currentError,
       hasActiveColumn,
       hasUpdatedAtColumn,
-    } = await getLatestCredentialRow(supabaseAdmin, "password, updated_at");
+    } = await getLatestCredentialRow(
+      supabaseAdmin,
+      "password_encrypted, password_iv, password_tag, password_last4, updated_at"
+    );
 
     if (currentError) {
       return res.status(500).json({
@@ -213,8 +220,15 @@ export default async function handler(req, res) {
       });
     }
 
-    const passwordToSave = cleanPassword || currentActive?.password || "";
-    if (!passwordToSave) {
+    const encryptedPassword = cleanPassword
+      ? encryptMt5Password(cleanPassword)
+      : {
+          password_encrypted: currentActive?.password_encrypted,
+          password_iv: currentActive?.password_iv,
+          password_tag: currentActive?.password_tag,
+          password_last4: currentActive?.password_last4,
+        };
+    if (!encryptedPassword.password_encrypted) {
       return res.status(400).json({
         error: "password is required for first-time setup",
       });
@@ -233,8 +247,8 @@ export default async function handler(req, res) {
 
     const payload = {
       login: cleanLogin,
-      password: passwordToSave,
       server: cleanServer,
+      ...encryptedPassword,
     };
 
     if (hasActiveColumn) {

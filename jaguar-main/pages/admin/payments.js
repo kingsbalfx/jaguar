@@ -1,5 +1,6 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
+import { normalizePaymentAmount } from "../../lib/payment-amount";
 
 export const getServerSideProps = async (ctx) => {
   try {
@@ -50,7 +51,7 @@ export default function AdminPayments({ payments }) {
             {payments.map((p) => (
               <tr key={p.id} className="border-t border-white/5">
                 <td className="px-2 py-2 text-sm">{p.id}</td>
-                <td className="px-2 py-2 text-sm">{(Number(p.amount || 0) / 100).toFixed(2)}</td>
+                <td className="px-2 py-2 text-sm">{normalizePaymentAmount(p.amount, p.plan).toFixed(2)}</td>
                 <td className="px-2 py-2 text-sm">{p.plan || "lifetime"}</td>
                 <td className="px-2 py-2 text-sm">{p.status}</td>
                 <td className="px-2 py-2 text-sm">{p.customer_email || "-"}</td>

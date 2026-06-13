@@ -6,6 +6,9 @@ import { PRICING_TIERS } from "../../lib/pricing-config";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 import { getPlanStatus } from "../../lib/subscription-status";
+import PlanInactivePanel from "../../components/PlanInactivePanel";
+import MentorshipCards from "../../components/MentorshipCards";
+import RiskDisclaimer from "../../components/RiskDisclaimer";
 
 export async function getServerSideProps(ctx) {
   const planId = "premium";
@@ -87,14 +90,15 @@ export default function PremiumDashboard({ planStatus }) {
           </div>
         </div>
 
+        {!isActive ? <PlanInactivePanel planId="premium" /> : <>
         <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-6">
           <LiveSessionPanel />
           <div className="glass-panel rounded-2xl p-5">
             <div className="text-xs uppercase tracking-widest text-blue-200">Plan Highlights</div>
             <ul className="mt-3 space-y-2 text-sm text-gray-300">
-              <li>Premium-grade signals and tiered bot filters</li>
-              <li>Daily lesson drops and community room access</li>
-              <li>Priority support and analytics tracking</li>
+              <li>Structured academy lessons and practical PDFs</li>
+              <li>Weekly live class and group community</li>
+              <li>Basic assignments focused on discipline and risk</li>
             </ul>
           </div>
         </div>
@@ -104,7 +108,7 @@ export default function PremiumDashboard({ planStatus }) {
             <div className="text-xs uppercase tracking-widest text-purple-200">Upgrade Option</div>
             <div className="text-lg font-semibold">Move up to VIP</div>
             <p className="text-sm text-gray-300">
-              Unlock mentorship sessions and high-frequency VIP signals.
+              Add assignment review, journal review, and priority Q&amp;A.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -121,6 +125,9 @@ export default function PremiumDashboard({ planStatus }) {
         <div id="mentorship-content">
           <ContentLibrary />
         </div>
+        <div className="mt-6"><MentorshipCards /></div>
+        <div className="mt-6"><RiskDisclaimer /></div>
+        </>}
       </div>
     </section>
   );

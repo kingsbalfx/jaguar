@@ -1,173 +1,130 @@
 /**
- * PRICING CONFIGURATION - Centralized Pricing System
- * Aligns pricing across web (Korapay), bot signals, and mentorship
- * Domain: kingsbalfx.name.ng
- * All prices in NGN (₦)
+ * Public mentorship-first launch pricing. All prices are stored in NGN.
  */
-
 export const PRICING_TIERS = {
   FREE: {
     id: "free",
-    name: "Free Trial",
-    displayName: "Trial",
+    name: "Free",
+    displayName: "Free",
     price: 0,
     currency: "NGN",
-    description: "Get started with trading signals",
+    description: "Intro lessons, risk guidance, and sample academy content.",
     features: {
-      signals: true,
-      signalQuality: "standard",
-      maxSignalsPerDay: 3,
       mentorship: false,
-      communityAccess: "limited",
       lessonAccess: true,
-      lessonFrequency: "weekly",
-      tradingHistory: false,
-      performanceAnalytics: false,
-      prioritySupport: false,
+      sampleContent: true,
+      riskWarning: true,
       botAccess: false,
-      maxConcurrentTrades: 0,
     },
     color: "yellow",
-    badge: "Getting Started",
+    badge: "Start Here",
   },
-
   PREMIUM: {
     id: "premium",
-    name: "Premium",
-    displayName: "Premium",
-    price: 90000,
+    name: "Academy",
+    displayName: "Academy",
+    price: 25000,
     currency: "NGN",
     billingCycle: "monthly",
-    description: "Professional trader toolkit",
+    description: "Structured group learning for disciplined traders.",
     features: {
-      signals: true,
-      signalQuality: "premium",
-      maxSignalsPerDay: 15,
-      mentorship: false,
-      communityAccess: "full",
-      lessonAccess: true,
-      lessonFrequency: "daily",
-      tradingHistory: true,
-      performanceAnalytics: true,
-      prioritySupport: true,
-      botAccess: true,
-      maxConcurrentTrades: 5,
-      botUpdates: "weekly",
+      structuredLessons: true,
+      pdfResources: true,
+      communityAccess: "group",
+      weeklyLiveClass: true,
+      basicAssignmentAccess: true,
+      mentorship: true,
+      mentorshipType: "group",
+      groupSessionsPerMonth: 4,
+      botAccess: false,
     },
     color: "blue",
-    badge: "Most Popular",
+    badge: "Academy",
   },
-
   VIP: {
     id: "vip",
     name: "VIP",
     displayName: "VIP",
+    price: 75000,
+    currency: "NGN",
+    billingCycle: "monthly",
+    description: "Group mentorship with assignment and journal review.",
+    features: {
+      structuredLessons: true,
+      pdfResources: true,
+      communityAccess: "vip",
+      mentorship: true,
+      mentorshipType: "group_review",
+      groupSessionsPerMonth: 8,
+      assignmentReview: true,
+      tradingJournalReview: true,
+      priorityQA: true,
+      botAccess: false,
+      privateTestingOnly: true,
+    },
+    color: "purple",
+    badge: "Review & Mentorship",
+  },
+  PRO: {
+    id: "pro",
+    name: "Pro Mentorship",
+    displayName: "Pro",
     price: 150000,
     currency: "NGN",
     billingCycle: "monthly",
-    description: "Elite mentorship & trading",
+    description: "Private mentorship, deeper strategy correction, and risk review.",
     features: {
-      signals: true,
-      signalQuality: "vip",
-      maxSignalsPerDay: 30,
-      mentorship: true,
-      mentorshipType: "group",
-      groupSessionsPerMonth: 4,
-      communityAccess: "vip",
-      lessonAccess: true,
-      lessonFrequency: "daily",
-      tradingHistory: true,
-      performanceAnalytics: true,
-      prioritySupport: true,
-      botAccess: true,
-      maxConcurrentTrades: 10,
-      botUpdates: "daily",
-      strategyFeedback: true,
-    },
-    color: "purple",
-    badge: "Elite",
-  },
-
-  PRO: {
-    id: "pro",
-    name: "Pro Trader",
-    displayName: "Pro",
-    price: 250000,
-    currency: "NGN",
-    billingCycle: "monthly",
-    description: "Complete professional setup",
-    features: {
-      signals: true,
-      signalQuality: "pro",
-      maxSignalsPerDay: "unlimited",
+      structuredLessons: true,
+      pdfResources: true,
+      communityAccess: "pro",
       mentorship: true,
       mentorshipType: "one-on-one",
       oneOnOneSessionsPerMonth: 2,
       groupSessionsPerMonth: 8,
-      communityAccess: "pro",
-      lessonAccess: true,
-      lessonFrequency: "daily",
-      tradingHistory: true,
-      performanceAnalytics: true,
-      advancedAnalytics: true,
-      prioritySupport: true,
-      dedicatedSupport: true,
-      botAccess: true,
-      maxConcurrentTrades: 20,
-      botUpdates: "hourly",
-      strategyFeedback: true,
-      customStrategies: true,
-      apiAccess: true,
+      assignmentReview: true,
+      tradingJournalReview: true,
+      strategyCorrection: true,
+      riskReview: true,
+      botAccess: false,
+      privateTestingOnly: true,
     },
     color: "indigo",
-    badge: "Professional",
+    badge: "Private Mentorship",
   },
-
   LIFETIME: {
     id: "lifetime",
-    name: "Lifetime",
+    name: "Lifetime Academy",
     displayName: "Lifetime",
     price: 500000,
     currency: "NGN",
     billingCycle: "one-time",
-    description: "Lifetime access to everything",
+    description: "Lifetime access to recorded lessons, PDFs, course updates, and community.",
     features: {
-      signals: true,
-      signalQuality: "pro",
-      maxSignalsPerDay: "unlimited",
-      mentorship: true,
-      mentorshipType: "one-on-one",
-      oneOnOneSessionsPerMonth: "unlimited",
-      groupSessionsPerMonth: "unlimited",
+      recordedLessons: true,
+      pdfResources: true,
       communityAccess: "lifetime",
-      lessonAccess: true,
-      lessonFrequency: "daily",
-      tradingHistory: true,
-      performanceAnalytics: true,
-      advancedAnalytics: true,
-      prioritySupport: true,
-      dedicatedSupport: true,
-      botAccess: true,
-      maxConcurrentTrades: "unlimited",
-      botUpdates: "real-time",
-      strategyFeedback: true,
-      customStrategies: true,
-      apiAccess: true,
       futureUpdates: true,
+      mentorship: false,
+      mentorshipType: "content_access",
+      oneOnOneSessionsPerMonth: 0,
+      botAccess: false,
     },
     color: "pink",
-    badge: "Lifetime",
+    badge: "Lifetime Content",
   },
 };
 
 export const BOT_UNLIMITED_LIMIT = 1000000;
 
 export function normalizeBotLimit(value, fallback = 0) {
-  if (value === "unlimited") return BOT_UNLIMITED_LIMIT;
-  if (value === Infinity) return BOT_UNLIMITED_LIMIT;
+  if (value === "unlimited" || value === Infinity) return BOT_UNLIMITED_LIMIT;
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric < 0) return fallback;
   return Math.floor(numeric);
+}
+
+export function getPricingTier(tierId) {
+  return PRICING_TIERS[String(tierId || "").toUpperCase()] || null;
 }
 
 export function getBotTierDefaults(tierId) {
@@ -181,69 +138,40 @@ export function getBotTierDefaults(tierId) {
   };
 }
 
-/**
- * Get pricing tier by ID
- */
-export function getPricingTier(tierId) {
-  return PRICING_TIERS[tierId.toUpperCase()] || null;
-}
-
-/**
- * Get all pricing tiers
- */
 export function getAllPricingTiers() {
   return Object.values(PRICING_TIERS);
 }
 
-/**
- * Check if user has feature access
- */
 export function hasFeatureAccess(userTier, featureName) {
   const tier = typeof userTier === "string" ? getPricingTier(userTier) : userTier;
-  if (!tier) return false;
-  return tier.features[featureName] || false;
+  return Boolean(tier?.features?.[featureName]);
 }
 
-/**
- * Get bot signal quality based on tier
- */
 export function getBotSignalQuality(userTier) {
   const tier = typeof userTier === "string" ? getPricingTier(userTier) : userTier;
-  if (!tier) return "none";
-  return tier.features.signalQuality || "none";
+  return tier?.features?.signalQuality || "none";
 }
 
-/**
- * Get max concurrent trades for tier
- */
 export function getMaxConcurrentTrades(userTier) {
   const tier = typeof userTier === "string" ? getPricingTier(userTier) : userTier;
-  if (!tier) return 0;
-  const max = tier.features.maxConcurrentTrades;
-  return max === "unlimited" ? Infinity : max || 0;
+  return normalizeBotLimit(tier?.features?.maxConcurrentTrades, 0);
 }
 
-/**
- * Format price for display
- */
-export function formatPrice(price, currency = "NGN") {
+export function formatPrice(price) {
   if (price === 0) return "Free";
-  return `₦${price.toLocaleString("en-NG")}`;
+  return `NGN ${Number(price).toLocaleString("en-NG")}`;
 }
 
-/**
- * Get tier for display on pricing page
- */
 export function getTierForDisplay(tierId) {
   const tier = getPricingTier(tierId);
   if (!tier) return null;
   return {
     id: tier.id,
     title: tier.displayName,
-    price: tier.price === 0 ? "Free" : formatPrice(tier.price),
+    price: formatPrice(tier.price),
     description: tier.description,
     features: Object.entries(tier.features)
-      .filter(([key, val]) => val === true || typeof val === "string")
+      .filter(([, value]) => value === true || typeof value === "string")
       .map(([key]) => key),
     color: tier.color,
     badge: tier.badge,

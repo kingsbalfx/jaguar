@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { PRICING_TIERS, formatPrice } from "../../lib/pricing-config";
 import { getBrowserSupabaseClient, isSupabaseConfigured } from "../../lib/supabaseClient";
+import RiskDisclaimer from "../../components/RiskDisclaimer";
 
 const TIERS = Object.values(PRICING_TIERS);
 
@@ -22,6 +23,7 @@ export default function Checkout() {
   const [message, setMessage] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const isConfigured = Boolean(isSupabaseConfigured);
+  const showSimulation = process.env.NODE_ENV !== "production";
 
   // Prefill email if logged in
   useEffect(() => {
@@ -180,15 +182,16 @@ export default function Checkout() {
             </label>
           </div>
         </div>
+        <div className="mb-5 max-w-2xl"><RiskDisclaimer /></div>
 
         <div className="flex gap-3">
-          <button
+          {showSimulation && <button
             onClick={simulate}
             disabled={loading}
             className="px-4 py-2 bg-gray-600 rounded"
           >
             {loading ? "Processing..." : "Simulate payment"}
-          </button>
+          </button>}
 
           <button
             onClick={startPayment}

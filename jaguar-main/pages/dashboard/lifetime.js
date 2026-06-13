@@ -6,6 +6,9 @@ import { PRICING_TIERS } from "../../lib/pricing-config";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 import { getPlanStatus } from "../../lib/subscription-status";
+import PlanInactivePanel from "../../components/PlanInactivePanel";
+import MentorshipCards from "../../components/MentorshipCards";
+import RiskDisclaimer from "../../components/RiskDisclaimer";
 
 export async function getServerSideProps(ctx) {
   const planId = "lifetime";
@@ -87,14 +90,15 @@ export default function LifetimeDashboard({ planStatus }) {
           </div>
         </div>
 
+        {!isActive ? <PlanInactivePanel planId="lifetime" /> : <>
         <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-6">
           <LiveSessionPanel />
           <div className="glass-panel rounded-2xl p-5">
             <div className="text-xs uppercase tracking-widest text-pink-200">Plan Highlights</div>
             <ul className="mt-3 space-y-2 text-sm text-gray-300">
               <li>Lifetime vault of every lesson and replay</li>
-              <li>Unlimited mentorship access and priority support</li>
-              <li>Full strategy suite and future upgrades</li>
+              <li>Community access without unlimited private-support promises</li>
+              <li>Future course updates and structured learning resources</li>
             </ul>
           </div>
         </div>
@@ -104,7 +108,7 @@ export default function LifetimeDashboard({ planStatus }) {
             <div className="text-xs uppercase tracking-widest text-emerald-200">Top Tier</div>
             <div className="text-lg font-semibold">You are on the highest plan</div>
             <p className="text-sm text-gray-300">
-              Keep enjoying every update, live session, and priority access.
+              Keep learning from the recorded academy and future course updates.
             </p>
           </div>
           <a href="/pricing" className="px-3 py-2 bg-emerald-600 rounded">
@@ -119,6 +123,9 @@ export default function LifetimeDashboard({ planStatus }) {
         <div id="mentorship-content">
           <ContentLibrary />
         </div>
+        <div className="mt-6"><MentorshipCards /></div>
+        <div className="mt-6"><RiskDisclaimer /></div>
+        </>}
       </div>
     </section>
   );

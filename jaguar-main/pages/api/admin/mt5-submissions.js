@@ -1,5 +1,6 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
+import { encryptMt5Password, maskPassword } from "../../../lib/mt5-crypto";
 
 function isMissingActiveColumn(error) {
   const msg = String(error?.message || "").toLowerCase();
@@ -102,7 +103,7 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     const { data, error } = await supabaseAdmin
       .from("mt5_submissions")
-      .select("id, user_id, email, login, server, status, created_at, updated_at")
+      .select("id, user_id, email, login, server, status, password_last4, consent_accepted, risk_notice_version, created_at, updated_at")
       .order("created_at", { ascending: false })
       .limit(25);
 
@@ -110,7 +111,11 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "failed to load submissions" });
     }
 
-    return res.status(200).json({ submissions: data || [] });
+    const submissions = (data || []).map(({ password_last4, ...submission }) => ({
+      ...submission,
+      password_masked: maskPassword(password_last4),
+    }));
+    return res.status(200).json({ submissions });
   }
 
   if (req.method === "POST") {
@@ -121,7 +126,7 @@ export default async function handler(req, res) {
 
     const { data: submission, error: loadErr } = await supabaseAdmin
       .from("mt5_submissions")
-      .select("id, user_id, email, login, password, server")
+      .select("id, user_id, email, login, password, password_encrypted, password_iv, password_tag, password_last4, server")
       .eq("id", id)
       .maybeSingle();
 
@@ -149,12 +154,25 @@ export default async function handler(req, res) {
       }
     }
 
+    let encryptedPassword = {
+      password_encrypted: submission.password_encrypted,
+      password_iv: submission.password_iv,
+      password_tag: submission.password_tag,
+      password_last4: submission.password_last4,
+    };
+    if (!encryptedPassword.password_encrypted && submission.password) {
+      encryptedPassword = encryptMt5Password(submission.password);
+    }
+    if (!encryptedPassword.password_encrypted) {
+      return res.status(400).json({ error: "submission has no usable encrypted credential" });
+    }
+
     const payload = {
       user_id: submission.user_id,
       email: submission.email,
       login: submission.login,
-      password: submission.password,
       server: submission.server,
+      ...encryptedPassword,
     };
     if (hasActiveColumn) {
       payload.active = true;

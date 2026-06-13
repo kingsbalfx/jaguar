@@ -6,6 +6,9 @@ import { PRICING_TIERS } from "../../lib/pricing-config";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 import { getPlanStatus } from "../../lib/subscription-status";
+import PlanInactivePanel from "../../components/PlanInactivePanel";
+import MentorshipCards from "../../components/MentorshipCards";
+import RiskDisclaimer from "../../components/RiskDisclaimer";
 
 export async function getServerSideProps(ctx) {
   const planId = "vip";
@@ -87,14 +90,15 @@ export default function VipDashboard({ planStatus }) {
           </div>
         </div>
 
+        {!isActive ? <PlanInactivePanel planId="vip" /> : <>
         <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-6">
           <LiveSessionPanel />
           <div className="glass-panel rounded-2xl p-5">
             <div className="text-xs uppercase tracking-widest text-purple-200">Plan Highlights</div>
             <ul className="mt-3 space-y-2 text-sm text-gray-300">
               <li>Group mentorship sessions and VIP rooms</li>
-              <li>High-frequency signals and session breakdowns</li>
-              <li>Priority support and weekly strategy reviews</li>
+              <li>Assignment and trading-journal review</li>
+              <li>Priority Q&amp;A and structured strategy feedback</li>
             </ul>
           </div>
         </div>
@@ -121,6 +125,9 @@ export default function VipDashboard({ planStatus }) {
         <div id="mentorship-content">
           <ContentLibrary />
         </div>
+        <div className="mt-6"><MentorshipCards assignmentReview /></div>
+        <div className="mt-6"><RiskDisclaimer /></div>
+        </>}
       </div>
     </section>
   );

@@ -2,6 +2,7 @@ import crypto from "crypto";
 import fetch from "node-fetch";
 import { getSupabaseClient } from "./supabaseClient.js";
 import { getBotTierDefaults } from "./pricing-config.js";
+import { PRICING_TIERS } from "./pricing-config.js";
 
 const DEFAULT_API_BASE = "https://api.korapay.com/merchant/api/v1";
 
@@ -228,6 +229,23 @@ export async function handleKorapayEvent(rawBody, eventJson) {
         }
       } catch (e) {
         console.warn("Failed updating profile role from webhook:", e?.message || e);
+      }
+      if (customerEmail) {
+        const tier = PRICING_TIERS[String(plan).toUpperCase()];
+        const endedAt = tier?.billingCycle === "monthly"
+          ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+          : null;
+        await supabase.from("subscriptions").upsert(
+          {
+            email: customerEmail,
+            plan,
+            status: "active",
+            amount: amount || 0,
+            started_at: new Date().toISOString(),
+            ended_at: endedAt,
+          },
+          { onConflict: "email,plan" }
+        );
       }
     }
   } catch (e) {

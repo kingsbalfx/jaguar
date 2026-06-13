@@ -95,6 +95,9 @@ export async function getServerSideProps(context) {
       },
     };
   }
+  if (process.env.NODE_ENV === "production" && reference.startsWith("SIMULATED_")) {
+    return { props: { success: false, message: "Simulated payments are not accepted in production.", reference, plan: null } };
+  }
 
   try {
     const result = await verifyKorapayCharge(reference);

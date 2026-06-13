@@ -6,6 +6,9 @@ import { PRICING_TIERS } from "../../lib/pricing-config";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 import { getPlanStatus } from "../../lib/subscription-status";
+import PlanInactivePanel from "../../components/PlanInactivePanel";
+import MentorshipCards from "../../components/MentorshipCards";
+import RiskDisclaimer from "../../components/RiskDisclaimer";
 
 export async function getServerSideProps(ctx) {
   const planId = "pro";
@@ -87,14 +90,15 @@ export default function ProDashboard({ planStatus }) {
           </div>
         </div>
 
+        {!isActive ? <PlanInactivePanel planId="pro" /> : <>
         <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-6">
           <LiveSessionPanel />
           <div className="glass-panel rounded-2xl p-5">
             <div className="text-xs uppercase tracking-widest text-indigo-200">Plan Highlights</div>
             <ul className="mt-3 space-y-2 text-sm text-gray-300">
               <li>1:1 mentorship focus and pro community access</li>
-              <li>Advanced analytics and custom strategy reviews</li>
-              <li>Unlimited signal flow with higher trade limits</li>
+              <li>Deeper strategy correction and journal review</li>
+              <li>Personal risk review and disciplined execution planning</li>
             </ul>
           </div>
         </div>
@@ -104,7 +108,7 @@ export default function ProDashboard({ planStatus }) {
             <div className="text-xs uppercase tracking-widest text-pink-200">Upgrade Option</div>
             <div className="text-lg font-semibold">Move up to Lifetime</div>
             <p className="text-sm text-gray-300">
-              Permanent access to every update, session, and signal.
+              Permanent access to recorded lessons, PDFs, and course updates.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -121,6 +125,9 @@ export default function ProDashboard({ planStatus }) {
         <div id="mentorship-content">
           <ContentLibrary />
         </div>
+        <div className="mt-6"><MentorshipCards assignmentReview /></div>
+        <div className="mt-6"><RiskDisclaimer /></div>
+        </>}
       </div>
     </section>
   );

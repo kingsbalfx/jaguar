@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 import AccountFloatPanel from "../../components/AccountFloatPanel";
+import { normalizePaymentAmount, SUCCESSFUL_PAYMENT_STATUSES } from "../../lib/payment-amount";
 
 export const getServerSideProps = async (ctx) => {
   try {
@@ -58,7 +59,10 @@ export const getServerSideProps = async (ctx) => {
     const usersCount = Array.isArray(allProfiles) ? allProfiles.length : 0;
     const paymentsCount = Array.isArray(payments) ? payments.length : 0;
     const revenue = Array.isArray(payments)
-      ? payments.reduce((sum, p) => sum + (Number(p?.amount || 0) / 100 || 0), 0)
+      ? payments.reduce((sum, p) => {
+          if (!SUCCESSFUL_PAYMENT_STATUSES.has(String(p?.status || "").toLowerCase())) return sum;
+          return sum + normalizePaymentAmount(p?.amount, p?.plan);
+        }, 0)
       : 0;
 
     let recentUsers = [];

@@ -1,73 +1,29 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
-
-const ROLE_RANK = {
-  free: 0,
-  user: 0,
-  premium: 1,
-  vip: 2,
-  pro: 3,
-  lifetime: 4,
-  admin: 99,
-  all: 0,
-};
-
-function canAccess(role, segment) {
-  const r = ROLE_RANK[role] ?? 0;
-  const s = ROLE_RANK[segment] ?? 0;
-  return r >= s;
-}
+import { getPaidAccess, ROLE_RANK } from "../../lib/subscription-status";
 
 export default async function handler(req, res) {
-  if (req.method !== "GET") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
+  if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
   const supabase = createPagesServerClient({ req, res });
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session?.user) {
-    return res.status(401).json({ error: "not authenticated" });
-  }
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) return res.status(401).json({ error: "not authenticated" });
 
   const supabaseAdmin = getSupabaseClient({ server: true });
-  if (!supabaseAdmin) {
-    return res.status(500).json({ error: "Supabase admin client not configured" });
-  }
-
-  const { data: profile } = await supabaseAdmin
-    .from("profiles")
-    .select("role")
-    .eq("id", session.user.id)
-    .maybeSingle();
-
-  const role = (profile?.role || "user").toLowerCase();
-
+  if (!supabaseAdmin) return res.status(500).json({ error: "Supabase admin client not configured" });
+  const { data: profile } = await supabaseAdmin.from("profiles").select("role").eq("id", session.user.id).maybeSingle();
+  const role = String(profile?.role || "user").toLowerCase();
+  const access = await getPaidAccess({ supabaseAdmin, email: session.user.email, role });
   const { data, error } = await supabaseAdmin
-    .from("live_sessions")
-    .select("*")
-    .eq("active", true)
-    .order("starts_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .from("live_sessions").select("*").eq("active", true).order("starts_at", { ascending: true }).limit(1).maybeSingle();
+  if (error && error.code !== "42P01") return res.status(500).json({ error: "failed to load live session" });
+  if (!data) return res.status(200).json({ session: null, role, accessStatus: access.status });
 
-  if (error && error.code !== "42P01") {
-    return res.status(500).json({ error: "failed to load live session" });
+  const segment = String(data.segment || "all").toLowerCase();
+  const targets = Array.isArray(data.target_user_ids) ? data.target_user_ids : [];
+  const segmentAllowed = segment === "all" || segment === "free" || (access.active && access.rank >= (ROLE_RANK[segment] ?? 99));
+  const targetAllowed = targets.length === 0 || targets.includes(session.user.id);
+  if (role !== "admin" && (!segmentAllowed || !targetAllowed)) {
+    return res.status(200).json({ session: null, role, accessStatus: access.status });
   }
-
-  const sessionData = data || null;
-  if (!sessionData) {
-    return res.status(200).json({ session: null, role });
-  }
-
-  const segment = sessionData.segment || "all";
-  const targets = Array.isArray(sessionData.target_user_ids) ? sessionData.target_user_ids : [];
-  const allowed = targets.length > 0 ? targets.includes(session.user.id) || role === "admin" : canAccess(role, segment);
-  if (!allowed) {
-    return res.status(200).json({ session: null, role });
-  }
-
-  return res.status(200).json({ session: sessionData, role });
+  return res.status(200).json({ session: data, role, accessStatus: access.status });
 }

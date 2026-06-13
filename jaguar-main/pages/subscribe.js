@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { PRICING_TIERS, formatPrice } from "../lib/pricing-config";
+import RiskDisclaimer from "../components/RiskDisclaimer";
 
 export default function Subscribe() {
   const [email, setEmail] = useState("");
@@ -38,13 +39,14 @@ export default function Subscribe() {
 
   return (
       <main className="container mx-auto p-6">
-        <h1 className="text-2xl font-bold mb-4">Purchase Lifetime Bot Access</h1>
+        <h1 className="text-2xl font-bold mb-4">Purchase Lifetime Academy Access</h1>
       <form onSubmit={handleSubscribe} className="max-w-md">
         <label className="block mb-2">Email</label>
         <input value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full p-2 rounded bg-white/5 mb-3" />
         <div className="mb-3 text-gray-300">
           Price: {formatPrice(PRICING_TIERS.LIFETIME.price, PRICING_TIERS.LIFETIME.currency)} (one-time lifetime)
         </div>
+        <div className="mb-4"><RiskDisclaimer /></div>
         <div className="mb-4 rounded-lg border border-white/10 bg-black/40 p-3 text-sm text-gray-300">
           <div className="font-semibold mb-2">Refund Policy (Summary)</div>
           <ul className="list-disc pl-5 space-y-1">
