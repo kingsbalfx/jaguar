@@ -1,10 +1,12 @@
 import React, { useState } from "react";
 import { useRouter } from "next/router";
 import { supabase } from "../lib/supabaseClient";
+import FeedbackMessage from "./FeedbackMessage";
 
 export default function PriceButton({ plan = "vip", initialPrice = null }) {
   const [price, setPrice] = useState(initialPrice);
   const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
   const router = useRouter();
 
   const formatted = price
@@ -13,9 +15,10 @@ export default function PriceButton({ plan = "vip", initialPrice = null }) {
 
   const startPayment = async () => {
     setLoading(true);
+    setMessage("");
     try {
       if (!supabase) {
-        alert("Supabase not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+        setMessage("Payment service is not configured. Please contact support.");
         setLoading(false);
         return;
       }
@@ -29,7 +32,7 @@ export default function PriceButton({ plan = "vip", initialPrice = null }) {
 
       router.push(`/checkout?plan=${encodeURIComponent(plan)}`);
     } catch (err) {
-      alert(err.message || "Payment error");
+      setMessage(err.message || "Unable to open checkout.");
     } finally {
       setLoading(false);
     }
@@ -38,12 +41,13 @@ export default function PriceButton({ plan = "vip", initialPrice = null }) {
   const handleShow = async () => {
     if (price) return;
     setLoading(true);
+    setMessage("");
     try {
       const res = await fetch(`/api/price?plan=${plan}`);
       const data = await res.json();
       setPrice(data.price || 0);
     } catch {
-      alert("Could not fetch price");
+      setMessage("Unable to load the price. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -71,6 +75,7 @@ export default function PriceButton({ plan = "vip", initialPrice = null }) {
           {loading ? "Loading…" : "Show Price"}
         </button>
       )}
+      <FeedbackMessage message={message} type="error" />
     </div>
   );
 }

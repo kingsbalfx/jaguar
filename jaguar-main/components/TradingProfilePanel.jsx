@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import FeedbackMessage from "./FeedbackMessage";
 
 const PROFILE_OPTIONS = [
   { value: "aggressive", label: "Aggressive" },
@@ -150,20 +151,7 @@ export default function TradingProfilePanel() {
         </div>
       </div>
 
-      {status?.message && (
-        <div
-          className={`mt-3 text-sm ${
-            status.type === "success"
-              ? "text-emerald-200"
-              : status.type === "warning"
-                ? "text-yellow-200"
-                : "text-rose-200"
-          }`}
-        >
-          {status.message}
-        </div>
-      )}
+      <FeedbackMessage message={status?.message} type={status?.type || "info"} className="mt-4" />
     </div>
   );
 }
-

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import { getBrowserSupabaseClient, isSupabaseConfigured } from "../lib/supabaseClient";
 import { getURL } from "../lib/getURL";
+import FeedbackMessage from "./FeedbackMessage";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -164,11 +165,11 @@ export default function LoginPage() {
               Structured mentorship, live learning rooms, and disciplined trading tools built for progress.
             </p>
             <div className="login-bullets">
-              <div>• Real‑time market setups and entry alerts</div>
-              <div>• Secure access to Pro + Lifetime content</div>
-              <div>• 1:1 mentorship and replay libraries</div>
+              <div>• Live classes, reviews, and practical guidance</div>
+              <div>• Secure access to your active mentorship plan</div>
+              <div>• Private mentorship rooms and replay libraries</div>
             </div>
-            <div className="login-badge">Secure • Encrypted • 24/7 Access</div>
+            <div className="login-badge">Secure • Private • Always Available</div>
           </div>
 
           <div className="login-panel">
@@ -176,8 +177,6 @@ export default function LoginPage() {
               <h2>Welcome back</h2>
               <p>Enter your credentials to continue.</p>
             </div>
-
-            {errMsg && <div className="login-error">{errMsg}</div>}
 
             <form onSubmit={handleEmailLogin} className="login-form">
               <label>
@@ -206,7 +205,6 @@ export default function LoginPage() {
               <button type="button" onClick={handleForgotPassword} disabled={loading} className="text-sm text-indigo-300 underline">
                 Forgot password?
               </button>
-              {recoverySent && <div className="login-success">If the account exists, a password reset email has been sent.</div>}
             </form>
 
             <div className="login-divider">
@@ -227,6 +225,8 @@ export default function LoginPage() {
                 Create account
               </a>
             </p>
+            <FeedbackMessage message={errMsg} type="error" />
+            <FeedbackMessage message={recoverySent ? "If the account exists, a password reset email has been sent." : ""} type="success" />
           </div>
         </div>
       </div>

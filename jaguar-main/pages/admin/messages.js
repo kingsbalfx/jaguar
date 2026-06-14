@@ -1,5 +1,6 @@
 // pages/admin/messages.js
 import React, { useEffect, useState } from "react";
+import FeedbackMessage from "../../components/FeedbackMessage";
 
 export default function Messages() {
   const [msg, setMsg] = useState("");
@@ -7,6 +8,7 @@ export default function Messages() {
   const [items, setItems] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [feedback, setFeedback] = useState({ type: "", message: "" });
 
   useEffect(() => {
     fetchMessages();
@@ -29,6 +31,7 @@ export default function Messages() {
   async function saveMessage() {
     if (!msg.trim()) return;
     setLoading(true);
+    setFeedback({ type: "", message: "" });
     try {
       const res = await fetch("/api/admin/messages", {
         method: "POST",
@@ -40,8 +43,9 @@ export default function Messages() {
       setMsg("");
       setSegment("all");
       await fetchMessages();
+      setFeedback({ type: "success", message: "Landing-page message saved." });
     } catch (err) {
-      alert(err.message || "Unable to save message");
+      setFeedback({ type: "error", message: err.message || "Unable to save message" });
     } finally {
       setLoading(false);
     }
@@ -50,6 +54,7 @@ export default function Messages() {
   async function updateMessage(id) {
     if (!msg.trim()) return;
     setLoading(true);
+    setFeedback({ type: "", message: "" });
     try {
       const res = await fetch(`/api/admin/messages/${id}`, {
         method: "PUT",
@@ -62,8 +67,9 @@ export default function Messages() {
       setMsg("");
       setSegment("all");
       await fetchMessages();
+      setFeedback({ type: "success", message: "Landing-page message updated." });
     } catch (err) {
-      alert(err.message || "Unable to update message");
+      setFeedback({ type: "error", message: err.message || "Unable to update message" });
     } finally {
       setLoading(false);
     }
@@ -76,8 +82,9 @@ export default function Messages() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Unable to delete message");
       await fetchMessages();
+      setFeedback({ type: "success", message: "Landing-page message deleted." });
     } catch (err) {
-      alert(err.message || "Unable to delete message");
+      setFeedback({ type: "error", message: err.message || "Unable to delete message" });
     }
   }
 
@@ -142,6 +149,7 @@ export default function Messages() {
             </button>
           )}
         </div>
+        <FeedbackMessage message={feedback.message} type={feedback.type || "info"} />
       </div>
 
       <div>

@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import { getBrowserSupabaseClient, isSupabaseConfigured } from "../lib/supabaseClient";
 import { getURL } from "../lib/getURL";
 import { FcGoogle } from "react-icons/fc";
+import FeedbackMessage from "../components/FeedbackMessage";
 
 const COUNTRIES = [
   "Nigeria",
@@ -247,11 +248,11 @@ export default function Register() {
               Secure your seat, unlock mentorship rooms, and follow a structured learning path.
             </p>
             <div className="login-bullets">
-              <div>• Structured onboarding with profile completion</div>
-              <div>• Plan-based dashboard access and live room entry</div>
-              <div>• Upgrade anytime with instant plan switches</div>
+              <div>• Structured onboarding and guided learning</div>
+              <div>• Plan-based dashboard and live-room access</div>
+              <div>• Clear upgrades with immediate access updates</div>
             </div>
-            <div className="login-badge">Trusted • Private • Built for focus</div>
+            <div className="login-badge">Trusted • Private • Built for Focus</div>
           </div>
 
           <div className="login-panel">
@@ -259,9 +260,6 @@ export default function Register() {
               <h2>Create your account</h2>
               <p>Sign up with email or use Google.</p>
             </div>
-
-            {errMsg && <div className="login-error">{errMsg}</div>}
-            {successMsg && <div className="login-success">{successMsg}</div>}
 
             <form onSubmit={handleEmailSignUp} className="login-form">
               <label>
@@ -393,6 +391,8 @@ export default function Register() {
                 Sign in
               </a>
             </p>
+            <FeedbackMessage message={errMsg} type="error" />
+            <FeedbackMessage message={successMsg} type="success" />
           </div>
         </div>
       </div>

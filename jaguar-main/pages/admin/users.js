@@ -5,6 +5,7 @@ import {
   getBotTierDefaults,
   normalizeBotLimit,
 } from "../../lib/pricing-config";
+import FeedbackMessage from "../../components/FeedbackMessage";
 
 const ROLE_OPTIONS = ["user", "premium", "vip", "pro", "lifetime", "admin"];
 const SEGMENT_FILTERS = ["all", "user", "premium", "vip", "pro", "lifetime", "admin"];
@@ -218,7 +219,6 @@ export default function Users() {
         </div>
       </div>
 
-      {status && <div className="mt-3 text-sm text-emerald-200">{status}</div>}
       {loading && <div className="mt-3 text-sm text-gray-400">Loading users...</div>}
 
       <section className="mt-6 card p-4">
@@ -474,6 +474,7 @@ export default function Users() {
           <div className="text-sm text-gray-400">No users found for this segment.</div>
         )}
       </div>
+      <FeedbackMessage message={status} type={/failed|error|unable/i.test(status) ? "error" : "success"} className="mt-6" />
     </div>
   );
 }

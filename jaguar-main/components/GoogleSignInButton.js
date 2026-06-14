@@ -1,12 +1,16 @@
 // components/GoogleSignInButton.js
 import { createClient } from "@supabase/supabase-js";
+import { useState } from "react";
+import FeedbackMessage from "./FeedbackMessage";
 
 export default function GoogleSignInButton() {
+  const [message, setMessage] = useState("");
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const supabase = createClient(url, key);
 
   const onClick = async () => {
+    setMessage("");
     try {
       await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -16,9 +20,14 @@ export default function GoogleSignInButton() {
       });
     } catch (err) {
       console.error("Sign-in error:", err);
-      alert("Sign-in failed. See console for details.");
+      setMessage("Google sign-in failed. Please try again.");
     }
   };
 
-  return <button onClick={onClick} className="btn">Sign in with Google</button>;
+  return (
+    <div className="space-y-3">
+      <button onClick={onClick} className="btn">Sign in with Google</button>
+      <FeedbackMessage message={message} type="error" />
+    </div>
+  );
 }

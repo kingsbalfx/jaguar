@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { getBrowserSupabaseClient } from "../lib/supabaseClient";
+import FeedbackMessage from "../components/FeedbackMessage";
 
 export default function ResetPassword() {
   const [password, setPassword] = useState("");
@@ -27,7 +28,7 @@ export default function ResetPassword() {
         <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="New password" className="w-full rounded bg-black/30 p-3" required />
         <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Confirm new password" className="w-full rounded bg-black/30 p-3" required />
         <button disabled={loading} className="w-full rounded bg-indigo-600 px-4 py-3">{loading ? "Updating..." : "Update password"}</button>
-        {message && <p className="text-sm text-gray-200">{message}</p>}
+        <FeedbackMessage message={message} type={/updated/i.test(message) ? "success" : "error"} />
       </form>
     </main>
   );

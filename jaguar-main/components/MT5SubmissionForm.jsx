@@ -1,5 +1,6 @@
 import { useState } from "react";
 import RiskDisclaimer from "./RiskDisclaimer";
+import FeedbackMessage from "./FeedbackMessage";
 
 export default function MT5SubmissionForm({ disabled = false }) {
   const [login, setLogin] = useState("");
@@ -97,12 +98,6 @@ export default function MT5SubmissionForm({ disabled = false }) {
         />
       </div>
 
-      {status?.message && (
-        <div className={`text-xs ${status.type === "success" ? "text-green-400" : "text-red-400"}`}>
-          {status.message}
-        </div>
-      )}
-
       <button
         type="submit"
         disabled={loading || disabled || !consentAccepted}
@@ -110,6 +105,7 @@ export default function MT5SubmissionForm({ disabled = false }) {
       >
         {loading ? "Submitting..." : "Send to Admin"}
       </button>
+      <FeedbackMessage message={status?.message} type={status?.type || "info"} />
     </form>
   );
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { PRICING_TIERS, formatPrice } from "../lib/pricing-config";
 import RiskDisclaimer from "../components/RiskDisclaimer";
+import FeedbackMessage from "../components/FeedbackMessage";
 
 export default function Subscribe() {
   const [email, setEmail] = useState("");
@@ -74,7 +75,7 @@ export default function Subscribe() {
         <button disabled={loading} className="px-4 py-2 bg-green-600 text-white rounded">
           {loading ? "Processing..." : "Buy Lifetime Access"}
         </button>
-        {error && <div className="mt-3 text-red-400">{error}</div>}
+        <FeedbackMessage message={error} type="error" className="mt-4" />
       </form>
     </main>
   );

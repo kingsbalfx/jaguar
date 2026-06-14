@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabaseClient";
+import FeedbackMessage from "./FeedbackMessage";
 
 export default function AdminVideoPlayer({
   bucket = process.env.NEXT_PUBLIC_STORAGE_BUCKET || "public",
@@ -8,14 +9,14 @@ export default function AdminVideoPlayer({
   const [videoPath, setVideoPath] = useState(initialPath);
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
+  const [message, setMessage] = useState("");
 
   const publicUrl = videoPath
     ? supabase.storage.from(bucket).getPublicUrl(videoPath).data.publicUrl
     : null;
 
   async function saveMetadata() {
-    // placeholder: you can store metadata in Supabase table 'videos'
-    alert("Metadata saved (placeholder). Title: " + title);
+    setMessage(`Metadata prepared for "${title || "Untitled video"}".`);
   }
 
   return (
@@ -54,6 +55,7 @@ export default function AdminVideoPlayer({
             Save metadata
           </button>
         </div>
+        <FeedbackMessage message={message} type="success" className="mt-3" />
       </div>
     </div>
   );

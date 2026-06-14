@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import { PRICING_TIERS, formatPrice } from "../../lib/pricing-config";
 import { getBrowserSupabaseClient, isSupabaseConfigured } from "../../lib/supabaseClient";
 import RiskDisclaimer from "../../components/RiskDisclaimer";
+import FeedbackMessage from "../../components/FeedbackMessage";
 
 const TIERS = Object.values(PRICING_TIERS);
 
@@ -157,8 +158,6 @@ export default function Checkout() {
           <p className="mt-1 text-xs text-gray-400">Access will be activated for this signed-in account.</p>
         </div>
 
-        {message && <div className="mb-4 text-red-400">{message}</div>}
-
         <div className="mb-5 max-w-2xl rounded-xl border border-white/10 bg-black/40 p-4 text-sm text-gray-300">
           <div className="font-semibold mb-2">Refund Policy (Summary)</div>
           <ul className="list-disc pl-5 space-y-1">
@@ -213,6 +212,7 @@ export default function Checkout() {
             Cancel
           </button>
         </div>
+        <FeedbackMessage message={message} type="error" className="mt-5 max-w-2xl" />
       </div>
     </main>
   );

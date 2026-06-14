@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { PRICING_TIERS } from "../../lib/pricing-config";
+import FeedbackMessage from "../../components/FeedbackMessage";
 
 const planLabel = (plan) => PRICING_TIERS[String(plan || "").toUpperCase()]?.displayName || plan || "Unknown";
 
@@ -68,7 +69,6 @@ export default function Subscriptions() {
           </button>
         </div>
       </div>
-      {message && <div className="rounded bg-indigo-500/15 p-3 text-sm text-indigo-100">{message}</div>}
       {loading ? <p className="text-gray-400">Loading subscriptions...</p> : (
         <>
           <section className="glass-panel rounded-2xl p-5">
@@ -97,6 +97,10 @@ export default function Subscriptions() {
           </section>
         </>
       )}
+      <FeedbackMessage
+        message={message}
+        type={/failed|error|not configured|connection/i.test(message) ? "error" : /repairing|testing/i.test(message) ? "info" : "success"}
+      />
     </main>
   );
 }

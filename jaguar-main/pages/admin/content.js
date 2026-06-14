@@ -1,6 +1,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { getBrowserSupabaseClient } from "../../lib/supabaseClient";
+import FeedbackMessage from "../../components/FeedbackMessage";
 
 const Uploader = dynamic(() => import("../../components/Uploader"), { ssr: false });
 const AdminVideoPlayer = dynamic(() => import("../../components/AdminVideoPlayer"), { ssr: false });
@@ -145,9 +146,10 @@ export default function Content() {
     const res = await fetch(`/api/admin/content-items/${id}`, { method: "DELETE" });
     const json = await res.json();
     if (!res.ok) {
-      alert(json?.error || "Failed to delete");
+      setStatus(json?.error || "Failed to delete content.");
       return;
     }
+    setStatus("Content deleted.");
     fetchItems();
   }
 
@@ -268,7 +270,7 @@ export default function Content() {
                 </button>
               )}
             </div>
-            {status && <div className="text-sm text-gray-300">{status}</div>}
+            <FeedbackMessage message={status} type={/saved|updated|deleted/i.test(status) ? "success" : "error"} />
           </form>
         </div>
 

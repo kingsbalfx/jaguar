@@ -1,5 +1,6 @@
 // pages/contact.js
 import React, { useState } from "react";
+import FeedbackMessage from "../components/FeedbackMessage";
 
 export default function Contact() {
   const [status, setStatus] = useState("");
@@ -45,7 +46,7 @@ export default function Contact() {
         </button>
       </form>
 
-      {status && <p className="mt-4 text-green-600">{status}</p>}
+      <FeedbackMessage message={status} type="success" className="mt-5 max-w-md" />
     </main>
   );
 }

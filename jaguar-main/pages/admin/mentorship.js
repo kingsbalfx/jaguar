@@ -2,6 +2,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
+import FeedbackMessage from "../../components/FeedbackMessage";
 
 const WebRTCRoom = dynamic(() => import("../../components/WebRTCRoom"), { ssr: false });
 const Chat = dynamic(() => import("../../components/Chat"), { ssr: false });
@@ -119,7 +120,7 @@ export default function Mentorship({ adminName }) {
           </div>
           <button className="w-full rounded bg-emerald-600 py-2">Save room</button>
           <button type="button" onClick={() => setLive((value) => !value)} className="w-full rounded bg-indigo-600 py-2">{live ? "Close local room view" : "Open live room"}</button>
-          {message && <div className="text-xs text-emerald-200">{message}</div>}
+          <FeedbackMessage message={message} type={/unable|failed|error/i.test(message) ? "error" : "success"} />
         </form>
         <div className="space-y-5">
           {live && <WebRTCRoom roomName={roomName} displayName={adminName} isHost />}

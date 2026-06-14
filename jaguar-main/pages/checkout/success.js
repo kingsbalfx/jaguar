@@ -7,6 +7,7 @@ import { validatePlanPayment } from "../../lib/payment-amount";
 import { activateSubscription } from "../../lib/subscription-lifecycle";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
+import FeedbackMessage from "../../components/FeedbackMessage";
 
 export default function CheckoutSuccess({ success, message, reference, plan, diagnostic }) {
   const planLabel = getPricingTier(plan)?.displayName || plan || "selected";
@@ -36,14 +37,13 @@ export default function CheckoutSuccess({ success, message, reference, plan, dia
           <h1 className="text-3xl font-bold mb-4">
             {success ? "Payment Successful" : "Payment Verification Failed"}
           </h1>
-          <p className="text-gray-300 mb-6">{message}</p>
+          <p className="text-gray-200 mb-6">{message}</p>
           {plan && <div className="mt-2 text-gray-300">Plan: <strong>{planLabel}</strong></div>}
           {reference && (
             <div className="mt-4 text-gray-400">
               Reference: <strong>{reference}</strong>
             </div>
           )}
-          {diagnostic && <div className="mt-4 rounded bg-red-950/50 p-3 text-left text-xs text-red-200">{diagnostic}</div>}
           {success && (
             <div className="mt-8">
               <Link href={dashboardUrl} className="bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 transition duration-300">
@@ -51,6 +51,7 @@ export default function CheckoutSuccess({ success, message, reference, plan, dia
               </Link>
             </div>
           )}
+          <FeedbackMessage message={diagnostic} type="error" className="mt-5 text-left" />
         </div>
     </main>
   );
