@@ -39,10 +39,17 @@ export default function MyApp({ Component, pageProps }) {
     if (!client) return;
     const idleLimitMs = 10 * 60 * 1000;
     let timeoutId = null;
+    let sessionRefreshId = null;
+
+    const liveRoomActive = () => Number(window.__kingsbalActiveLiveRooms || 0) > 0;
 
     const resetTimer = () => {
       if (timeoutId) clearTimeout(timeoutId);
       timeoutId = setTimeout(async () => {
+        if (liveRoomActive()) {
+          resetTimer();
+          return;
+        }
         try {
           const { data } = await client.auth.getSession();
           if (data?.session) {
@@ -55,13 +62,25 @@ export default function MyApp({ Component, pageProps }) {
       }, idleLimitMs);
     };
 
+    const refreshLiveSession = async () => {
+      if (!liveRoomActive()) return;
+      try {
+        await client.auth.refreshSession();
+      } catch {}
+      resetTimer();
+    };
+
     const events = ["mousemove", "keydown", "click", "scroll", "touchstart"];
     events.forEach((evt) => window.addEventListener(evt, resetTimer));
+    window.addEventListener("kingsbal:live-room-activity", resetTimer);
+    sessionRefreshId = window.setInterval(refreshLiveSession, 20 * 60 * 1000);
     resetTimer();
 
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
+      if (sessionRefreshId) window.clearInterval(sessionRefreshId);
       events.forEach((evt) => window.removeEventListener(evt, resetTimer));
+      window.removeEventListener("kingsbal:live-room-activity", resetTimer);
     };
   }, []);
 

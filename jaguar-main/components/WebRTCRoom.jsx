@@ -48,6 +48,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   const localStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
   const presentingRef = useRef(isHost);
+  const activityRegisteredRef = useRef(false);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({});
   const [participants, setParticipants] = useState({});
@@ -64,6 +65,15 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   const [requestSent, setRequestSent] = useState("");
   const [presenting, setPresenting] = useState(isHost);
   const [approvedKind, setApprovedKind] = useState("");
+
+  const setLiveRoomActivity = useCallback((active) => {
+    if (typeof window === "undefined") return;
+    if (activityRegisteredRef.current === active) return;
+    activityRegisteredRef.current = active;
+    const current = Number(window.__kingsbalActiveLiveRooms || 0);
+    window.__kingsbalActiveLiveRooms = active ? current + 1 : Math.max(0, current - 1);
+    window.dispatchEvent(new CustomEvent("kingsbal:live-room-activity", { detail: { active } }));
+  }, []);
 
   const removePeer = useCallback((peerId) => {
     peersRef.current.get(peerId)?.close();
@@ -246,6 +256,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
         }
       });
       setJoined(true);
+      setLiveRoomActivity(true);
       await loadDevices();
     } catch (err) {
       setError(err.message || "Unable to join the WebRTC room.");
@@ -275,7 +286,8 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
     setRequestSent("");
     setApprovedKind("");
     setJoined(false);
-  }, [isHost, supabase]);
+    setLiveRoomActivity(false);
+  }, [isHost, setLiveRoomActivity, supabase]);
 
   const replaceTrack = useCallback(async (track) => {
     const operations = [];
