@@ -22,13 +22,14 @@ export default async function handler(req, res) {
 
   let warnings = 0;
   let expired = 0;
+  const failures = [];
   for (const subscription of data || []) {
     const endDate = new Date(subscription.ended_at);
     const tier = getPricingTier(subscription.plan);
     const dateLabel = endDate.toLocaleDateString("en-NG");
     if (endDate <= now) {
       await supabaseAdmin.from("subscriptions").update({ status: "expired" }).eq("email", subscription.email).eq("plan", subscription.plan).eq("ended_at", subscription.ended_at);
-      await sendLifecycleEmail({
+      const result = await sendLifecycleEmail({
         supabaseAdmin,
         email: subscription.email,
         type: "subscription_expired",
@@ -37,9 +38,10 @@ export default async function handler(req, res) {
         text: `Your ${tier?.displayName || subscription.plan} subscription expired on ${dateLabel}.`,
         html: emailLayout("Subscription expired", `<p>Your <strong>${tier?.displayName || subscription.plan}</strong> access expired on ${dateLabel}.</p>`, "Reactivate plan", `/checkout?plan=${subscription.plan}`),
       });
-      expired += 1;
+      if (result.sent || result.reason === "already_sent") expired += 1;
+      else failures.push({ email: subscription.email, type: "expired", reason: result.reason, details: result.details || null });
     } else {
-      await sendLifecycleEmail({
+      const result = await sendLifecycleEmail({
         supabaseAdmin,
         email: subscription.email,
         type: "subscription_expiry_warning",
@@ -48,8 +50,9 @@ export default async function handler(req, res) {
         text: `Your ${tier?.displayName || subscription.plan} subscription expires on ${dateLabel}.`,
         html: emailLayout("Subscription expiry reminder", `<p>Your <strong>${tier?.displayName || subscription.plan}</strong> access expires on ${dateLabel}.</p>`, "Renew plan", `/checkout?plan=${subscription.plan}`),
       });
-      warnings += 1;
+      if (result.sent || result.reason === "already_sent") warnings += 1;
+      else failures.push({ email: subscription.email, type: "warning", reason: result.reason, details: result.details || null });
     }
   }
-  return res.status(200).json({ ok: true, warnings, expired });
+  return res.status(failures.length ? 207 : 200).json({ ok: failures.length === 0, warnings, expired, failures });
 }

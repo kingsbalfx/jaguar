@@ -42,7 +42,10 @@ export default function Subscriptions() {
       body: JSON.stringify({ action: "test_email" }),
     });
     const data = await response.json();
-    setMessage(data.message || data.error || "Gmail SMTP test failed.");
+    const diagnostic = data.diagnostic
+      ? ` ${JSON.stringify(data.diagnostic)}`
+      : "";
+    setMessage(`${data.message || data.error || "Gmail SMTP test failed."}${diagnostic}`);
   };
 
   return (
@@ -55,6 +58,11 @@ export default function Subscriptions() {
             {smtpStatus.provider}: {smtpStatus.configured ? "Configured" : "Not configured"}
             {smtpStatus.sender ? ` (${smtpStatus.sender})` : ""}
           </span>
+          {smtpStatus.configured && !smtpStatus.appPasswordLengthValid && (
+            <span className="rounded-full bg-red-500/20 px-3 py-1 text-xs font-semibold text-red-200">
+              Gmail App Password loaded as {smtpStatus.appPasswordLength} characters; expected 16
+            </span>
+          )}
           <button type="button" onClick={testEmail} disabled={!smtpStatus.configured} className="rounded bg-indigo-600 px-3 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40">
             Send Gmail test email
           </button>

@@ -57,7 +57,10 @@ export default async function handler(req, res) {
     if (req.body?.action === "test_email") {
       const verification = await verifySmtpConnection();
       if (!verification.ok) {
-        return res.status(400).json({ error: "Gmail SMTP connection failed. Check the Gmail address and App Password." });
+        return res.status(400).json({
+          error: "Gmail SMTP connection failed.",
+          diagnostic: verification.details || { reason: verification.reason },
+        });
       }
       if (!adminEmail) return res.status(400).json({ error: "Admin account email is missing." });
       try {
@@ -75,10 +78,24 @@ export default async function handler(req, res) {
         return res.status(result.sent ? 200 : 400).json({
           ok: result.sent,
           message: result.sent ? `Test email sent to ${adminEmail}.` : "Test email could not be sent.",
+          diagnostic: {
+            accepted: result.accepted || [],
+            rejected: result.rejected || [],
+            response: result.response || null,
+            reason: result.reason || null,
+          },
         });
       } catch (error) {
         console.error("Gmail SMTP test delivery failed:", error?.message || error);
-        return res.status(400).json({ error: "Gmail accepted the connection but test delivery failed." });
+        return res.status(400).json({
+          error: "Gmail accepted the connection but test delivery failed.",
+          diagnostic: {
+            code: error?.code || null,
+            command: error?.command || null,
+            responseCode: error?.responseCode || null,
+            message: error?.message || "Unknown delivery error",
+          },
+        });
       }
     }
     const reference = String(req.body?.reference || "").trim();

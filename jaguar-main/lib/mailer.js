@@ -24,17 +24,40 @@ function smtpConfig() {
   };
 }
 
+function smtpCredentials() {
+  const user = String(process.env.GMAIL_USER || process.env.SMTP_USER || "").trim();
+  const rawPass = String(
+    process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASSWORD || process.env.SMTP_PASS || ""
+  ).trim();
+  return { user, passwordLength: rawPass.replace(/\s+/g, "").length };
+}
+
+function safeMailerError(error) {
+  return {
+    code: error?.code || null,
+    command: error?.command || null,
+    responseCode: error?.responseCode || null,
+    message: String(error?.message || "Unknown SMTP error").replace(
+      /(?:password|pass|credentials?)\s*[:=]\s*\S+/gi,
+      "credentials: [redacted]",
+    ),
+  };
+}
+
 export function isSmtpConfigured() {
   return Boolean(smtpConfig());
 }
 
 export function getSmtpStatus() {
   const config = smtpConfig();
-  const user = String(process.env.GMAIL_USER || process.env.SMTP_USER || "").trim();
+  const { user, passwordLength } = smtpCredentials();
   return {
     configured: Boolean(config),
     provider: config?.host === "smtp.gmail.com" ? "Gmail SMTP" : config?.host || "Not configured",
     sender: user ? user.replace(/^(.{2}).*(@.*)$/, "$1***$2") : null,
+    port: config?.port || null,
+    appPasswordLength: passwordLength,
+    appPasswordLengthValid: passwordLength === 16,
   };
 }
 
@@ -51,7 +74,17 @@ export async function sendEmail({ to, subject, text, html }) {
   }
   const from = process.env.SMTP_FROM || process.env.GMAIL_USER || process.env.SMTP_USER;
   const info = await transporter.sendMail({ from, to, subject, text, html });
-  return { sent: true, messageId: info.messageId };
+  const accepted = (info.accepted || []).map(String);
+  const rejected = (info.rejected || []).map(String);
+  const sent = accepted.some((recipient) => recipient.toLowerCase() === String(to).toLowerCase());
+  return {
+    sent,
+    reason: sent ? null : "recipient_not_accepted",
+    messageId: info.messageId,
+    accepted,
+    rejected,
+    response: info.response || null,
+  };
 }
 
 export async function verifySmtpConnection() {
@@ -61,8 +94,9 @@ export async function verifySmtpConnection() {
     await transporter.verify();
     return { ok: true };
   } catch (error) {
-    console.error("SMTP connection verification failed:", error?.message || error);
-    return { ok: false, reason: "connection_failed" };
+    const details = safeMailerError(error);
+    console.error("SMTP connection verification failed:", details);
+    return { ok: false, reason: "connection_failed", details };
   }
 }
 
@@ -81,8 +115,9 @@ export async function sendLifecycleEmail({ supabaseAdmin, email, type, subject, 
   try {
     result = await sendEmail({ to: email, subject, text, html });
   } catch (error) {
-    console.error(`SMTP ${type || "email"} delivery failed:`, error?.message || error);
-    return { sent: false, reason: "delivery_failed" };
+    const details = safeMailerError(error);
+    console.error(`SMTP ${type || "email"} delivery failed:`, details);
+    return { sent: false, reason: "delivery_failed", details };
   }
   if (result.sent && dedupeKey && supabaseAdmin) {
     await supabaseAdmin.from("email_notifications").insert({
