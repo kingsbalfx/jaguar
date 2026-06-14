@@ -2,9 +2,14 @@ import nodemailer from "nodemailer";
 import { getURL } from "./getURL.js";
 
 function smtpConfig() {
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASSWORD || process.env.SMTP_PASS;
+  const service = String(process.env.SMTP_SERVICE || "").trim().toLowerCase();
+  const user = String(process.env.GMAIL_USER || process.env.SMTP_USER || "").trim();
+  const rawPass = String(
+    process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASSWORD || process.env.SMTP_PASS || ""
+  ).trim();
+  const isGmail = service === "gmail" || Boolean(process.env.GMAIL_USER || process.env.GMAIL_APP_PASSWORD);
+  const host = String(process.env.SMTP_HOST || (isGmail ? "smtp.gmail.com" : "")).trim();
+  const pass = isGmail ? rawPass.replace(/\s+/g, "") : rawPass;
   if (!host || !user || !pass) return null;
   const port = Number(process.env.SMTP_PORT || 587);
   return {
@@ -12,6 +17,10 @@ function smtpConfig() {
     port,
     secure: process.env.SMTP_SECURE === "true" || port === 465,
     auth: { user, pass },
+    requireTLS: port === 587,
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 30000,
   };
 }
 
@@ -19,16 +28,42 @@ export function isSmtpConfigured() {
   return Boolean(smtpConfig());
 }
 
-export async function sendEmail({ to, subject, text, html }) {
+export function getSmtpStatus() {
   const config = smtpConfig();
-  if (!config) {
-    console.warn("SMTP email skipped because SMTP_HOST, SMTP_USER, and SMTP_PASSWORD are not configured.");
+  const user = String(process.env.GMAIL_USER || process.env.SMTP_USER || "").trim();
+  return {
+    configured: Boolean(config),
+    provider: config?.host === "smtp.gmail.com" ? "Gmail SMTP" : config?.host || "Not configured",
+    sender: user ? user.replace(/^(.{2}).*(@.*)$/, "$1***$2") : null,
+  };
+}
+
+function createTransporter() {
+  const config = smtpConfig();
+  return config ? nodemailer.createTransport(config) : null;
+}
+
+export async function sendEmail({ to, subject, text, html }) {
+  const transporter = createTransporter();
+  if (!transporter) {
+    console.warn("SMTP email skipped because Gmail/SMTP credentials are not configured.");
     return { sent: false, reason: "smtp_not_configured" };
   }
-  const transporter = nodemailer.createTransport(config);
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+  const from = process.env.SMTP_FROM || process.env.GMAIL_USER || process.env.SMTP_USER;
   const info = await transporter.sendMail({ from, to, subject, text, html });
   return { sent: true, messageId: info.messageId };
+}
+
+export async function verifySmtpConnection() {
+  const transporter = createTransporter();
+  if (!transporter) return { ok: false, reason: "smtp_not_configured" };
+  try {
+    await transporter.verify();
+    return { ok: true };
+  } catch (error) {
+    console.error("SMTP connection verification failed:", error?.message || error);
+    return { ok: false, reason: "connection_failed" };
+  }
 }
 
 export async function sendLifecycleEmail({ supabaseAdmin, email, type, subject, text, html, dedupeKey }) {

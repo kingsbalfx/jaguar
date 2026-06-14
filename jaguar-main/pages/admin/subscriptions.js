@@ -6,7 +6,7 @@ const planLabel = (plan) => PRICING_TIERS[String(plan || "").toUpperCase()]?.dis
 export default function Subscriptions() {
   const [subscriptions, setSubscriptions] = useState([]);
   const [repairable, setRepairable] = useState([]);
-  const [smtpConfigured, setSmtpConfigured] = useState(false);
+  const [smtpStatus, setSmtpStatus] = useState({ configured: false, provider: "Not configured", sender: null });
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -16,7 +16,7 @@ export default function Subscriptions() {
     const data = await response.json();
     setSubscriptions(data.subscriptions || []);
     setRepairable(data.repairable || []);
-    setSmtpConfigured(Boolean(data.smtpConfigured));
+    setSmtpStatus(data.smtpStatus || { configured: false, provider: "Not configured", sender: null });
     setLoading(false);
   };
 
@@ -34,14 +34,31 @@ export default function Subscriptions() {
     if (response.ok) await load();
   };
 
+  const testEmail = async () => {
+    setMessage("Testing Gmail SMTP...");
+    const response = await fetch("/api/admin/subscriptions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "test_email" }),
+    });
+    const data = await response.json();
+    setMessage(data.message || data.error || "Gmail SMTP test failed.");
+  };
+
   return (
     <main className="container mx-auto space-y-6 p-6 text-white">
       <div>
         <h1 className="text-2xl font-bold">Subscription Management</h1>
         <p className="mt-1 text-sm text-gray-300">Review active, expired, and repairable verified subscriptions.</p>
-        <span className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${smtpConfigured ? "bg-emerald-500/20 text-emerald-200" : "bg-amber-500/20 text-amber-200"}`}>
-          SMTP lifecycle email: {smtpConfigured ? "Configured" : "Not configured"}
-        </span>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${smtpStatus.configured ? "bg-emerald-500/20 text-emerald-200" : "bg-amber-500/20 text-amber-200"}`}>
+            {smtpStatus.provider}: {smtpStatus.configured ? "Configured" : "Not configured"}
+            {smtpStatus.sender ? ` (${smtpStatus.sender})` : ""}
+          </span>
+          <button type="button" onClick={testEmail} disabled={!smtpStatus.configured} className="rounded bg-indigo-600 px-3 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40">
+            Send Gmail test email
+          </button>
+        </div>
       </div>
       {message && <div className="rounded bg-indigo-500/15 p-3 text-sm text-indigo-100">{message}</div>}
       {loading ? <p className="text-gray-400">Loading subscriptions...</p> : (
