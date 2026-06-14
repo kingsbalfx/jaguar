@@ -2,6 +2,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { getBrowserSupabaseClient } from "../../lib/supabaseClient";
 import FeedbackMessage from "../../components/FeedbackMessage";
+import ResourceViewer from "../../components/ResourceViewer";
 import { MENTORSHIP_GROUPS, getMentorshipGroup, getMentorshipGroupLabel } from "../../lib/mentorship-groups";
 
 const Uploader = dynamic(() => import("../../components/Uploader"), { ssr: false });
@@ -347,9 +348,7 @@ export default function Content() {
                   </div>
                 </div>
                 {item.description && <div className="text-xs text-gray-400 mt-2">{item.description}</div>}
-                {item.media_type === "video" && item.playback_url && <video src={item.playback_url} controls preload="metadata" playsInline className="mt-3 aspect-video w-full rounded-xl bg-black" />}
-                {item.media_type === "audio" && item.playback_url && <audio src={item.playback_url} controls preload="metadata" className="mt-3 w-full" />}
-                {item.media_type === "pdf" && item.playback_url && <a href={item.playback_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex rounded-lg bg-white/10 px-3 py-2 text-xs text-white">Open PDF preview</a>}
+                <ResourceViewer item={item} compact />
               </div>
             ))}
           </div>

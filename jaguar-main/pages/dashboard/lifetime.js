@@ -115,13 +115,11 @@ export default function LifetimeDashboard({ planStatus }) {
           <BotAccessPanel tier={tier} isActive={isActive} />
         </div>
 
-        <div id="mentorship-content">
-          <ContentLibrary />
-        </div>
         <div className="mt-6"><MentorshipCards /></div>
         <PlanPerformancePanel plan="lifetime" />
         <div className="mt-6"><RiskDisclaimer /></div>
         </>}
+        <div id="mentorship-content"><ContentLibrary /></div>
       </div>
     </section>
   );

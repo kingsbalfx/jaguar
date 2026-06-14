@@ -117,13 +117,11 @@ export default function PremiumDashboard({ planStatus }) {
           <BotAccessPanel tier={tier} isActive={isActive} />
         </div>
 
-        <div id="mentorship-content">
-          <ContentLibrary />
-        </div>
         <div className="mt-6"><MentorshipCards /></div>
         <PlanPerformancePanel plan="premium" />
         <div className="mt-6"><RiskDisclaimer /></div>
         </>}
+        <div id="mentorship-content"><ContentLibrary /></div>
       </div>
     </section>
   );
