@@ -38,11 +38,23 @@ export default function Content() {
   const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [editingItem, setEditingItem] = useState(null);
   const [status, setStatus] = useState("");
+  const [localPreviewUrl, setLocalPreviewUrl] = useState("");
 
   useEffect(() => {
     fetchItems();
   }, []);
+
+  useEffect(() => {
+    if (!file || !["video", "audio"].includes(mediaType)) {
+      setLocalPreviewUrl("");
+      return undefined;
+    }
+    const url = URL.createObjectURL(file);
+    setLocalPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file, mediaType]);
 
   async function fetchItems() {
     const res = await fetch("/api/admin/content-items");
@@ -72,6 +84,7 @@ export default function Content() {
     const { path, token, publicUrl } = signedJson;
     const { error: uploadError } = await client.storage.from(bucket).uploadToSignedUrl(path, token, fileToUpload, {
       cacheControl: "3600",
+      contentType: fileToUpload.type || undefined,
       upsert: false,
     });
 
@@ -140,6 +153,7 @@ export default function Content() {
       setBody("");
       setFile(null);
       setEditingId(null);
+      setEditingItem(null);
       await fetchItems();
     } catch (err) {
       setStatus(err.message || "Failed to save content");
@@ -162,6 +176,7 @@ export default function Content() {
 
   function startEdit(item) {
     setEditingId(item.id);
+    setEditingItem(item);
     setTitle(item.title || "");
     setDescription(item.description || "");
     setSegment(item.segment || "all");
@@ -169,6 +184,7 @@ export default function Content() {
     setMediaUrl(item.media_url || "");
     setBody(item.body || "");
     setFile(null);
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   }
 
   return (
@@ -244,7 +260,16 @@ export default function Content() {
             {["video", "audio", "pdf"].includes(mediaType) && (
               <div className="rounded-xl border border-dashed border-indigo-300/20 bg-indigo-500/5 p-4">
                 <input type="file" accept={mediaType === "video" ? "video/mp4,video/webm" : mediaType === "audio" ? "audio/mpeg,audio/mp4,audio/webm" : "application/pdf"} onChange={(e) => setFile(e.target.files?.[0] || null)} />
-                <p className="mt-2 text-xs text-gray-400">{mediaType === "video" ? "For fast playback: upload MP4 H.264, 720p, under 120 MB." : "Keep resources under 30 MB for quick downloads."}</p>
+                <p className="mt-2 text-xs text-gray-400">{editingId ? "Choose a new file to replace the existing lesson, or leave it empty to keep the current file." : mediaType === "video" ? "For fast playback: upload MP4 H.264, 720p, under 120 MB." : "Keep resources under 30 MB for quick downloads."}</p>
+                {mediaType === "video" && (localPreviewUrl || editingItem?.playback_url) && (
+                  <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black shadow-xl">
+                    <video key={localPreviewUrl || editingItem?.playback_url} src={localPreviewUrl || editingItem?.playback_url} controls preload="metadata" playsInline className="aspect-video w-full bg-black" />
+                    <div className="flex items-center justify-between gap-3 px-3 py-2 text-xs text-gray-300">
+                      <span>{localPreviewUrl ? "Replacement video preview" : "Current published video"}</span>
+                      {localPreviewUrl && <button type="button" onClick={() => setFile(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-white">Keep current video</button>}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -287,6 +312,7 @@ export default function Content() {
                     setMediaUrl("");
                     setBody("");
                     setFile(null);
+                    setEditingItem(null);
                   }}
                   className="px-4 py-2 rounded bg-gray-700 text-white"
                 >
@@ -321,6 +347,9 @@ export default function Content() {
                   </div>
                 </div>
                 {item.description && <div className="text-xs text-gray-400 mt-2">{item.description}</div>}
+                {item.media_type === "video" && item.playback_url && <video src={item.playback_url} controls preload="metadata" playsInline className="mt-3 aspect-video w-full rounded-xl bg-black" />}
+                {item.media_type === "audio" && item.playback_url && <audio src={item.playback_url} controls preload="metadata" className="mt-3 w-full" />}
+                {item.media_type === "pdf" && item.playback_url && <a href={item.playback_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex rounded-lg bg-white/10 px-3 py-2 text-xs text-white">Open PDF preview</a>}
               </div>
             ))}
           </div>

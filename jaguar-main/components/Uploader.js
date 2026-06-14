@@ -70,8 +70,8 @@ export default function Uploader({ bucket = DEFAULT_BUCKET, folder = "", allowSe
         <input type="file" onChange={uploadFile} className="mt-4 block w-full text-sm text-gray-200" />
       </div>
       {status.message && <div className={`mx-4 mb-4 text-sm ${statusColor}`}>{status.message}</div>}
-      {lastUploaded?.publicUrl && (
-        <a href={lastUploaded.publicUrl} target="_blank" rel="noreferrer" className="mx-4 mb-4 block rounded-xl border border-emerald-300/20 bg-emerald-500/10 p-3 text-xs text-emerald-200">
+      {(lastUploaded?.playbackUrl || lastUploaded?.publicUrl) && (
+        <a href={lastUploaded.playbackUrl || lastUploaded.publicUrl} target="_blank" rel="noreferrer" className="mx-4 mb-4 block rounded-xl border border-emerald-300/20 bg-emerald-500/10 p-3 text-xs text-emerald-200">
           Open latest upload
         </a>
       )}

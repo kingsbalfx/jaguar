@@ -1,38 +1,7 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 import { getPaidAccess, ROLE_RANK } from "../../../lib/subscription-status";
-
-const DEFAULT_BUCKET = process.env.NEXT_PUBLIC_STORAGE_BUCKET || "public";
-const SEGMENT_BUCKETS = {
-  premium: process.env.NEXT_PUBLIC_STORAGE_BUCKET_PREMIUM || "premium",
-  vip: process.env.NEXT_PUBLIC_STORAGE_BUCKET_VIP || "vip",
-  pro: process.env.NEXT_PUBLIC_STORAGE_BUCKET_PRO || "pro",
-  lifetime: process.env.NEXT_PUBLIC_STORAGE_BUCKET_LIFETIME || "lifetime",
-};
-const ALL_BUCKETS = [...new Set([DEFAULT_BUCKET, ...Object.values(SEGMENT_BUCKETS)])];
-
-async function createMediaUrls(supabaseAdmin, item) {
-  const preferredBucket = SEGMENT_BUCKETS[String(item.segment || "").toLowerCase()] || DEFAULT_BUCKET;
-  const candidateBuckets = [preferredBucket, ...ALL_BUCKETS.filter((bucket) => bucket !== preferredBucket)];
-
-  for (const bucket of candidateBuckets) {
-    const [{ data: playback }, { data: download }] = await Promise.all([
-      supabaseAdmin.storage.from(bucket).createSignedUrl(item.storage_path, 60 * 60 * 6),
-      supabaseAdmin.storage.from(bucket).createSignedUrl(item.storage_path, 60 * 60 * 6, { download: item.title || true }),
-    ]);
-    if (playback?.signedUrl) {
-      return {
-        playback_url: playback.signedUrl,
-        download_url: download?.signedUrl || playback.signedUrl,
-      };
-    }
-  }
-
-  return {
-    playback_url: item.public_url || null,
-    download_url: item.public_url || null,
-  };
-}
+import { addContentMediaUrls } from "../../../lib/content-storage";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
@@ -55,12 +24,6 @@ export default async function handler(req, res) {
     const segment = String(item.segment || "all").toLowerCase();
     return segment === "all" || segment === "free" || effectiveRank >= (ROLE_RANK[segment] ?? 99);
   });
-  const items = await Promise.all(allowedItems.map(async (item) => {
-    if (!item.storage_path) return item;
-    return {
-      ...item,
-      ...(await createMediaUrls(supabaseAdmin, item)),
-    };
-  }));
+  const items = await Promise.all(allowedItems.map((item) => addContentMediaUrls(supabaseAdmin, item)));
   return res.status(200).json({ items, role, accessStatus: access.status, effectiveRank });
 }

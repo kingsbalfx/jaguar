@@ -92,6 +92,8 @@ export default async function handler(req, res) {
   }
 
   const publicUrl = supabaseAdmin.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+  const playbackUrl = supabaseAdmin.storage.from(bucket).createSignedUrl(path, 60 * 60 * 6);
+  const { data: playback } = await playbackUrl;
 
   return res.status(200).json({
     bucket,
@@ -99,5 +101,6 @@ export default async function handler(req, res) {
     token: data?.token,
     signedUrl: data?.signedUrl,
     publicUrl,
+    playbackUrl: playback?.signedUrl || null,
   });
 }

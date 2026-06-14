@@ -1,5 +1,6 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
+import { addContentMediaUrls } from "../../../lib/content-storage";
 
 async function requireAdmin(req, res) {
   const supabase = createPagesServerClient({ req, res });
@@ -56,7 +57,8 @@ export default async function handler(req, res) {
       .select("*")
       .order("created_at", { ascending: false });
     if (error) return res.status(500).json({ error: "failed to load content" });
-    return res.status(200).json({ items: data || [] });
+    const items = await Promise.all((data || []).map((item) => addContentMediaUrls(supabaseAdmin, item)));
+    return res.status(200).json({ items });
   }
 
   if (req.method === "POST") {
