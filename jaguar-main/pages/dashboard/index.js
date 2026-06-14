@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 import { getPaidAccess } from "../../lib/subscription-status";
+import ContentLibrary from "../../components/ContentLibrary";
 
 export async function getServerSideProps(ctx) {
   const supabase = createPagesServerClient(ctx);
@@ -39,18 +40,15 @@ export async function getServerSideProps(ctx) {
     };
   }
   const access = await getPaidAccess({ supabaseAdmin, email: session.user.email, role });
-  if (access.active && access.plan) {
-    return { redirect: { destination: `/dashboard/${access.plan}`, permanent: false } };
-  }
-
   return {
     props: {
       email: session.user.email || "",
+      activePlan: access.active ? access.plan : null,
     },
   };
 }
 
-export default function DashboardHome({ email }) {
+export default function DashboardHome({ email, activePlan }) {
   return (
     <div className="app-bg text-white relative overflow-hidden min-h-[calc(100vh-160px)]">
       <div className="candle-backdrop" aria-hidden="true" />
@@ -58,17 +56,24 @@ export default function DashboardHome({ email }) {
         <div className="max-w-2xl mx-auto bg-black/70 border border-white/10 rounded-2xl p-8 text-center">
           <h1 className="text-3xl font-bold mb-3">Welcome back</h1>
           <p className="text-gray-300 mb-6">
-            Your account is ready. Choose a subscription tier to unlock your dashboard and live sessions.
+            {activePlan
+              ? "Your account and learning resources are ready."
+              : "Your account is ready. Explore available lessons or choose a subscription tier to unlock live sessions."}
           </p>
           {email && <p className="text-sm text-gray-500 mb-6">Signed in as {email}</p>}
           <div className="flex flex-wrap justify-center gap-3">
+            {activePlan && (
+              <Link href={`/dashboard/${activePlan}`}>
+                <a className="px-5 py-3 rounded-lg bg-indigo-600 text-white font-semibold">Open Plan Dashboard</a>
+              </Link>
+            )}
             <Link href="/pricing">
-              <a className="px-5 py-3 rounded-lg bg-indigo-600 text-white font-semibold">View Pricing</a>
-            </Link>
-            <Link href="/checkout?plan=premium">
-              <a className="px-5 py-3 rounded-lg border border-white/20 text-white/90">Upgrade Now</a>
+              <a className="px-5 py-3 rounded-lg border border-white/20 text-white/90">{activePlan ? "View Other Plans" : "View Pricing"}</a>
             </Link>
           </div>
+        </div>
+        <div id="mentorship-content" className="mx-auto max-w-6xl">
+          <ContentLibrary />
         </div>
       </div>
     </div>

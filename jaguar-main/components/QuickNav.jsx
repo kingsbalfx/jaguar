@@ -65,6 +65,13 @@ function buildLinks(role, pathname) {
       group: "Trading",
     });
   }
+  if (currentDashboardPath === "/dashboard") {
+    links.push({
+      label: "Mentorship",
+      href: "/dashboard#mentorship-content",
+      group: "Learning",
+    });
+  }
 
   if (role && role !== "admin" && role !== "lifetime") {
     links.push({ label: "Upgrade", href: "/pricing", group: "Account" });

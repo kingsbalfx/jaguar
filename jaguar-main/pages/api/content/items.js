@@ -9,6 +9,30 @@ const SEGMENT_BUCKETS = {
   pro: process.env.NEXT_PUBLIC_STORAGE_BUCKET_PRO || "pro",
   lifetime: process.env.NEXT_PUBLIC_STORAGE_BUCKET_LIFETIME || "lifetime",
 };
+const ALL_BUCKETS = [...new Set([DEFAULT_BUCKET, ...Object.values(SEGMENT_BUCKETS)])];
+
+async function createMediaUrls(supabaseAdmin, item) {
+  const preferredBucket = SEGMENT_BUCKETS[String(item.segment || "").toLowerCase()] || DEFAULT_BUCKET;
+  const candidateBuckets = [preferredBucket, ...ALL_BUCKETS.filter((bucket) => bucket !== preferredBucket)];
+
+  for (const bucket of candidateBuckets) {
+    const [{ data: playback }, { data: download }] = await Promise.all([
+      supabaseAdmin.storage.from(bucket).createSignedUrl(item.storage_path, 60 * 60 * 6),
+      supabaseAdmin.storage.from(bucket).createSignedUrl(item.storage_path, 60 * 60 * 6, { download: item.title || true }),
+    ]);
+    if (playback?.signedUrl) {
+      return {
+        playback_url: playback.signedUrl,
+        download_url: download?.signedUrl || playback.signedUrl,
+      };
+    }
+  }
+
+  return {
+    playback_url: item.public_url || null,
+    download_url: item.public_url || null,
+  };
+}
 
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
@@ -33,15 +57,9 @@ export default async function handler(req, res) {
   });
   const items = await Promise.all(allowedItems.map(async (item) => {
     if (!item.storage_path) return item;
-    const bucket = SEGMENT_BUCKETS[String(item.segment || "").toLowerCase()] || DEFAULT_BUCKET;
-    const [{ data: playback }, { data: download }] = await Promise.all([
-      supabaseAdmin.storage.from(bucket).createSignedUrl(item.storage_path, 60 * 60 * 6),
-      supabaseAdmin.storage.from(bucket).createSignedUrl(item.storage_path, 60 * 60 * 6, { download: item.title || true }),
-    ]);
     return {
       ...item,
-      playback_url: playback?.signedUrl || item.public_url || null,
-      download_url: download?.signedUrl || item.public_url || null,
+      ...(await createMediaUrls(supabaseAdmin, item)),
     };
   }));
   return res.status(200).json({ items, role, accessStatus: access.status, effectiveRank });
