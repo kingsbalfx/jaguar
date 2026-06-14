@@ -44,10 +44,11 @@ export default function ContentLibrary() {
               <h4 className="mt-4 text-lg font-semibold text-white">{item.title}</h4>
               {item.description && <p className="mt-2 text-sm text-gray-300">{item.description}</p>}
               {item.media_type === "text" && <div className="mt-4 max-h-56 overflow-auto whitespace-pre-wrap rounded-xl bg-black/25 p-3 text-sm text-gray-200">{item.body}</div>}
-              {item.media_type === "video" && item.public_url && <video src={item.public_url} controls className="mt-4 aspect-video w-full rounded-xl bg-black" />}
-              {item.media_type === "audio" && item.public_url && <audio src={item.public_url} controls className="mt-4 w-full" />}
+              {item.media_type === "video" && (item.playback_url || item.public_url) && <video src={item.playback_url || item.public_url} controls preload="metadata" className="mt-4 aspect-video w-full rounded-xl bg-black" />}
+              {item.media_type === "audio" && (item.playback_url || item.public_url) && <audio src={item.playback_url || item.public_url} controls preload="metadata" className="mt-4 w-full" />}
               {item.media_type === "pdf" && item.public_url && <a href={item.public_url} target="_blank" rel="noreferrer" className="mt-4 inline-flex rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">Open workbook</a>}
               {item.media_type === "link" && item.media_url && <a href={item.media_url} target="_blank" rel="noreferrer" className="mt-4 inline-flex rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">Open resource</a>}
+              {item.download_url && <a href={item.download_url} className="mt-3 inline-flex rounded-lg border border-white/15 bg-black/25 px-4 py-2 text-sm font-semibold text-gray-100">Download for later</a>}
             </article>
           );
         })}

@@ -53,6 +53,10 @@ export default function Content() {
   async function uploadFileToStorage(fileToUpload) {
     const client = getBrowserSupabaseClient();
     if (!client) throw new Error("Supabase client not available");
+    const maxSize = mediaType === "video" ? 120 * 1024 * 1024 : 30 * 1024 * 1024;
+    if (fileToUpload.size > maxSize) {
+      throw new Error(mediaType === "video" ? "Video must be 120 MB or less. Export as MP4 H.264 at 720p before uploading." : "File must be 30 MB or less.");
+    }
 
     const bucket = resolveBucket(segment);
     const signedRes = await fetch("/api/admin/storage/signed-upload", {
@@ -238,7 +242,10 @@ export default function Content() {
             </div>
 
             {["video", "audio", "pdf"].includes(mediaType) && (
-              <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+              <div className="rounded-xl border border-dashed border-indigo-300/20 bg-indigo-500/5 p-4">
+                <input type="file" accept={mediaType === "video" ? "video/mp4,video/webm" : mediaType === "audio" ? "audio/mpeg,audio/mp4,audio/webm" : "application/pdf"} onChange={(e) => setFile(e.target.files?.[0] || null)} />
+                <p className="mt-2 text-xs text-gray-400">{mediaType === "video" ? "For fast playback: upload MP4 H.264, 720p, under 120 MB." : "Keep resources under 30 MB for quick downloads."}</p>
+              </div>
             )}
 
             {mediaType === "link" && (

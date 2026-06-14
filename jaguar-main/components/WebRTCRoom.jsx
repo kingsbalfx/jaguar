@@ -2,6 +2,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getBrowserSupabaseClient } from "../lib/supabaseClient";
 
 const DEFAULT_ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
+const CAMERA_VIDEO = { width: { ideal: 960, max: 1280 }, height: { ideal: 540, max: 720 }, frameRate: { ideal: 24, max: 30 } };
+
+async function optimizeSender(sender, kind) {
+  if (!sender?.track) return;
+  sender.track.contentHint = kind === "screen" ? "detail" : kind === "video" ? "motion" : "speech";
+  if (sender.track.kind !== "video") return;
+  const parameters = sender.getParameters();
+  parameters.degradationPreference = kind === "screen" ? "maintain-resolution" : "maintain-framerate";
+  parameters.encodings = parameters.encodings?.length ? parameters.encodings : [{}];
+  parameters.encodings[0].maxBitrate = kind === "screen" ? 1400000 : 850000;
+  parameters.encodings[0].maxFramerate = kind === "screen" ? 15 : 24;
+  try { await sender.setParameters(parameters); } catch {}
+}
 
 function iceServers() {
   try {
@@ -100,6 +113,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
         if (systemAudio) outgoing.addTrack(systemAudio);
         outgoing.getTracks().forEach((track) => {
           const sender = peer.addTrack(track, outgoing);
+          void optimizeSender(sender, track === systemAudio ? "audio" : track.kind === "video" && screenStreamRef.current ? "screen" : track.kind);
           if (track === systemAudio) screenAudioSendersRef.current.set(peerId, sender);
         });
       }
@@ -167,7 +181,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
       if (isHost) {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: audioDeviceId ? { deviceId: { exact: audioDeviceId }, echoCancellation: true, noiseSuppression: true } : { echoCancellation: true, noiseSuppression: true },
-          video: videoDeviceId ? { deviceId: { exact: videoDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } : { width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: videoDeviceId ? { deviceId: { exact: videoDeviceId }, ...CAMERA_VIDEO } : CAMERA_VIDEO,
         });
         localStreamRef.current = stream;
         setLocalStream(stream);
@@ -300,7 +314,12 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
       if (!track) throw new Error("No window or screen was selected.");
       screenStreamRef.current = screen;
       track.onended = stopScreenShare;
+      track.contentHint = "detail";
       await replaceTrack(track);
+      peersRef.current.forEach((peer) => {
+        const sender = peer.getSenders().find((item) => item.track?.kind === "video");
+        void optimizeSender(sender, "screen");
+      });
       setSharingScreen(true);
     } catch (err) {
       const message = err?.name === "NotAllowedError"
@@ -326,7 +345,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
         ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
         : await navigator.mediaDevices.getUserMedia({
             audio: audioDeviceId ? { deviceId: { exact: audioDeviceId }, echoCancellation: true, noiseSuppression: true } : { echoCancellation: true, noiseSuppression: true },
-            video: videoDeviceId ? { deviceId: { exact: videoDeviceId } } : true,
+            video: videoDeviceId ? { deviceId: { exact: videoDeviceId }, ...CAMERA_VIDEO } : CAMERA_VIDEO,
           });
       localStreamRef.current?.getTracks().forEach((track) => track.stop());
       localStreamRef.current = stream;
