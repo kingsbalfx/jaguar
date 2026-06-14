@@ -111,11 +111,12 @@ export async function getPaidAccess({ supabaseAdmin, email, role }) {
           validatePlanPayment({ amount: payment.amount, currency: "NGN", plan: payment.plan }).valid;
       });
       if (verifiedPayment) {
+        const validation = validatePlanPayment({ amount: verifiedPayment.amount, currency: "NGN", plan: verifiedPayment.plan });
         const repaired = await activateSubscription({
           supabaseAdmin,
           email,
           plan: verifiedPayment.plan,
-          amount: verifiedPayment.amount,
+          amount: validation.normalizedAmount,
           userId: verifiedPayment.user_id,
           reference: verifiedPayment.reference,
         });

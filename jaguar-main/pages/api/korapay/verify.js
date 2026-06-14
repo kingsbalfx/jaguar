@@ -88,7 +88,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Verified payment is missing account email or plan metadata" });
       }
       try {
-        activation = await activateSubscription({ supabaseAdmin, email: buyerEmail, plan, amount: result.amount, userId, reference: result.reference || reference });
+        activation = await activateSubscription({ supabaseAdmin, email: buyerEmail, plan, amount: paymentValidation.normalizedAmount, userId, reference: result.reference || reference });
       } catch (e) {
         console.error("Subscription activation failed:", e?.message || e);
         return res.status(500).json({

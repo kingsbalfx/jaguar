@@ -114,7 +114,7 @@ export default async function handler(req, res) {
       supabaseAdmin,
       email: payment.customer_email,
       plan: payment.plan,
-      amount: payment.amount,
+      amount: validation.normalizedAmount,
       userId: payment.user_id,
     });
     return res.status(200).json({ ok: true });

@@ -1,5 +1,5 @@
 alter table public.subscriptions
-  add column if not exists amount numeric not null default 0,
+  add column if not exists amount bigint not null default 0,
   add column if not exists started_at timestamptz not null default now(),
   add column if not exists ended_at timestamptz;
 

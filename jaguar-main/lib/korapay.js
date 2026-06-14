@@ -237,7 +237,14 @@ export async function handleKorapayEvent(rawBody, eventJson) {
         console.warn("Failed updating profile role from webhook:", e?.message || e);
       }
       if (customerEmail) {
-        await activateSubscription({ supabaseAdmin: supabase, email: customerEmail, plan, amount, userId, reference });
+        await activateSubscription({
+          supabaseAdmin: supabase,
+          email: customerEmail,
+          plan,
+          amount: paymentValidation.normalizedAmount,
+          userId,
+          reference,
+        });
       }
     } else if (isSuccess) {
       console.warn("Korapay event did not activate access:", paymentValidation.error);

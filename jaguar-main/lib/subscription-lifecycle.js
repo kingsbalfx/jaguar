@@ -1,5 +1,6 @@
 import { getPricingTier } from "./pricing-config.js";
 import { emailLayout, sendLifecycleEmail } from "./mailer.js";
+import { normalizePaymentAmount } from "./payment-amount.js";
 
 export function subscriptionEndDate(plan, startedAt = new Date()) {
   const tier = getPricingTier(plan);
@@ -102,7 +103,8 @@ export async function activateSubscription({ supabaseAdmin, email, plan, amount,
   const now = new Date();
   const startedAt = existingActivation?.started_at || now.toISOString();
   const endedAt = existingActivation?.ended_at ?? subscriptionEndDate(normalizedPlan, now);
-  const payload = { status: "active", amount: amount || 0, started_at: startedAt, ended_at: endedAt };
+  const normalizedAmount = Math.round(normalizePaymentAmount(amount, normalizedPlan));
+  const payload = { status: "active", amount: normalizedAmount, started_at: startedAt, ended_at: endedAt };
   const existing = await supabaseAdmin
     .from("subscriptions")
     .select("email,plan,status")

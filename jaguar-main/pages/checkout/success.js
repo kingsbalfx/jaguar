@@ -129,7 +129,7 @@ export async function getServerSideProps(context) {
     let activation = null;
     try {
       if (!buyerEmail || !plan) throw new Error("Verified payment is missing account email or plan metadata");
-      activation = await activateSubscription({ supabaseAdmin, email: buyerEmail, plan, amount: result.amount, userId, reference: result.reference || reference });
+      activation = await activateSubscription({ supabaseAdmin, email: buyerEmail, plan, amount: paymentValidation.normalizedAmount, userId, reference: result.reference || reference });
     } catch (upErr) {
       console.error("Failed updating role after payment:", upErr);
       return {
