@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { getMentorshipGroup } from "../lib/mentorship-groups";
 import ResourceViewer from "./ResourceViewer";
 
-const MEDIA_LABELS = { video: "Watch lesson", audio: "Listen", pdf: "Open workbook", text: "Read lesson", link: "Open resource" };
+const MEDIA_LABELS = { video: "Watch lesson", audio: "Listen", pdf: "Open workbook", document: "Open document", text: "Read lesson", link: "Open resource" };
 
 export default function ContentLibrary() {
   const [items, setItems] = useState([]);
@@ -80,7 +80,7 @@ export default function ContentLibrary() {
               <h4 className="mt-4 text-lg font-semibold text-white">{item.title}</h4>
               {item.description && <p className="mt-2 text-sm text-gray-300">{item.description}</p>}
               <ResourceViewer item={item} />
-              {item.download_url && <a href={item.download_url} className="mt-3 inline-flex rounded-lg border border-white/15 bg-black/25 px-4 py-2 text-sm font-semibold text-gray-100">Download for later</a>}
+              {item.download_url && <a href={item.download_url} download className="mt-3 inline-flex rounded-lg border border-white/15 bg-black/25 px-4 py-2 text-sm font-semibold text-gray-100">Download KINGSBALFX copy</a>}
             </article>
           );
         })}

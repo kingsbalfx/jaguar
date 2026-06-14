@@ -12,6 +12,7 @@ const MEDIA_TYPES = [
   { value: "video", label: "Video" },
   { value: "audio", label: "Audio" },
   { value: "pdf", label: "PDF" },
+  { value: "document", label: "Document (Word, Excel, PowerPoint, text)" },
   { value: "text", label: "Text" },
   { value: "link", label: "External Link" },
 ];
@@ -104,7 +105,7 @@ export default function Content() {
       let storagePath = null;
       let publicUrl = null;
 
-      if (["video", "audio", "pdf"].includes(mediaType)) {
+      if (["video", "audio", "pdf", "document"].includes(mediaType)) {
         if (file) {
           const uploadResult = await uploadFileToStorage(file);
           storagePath = uploadResult.storagePath;
@@ -258,9 +259,9 @@ export default function Content() {
               </div>
             </div>
 
-            {["video", "audio", "pdf"].includes(mediaType) && (
+            {["video", "audio", "pdf", "document"].includes(mediaType) && (
               <div className="rounded-xl border border-dashed border-indigo-300/20 bg-indigo-500/5 p-4">
-                <input type="file" accept={mediaType === "video" ? "video/mp4,video/webm" : mediaType === "audio" ? "audio/mpeg,audio/mp4,audio/webm" : "application/pdf"} onChange={(e) => setFile(e.target.files?.[0] || null)} />
+                <input type="file" accept={mediaType === "video" ? "video/mp4,video/webm" : mediaType === "audio" ? "audio/mpeg,audio/mp4,audio/webm" : mediaType === "pdf" ? "application/pdf" : ".doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf"} onChange={(e) => setFile(e.target.files?.[0] || null)} />
                 <p className="mt-2 text-xs text-gray-400">{editingId ? "Choose a new file to replace the existing lesson, or leave it empty to keep the current file." : mediaType === "video" ? "For fast playback: upload MP4 H.264, 720p, under 120 MB." : "Keep resources under 30 MB for quick downloads."}</p>
                 {mediaType === "video" && (localPreviewUrl || editingItem?.playback_url) && (
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black shadow-xl">

@@ -35,11 +35,12 @@ function VideoTile({ stream, label, muted = false, cameraEnabled = true }) {
       <video ref={ref} autoPlay playsInline muted={muted} className="h-full w-full object-cover" />
       {!cameraEnabled && <div className="absolute inset-0 grid place-items-center bg-slate-900 text-3xl font-bold">{String(label || "?").slice(0, 1).toUpperCase()}</div>}
       <div className="absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 text-xs text-white">{label}</div>
+      <div className="pointer-events-none absolute right-2 top-2 flex items-center gap-1.5 rounded-lg border border-white/15 bg-black/55 px-2 py-1 text-[10px] font-bold tracking-wider text-white backdrop-blur-sm"><img src="/jaguar.png" alt="" className="h-5 w-5 object-contain" />KINGSBALFX</div>
     </div>
   );
 }
 
-export default function WebRTCRoom({ roomName, displayName, isHost = false, autoJoin = false }) {
+export default function WebRTCRoom({ roomName, displayName, isHost = false, autoJoin = false, recordingTitle = "", recordingSegment = "all" }) {
   const supabase = getBrowserSupabaseClient();
   const clientId = useRef(typeof crypto !== "undefined" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
   const channelRef = useRef(null);
@@ -49,6 +50,8 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   const screenStreamRef = useRef(null);
   const presentingRef = useRef(isHost);
   const activityRegisteredRef = useRef(false);
+  const recorderRef = useRef(null);
+  const recordingChunksRef = useRef([]);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({});
   const [participants, setParticipants] = useState({});
@@ -65,6 +68,8 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   const [requestSent, setRequestSent] = useState("");
   const [presenting, setPresenting] = useState(isHost);
   const [approvedKind, setApprovedKind] = useState("");
+  const [recording, setRecording] = useState(false);
+  const [recordingStatus, setRecordingStatus] = useState("");
 
   const setLiveRoomActivity = useCallback((active) => {
     if (typeof window === "undefined") return;
@@ -266,6 +271,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   }, [audioDeviceId, createPeer, displayName, handleSignal, isHost, joined, loadDevices, roomName, supabase, videoDeviceId]);
 
   const leave = useCallback(async () => {
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
     screenStreamRef.current?.getTracks().forEach((track) => track.stop());
     screenAudioSendersRef.current.clear();
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -426,6 +432,94 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
     setCameraEnabled(track.enabled);
   };
 
+  const publishRecording = useCallback(async (blob) => {
+    if (!supabase || !blob?.size) return;
+    setRecordingStatus("Saving branded session recording...");
+    try {
+      const safeRoom = String(roomName || "live-session").replace(/[^a-zA-Z0-9_-]/g, "_");
+      const fileName = `KINGSBALFX_${safeRoom}_${Date.now()}.webm`;
+      const bucketMap = {
+        premium: process.env.NEXT_PUBLIC_STORAGE_BUCKET_PREMIUM || "premium",
+        vip: process.env.NEXT_PUBLIC_STORAGE_BUCKET_VIP || "vip",
+        pro: process.env.NEXT_PUBLIC_STORAGE_BUCKET_PRO || "pro",
+        lifetime: process.env.NEXT_PUBLIC_STORAGE_BUCKET_LIFETIME || "lifetime",
+      };
+      const bucket = bucketMap[recordingSegment] || process.env.NEXT_PUBLIC_STORAGE_BUCKET || "public";
+      const signedResponse = await fetch("/api/admin/storage/signed-upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bucket, segment: recordingSegment, fileName }),
+      });
+      const signed = await signedResponse.json();
+      if (!signedResponse.ok) throw new Error(signed.error || "Unable to prepare recording upload.");
+      const { error: uploadError } = await supabase.storage.from(bucket).uploadToSignedUrl(signed.path, signed.token, blob, {
+        cacheControl: "3600",
+        contentType: blob.type || "video/webm",
+        upsert: false,
+      });
+      if (uploadError) throw uploadError;
+      const contentResponse = await fetch("/api/admin/content-items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: recordingTitle || `KINGSBALFX Live Session - ${new Date().toLocaleDateString()}`,
+          description: "Branded mentorship live-session recording.",
+          segment: recordingSegment,
+          mediaType: "video",
+          storagePath: signed.path,
+          publicUrl: signed.publicUrl,
+          isPublished: true,
+        }),
+      });
+      const content = await contentResponse.json();
+      if (!contentResponse.ok) throw new Error(content.error || "Recording uploaded but could not be published.");
+      setRecordingStatus("Recording saved and published to the mentorship library.");
+    } catch (err) {
+      setRecordingStatus(err.message || "Unable to save recording.");
+    }
+  }, [recordingSegment, recordingTitle, roomName, supabase]);
+
+  const startRecording = useCallback(() => {
+    if (!isHost) return;
+    const presentationStream = screenStreamRef.current || localStreamRef.current;
+    if (!presentationStream || typeof MediaRecorder === "undefined") {
+      setRecordingStatus("Join the room first. Recording also requires a browser with MediaRecorder support.");
+      return;
+    }
+    try {
+      recordingChunksRef.current = [];
+      const stream = new MediaStream();
+      presentationStream.getVideoTracks().forEach((track) => stream.addTrack(track));
+      const audioTracks = [
+        ...(screenStreamRef.current?.getAudioTracks() || []),
+        ...(localStreamRef.current?.getAudioTracks() || []),
+      ];
+      [...new Set(audioTracks)].forEach((track) => stream.addTrack(track));
+      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") ? "video/webm;codecs=vp9,opus" : "video/webm";
+      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 1800000 });
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size) recordingChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(recordingChunksRef.current, { type: recorder.mimeType || "video/webm" });
+        recordingChunksRef.current = [];
+        recorderRef.current = null;
+        setRecording(false);
+        void publishRecording(blob);
+      };
+      recorder.start(1000);
+      setRecording(true);
+      setRecordingStatus("Recording in progress. The current host camera or shared screen is being captured.");
+    } catch (err) {
+      setRecordingStatus(err.message || "Unable to start recording.");
+    }
+  }, [isHost, publishRecording]);
+
+  const stopRecording = useCallback(() => {
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+  }, []);
+
   useEffect(() => {
     loadDevices().catch(() => {});
     if (autoJoin) join();
@@ -459,6 +553,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
             <button onClick={toggleMic} className={`rounded-lg px-3 py-2 text-sm sm:px-4 ${micEnabled ? "bg-white/10" : "bg-amber-600"}`}>{micEnabled ? "Mute microphone" : "Unmute microphone"}</button>
             <button onClick={toggleCamera} className={`rounded-lg px-3 py-2 text-sm sm:px-4 ${cameraEnabled ? "bg-white/10" : "bg-amber-600"}`}>{cameraEnabled ? "Turn camera off" : "Turn camera on"}</button>
             {isHost && <button onClick={sharingScreen ? stopScreenShare : shareScreen} className="rounded-lg bg-indigo-600 px-3 py-2 text-sm sm:px-4">{sharingScreen ? "Stop sharing" : "Share screen"}</button>}
+            {isHost && <button onClick={recording ? stopRecording : startRecording} className={`rounded-lg px-3 py-2 text-sm sm:px-4 ${recording ? "bg-red-600" : "bg-fuchsia-600"}`}>{recording ? "Stop and publish recording" : "Record session"}</button>}
             </>}
             <button onClick={leave} className="rounded-lg bg-red-600 px-3 py-2 text-sm sm:px-4">Leave room</button>
           </div>
@@ -481,6 +576,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
         </div>
       )}
       {error && <div className="mt-3 rounded bg-red-950/60 p-2 text-sm text-red-200">{error}</div>}
+      {recordingStatus && <div className={`mt-3 rounded p-2 text-sm ${/unable|requires|could not/i.test(recordingStatus) ? "bg-red-950/60 text-red-200" : "bg-emerald-950/60 text-emerald-200"}`}>{recordingStatus}</div>}
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {localStream && <VideoTile stream={sharingScreen ? screenStreamRef.current : localStream} label={`${displayName || "You"} (you)`} muted cameraEnabled={sharingScreen || cameraEnabled} />}
         {Object.entries(remoteStreams).map(([peerId, stream]) => {

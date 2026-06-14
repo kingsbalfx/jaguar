@@ -8,6 +8,12 @@ export const CONTENT_SEGMENT_BUCKETS = {
 };
 const ALL_CONTENT_BUCKETS = [...new Set([DEFAULT_CONTENT_BUCKET, ...Object.values(CONTENT_SEGMENT_BUCKETS)])];
 
+function brandedDownloadName(item) {
+  const extension = String(item.storage_path || "").match(/(\.[a-zA-Z0-9]{1,8})$/)?.[1] || "";
+  const title = String(item.title || "resource").replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
+  return `KINGSBALFX_${title || "resource"}${extension}`;
+}
+
 export function getContentBucket(segment, storagePath = "") {
   const pathSegment = String(storagePath).match(/^content\/([^/]+)\//)?.[1]?.toLowerCase();
   return CONTENT_SEGMENT_BUCKETS[pathSegment] || CONTENT_SEGMENT_BUCKETS[String(segment || "").toLowerCase()] || DEFAULT_CONTENT_BUCKET;
@@ -31,7 +37,7 @@ export async function addContentMediaUrls(supabaseAdmin, item, expiresIn = 60 * 
 
   const [{ data: playback, error }, { data: download }] = await Promise.all([
     supabaseAdmin.storage.from(bucket).createSignedUrl(item.storage_path, expiresIn),
-    supabaseAdmin.storage.from(bucket).createSignedUrl(item.storage_path, expiresIn, { download: item.title || true }),
+    supabaseAdmin.storage.from(bucket).createSignedUrl(item.storage_path, expiresIn, { download: brandedDownloadName(item) }),
   ]);
 
   return {

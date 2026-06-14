@@ -123,7 +123,7 @@ export default function Mentorship({ adminName }) {
           <FeedbackMessage message={message} type={/unable|failed|error/i.test(message) ? "error" : "success"} />
         </form>
         <div className="space-y-5">
-          {live && <WebRTCRoom roomName={roomName} displayName={adminName} isHost />}
+          {live && <WebRTCRoom roomName={roomName} displayName={adminName} isHost recordingTitle={title} recordingSegment={segment} />}
           <Chat channel={segment} roomId={roomName} />
         </div>
       </div>
