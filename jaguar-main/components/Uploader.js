@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "../lib/supabaseClient";
 import { MENTORSHIP_GROUPS, getMentorshipGroup } from "../lib/mentorship-groups";
+import FeedbackMessage from "./FeedbackMessage";
+import { brandVideoFile } from "../lib/client-video-branding";
 
 const DEFAULT_BUCKET = process.env.NEXT_PUBLIC_STORAGE_BUCKET || "public";
 const SEGMENT_BUCKETS = {
@@ -23,11 +25,14 @@ export default function Uploader({ bucket = DEFAULT_BUCKET, folder = "", allowSe
   const effectiveBucket = allowSegmentSelect ? SEGMENT_BUCKETS[segment] || bucket : bucket;
 
   async function uploadFile(event) {
-    const file = event.target.files?.[0];
-    if (!file || !client) return;
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile || !client) return;
     setStatus({ type: "info", message: "Preparing secure upload..." });
     setLastUploaded(null);
     try {
+      const file = selectedFile.type?.startsWith("video/")
+        ? await brandVideoFile(selectedFile, (progress) => setStatus({ type: "info", message: `Applying permanent KINGSBALFX watermark: ${progress}%` }))
+        : selectedFile;
       const response = await fetch("/api/admin/storage/signed-upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -45,8 +50,6 @@ export default function Uploader({ bucket = DEFAULT_BUCKET, folder = "", allowSe
       event.target.value = "";
     }
   }
-
-  const statusColor = status.type === "error" ? "text-red-300" : status.type === "success" ? "text-emerald-200" : "text-gray-300";
 
   return (
     <div className="card overflow-hidden p-0">
@@ -69,7 +72,7 @@ export default function Uploader({ bucket = DEFAULT_BUCKET, folder = "", allowSe
         <div className="mt-1 text-xs text-gray-400">Video, audio, image, PDF, or supporting document</div>
         <input type="file" onChange={uploadFile} className="mt-4 block w-full text-sm text-gray-200" />
       </div>
-      {status.message && <div className={`mx-4 mb-4 text-sm ${statusColor}`}>{status.message}</div>}
+      <FeedbackMessage message={status.message} type={status.type || "info"} />
       {(lastUploaded?.playbackUrl || lastUploaded?.publicUrl) && (
         <a href={lastUploaded.playbackUrl || lastUploaded.publicUrl} target="_blank" rel="noreferrer" className="mx-4 mb-4 block rounded-xl border border-emerald-300/20 bg-emerald-500/10 p-3 text-xs text-emerald-200">
           Open latest upload

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getBrowserSupabaseClient } from "../lib/supabaseClient";
+import FeedbackMessage from "./FeedbackMessage";
 
 const DEFAULT_ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
 const CAMERA_VIDEO = { width: { ideal: 960, max: 1280 }, height: { ideal: 540, max: 720 }, frameRate: { ideal: 24, max: 30 } };
@@ -607,8 +608,10 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
           </label>
         </div>
       )}
-      {error && <div className="mt-3 rounded bg-red-950/60 p-2 text-sm text-red-200">{error}</div>}
-      {recordingStatus && <div className={`mt-3 rounded p-2 text-sm ${/unable|requires|could not|above|failed|recovery/i.test(recordingStatus) ? "bg-red-950/60 text-red-200" : "bg-emerald-950/60 text-emerald-200"}`}>{recordingStatus}</div>}
+      <FeedbackMessage
+        message={error || recordingStatus}
+        type={error || /unable|requires|could not|above|failed|recovery/i.test(recordingStatus) ? "error" : "info"}
+      />
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {localStream && <VideoTile stream={sharingScreen ? screenStreamRef.current : localStream} label={`${displayName || "You"} (you)`} muted cameraEnabled={sharingScreen || cameraEnabled} />}
         {Object.entries(remoteStreams).map(([peerId, stream]) => {

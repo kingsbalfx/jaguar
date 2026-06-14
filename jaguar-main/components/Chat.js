@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getBrowserSupabaseClient } from "../lib/supabaseClient";
+import FeedbackMessage from "./FeedbackMessage";
 
 export default function Chat({ channel = "public", roomId = null }) {
   const supabase = getBrowserSupabaseClient();
@@ -231,7 +232,7 @@ export default function Chat({ channel = "public", roomId = null }) {
       )}
       </div>
       {(replyTo || editing) && <div className="flex justify-between bg-[#182229] px-3 py-2 text-xs"><span>{editing ? `Editing: ${editing.content}` : `Replying to: ${replyTo.content}`}</span><button onClick={() => { setReplyTo(null); setEditing(null); setText(""); }}>Cancel</button></div>}
-      {error && <div className="border-t border-red-400/20 bg-red-950/70 px-3 py-2 text-xs text-red-200">{error}</div>}
+      <FeedbackMessage message={error} type="error" />
       <div className="grid grid-cols-[1fr_auto] items-end gap-2 border-t border-white/10 bg-[#202c33] p-3">
         <textarea value={text} onFocus={() => notifyTyping(true)} onBlur={() => notifyTyping(false)} onChange={(event) => { setText(event.target.value); notifyTyping(true); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} className="max-h-28 min-h-[46px] min-w-0 resize-none rounded-3xl bg-[#2a3942] px-4 py-3 text-sm outline-none placeholder:text-gray-400 focus:ring-1 focus:ring-emerald-500/60" placeholder="Type a message" />
         <button type="button" onClick={send} disabled={sending || !user || !text.trim()} aria-label="Send message" className="grid h-12 w-12 place-items-center rounded-full bg-emerald-600 text-sm font-bold shadow-lg transition hover:bg-emerald-500 disabled:opacity-40">

@@ -4,6 +4,7 @@ import { getBrowserSupabaseClient } from "../../lib/supabaseClient";
 import FeedbackMessage from "../../components/FeedbackMessage";
 import ResourceViewer from "../../components/ResourceViewer";
 import { MENTORSHIP_GROUPS, getMentorshipGroup, getMentorshipGroupLabel } from "../../lib/mentorship-groups";
+import { brandVideoFile } from "../../lib/client-video-branding";
 
 const Uploader = dynamic(() => import("../../components/Uploader"), { ssr: false });
 const AdminVideoPlayer = dynamic(() => import("../../components/AdminVideoPlayer"), { ssr: false });
@@ -67,16 +68,21 @@ export default function Content() {
   async function uploadFileToStorage(fileToUpload) {
     const client = getBrowserSupabaseClient();
     if (!client) throw new Error("Supabase client not available");
+    let uploadFile = fileToUpload;
     const maxSize = mediaType === "video" ? 120 * 1024 * 1024 : 30 * 1024 * 1024;
     if (fileToUpload.size > maxSize) {
       throw new Error(mediaType === "video" ? "Video must be 120 MB or less. Export as MP4 H.264 at 720p before uploading." : "File must be 30 MB or less.");
+    }
+    if (mediaType === "video") {
+      setStatus("Applying permanent KINGSBALFX logo watermark to the video...");
+      uploadFile = await brandVideoFile(fileToUpload, (progress) => setStatus(`Applying permanent KINGSBALFX watermark: ${progress}%`));
     }
 
     const bucket = resolveBucket(segment);
     const signedRes = await fetch("/api/admin/storage/signed-upload", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bucket, segment, fileName: fileToUpload.name }),
+      body: JSON.stringify({ bucket, segment, fileName: uploadFile.name }),
     });
     const signedJson = await signedRes.json();
     if (!signedRes.ok) {
@@ -84,9 +90,9 @@ export default function Content() {
     }
 
     const { path, token, publicUrl } = signedJson;
-    const { error: uploadError } = await client.storage.from(bucket).uploadToSignedUrl(path, token, fileToUpload, {
+    const { error: uploadError } = await client.storage.from(bucket).uploadToSignedUrl(path, token, uploadFile, {
       cacheControl: "3600",
-      contentType: fileToUpload.type || undefined,
+      contentType: uploadFile.type || undefined,
       upsert: false,
     });
 
@@ -262,7 +268,7 @@ export default function Content() {
             {["video", "audio", "pdf", "document"].includes(mediaType) && (
               <div className="rounded-xl border border-dashed border-indigo-300/20 bg-indigo-500/5 p-4">
                 <input type="file" accept={mediaType === "video" ? "video/mp4,video/webm" : mediaType === "audio" ? "audio/mpeg,audio/mp4,audio/webm" : mediaType === "pdf" ? "application/pdf" : ".doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf"} onChange={(e) => setFile(e.target.files?.[0] || null)} />
-                <p className="mt-2 text-xs text-gray-400">{editingId ? "Choose a new file to replace the existing lesson, or leave it empty to keep the current file." : mediaType === "video" ? "For fast playback: upload MP4 H.264, 720p, under 120 MB." : "Keep resources under 30 MB for quick downloads."}</p>
+                <p className="mt-2 text-xs text-gray-400">{editingId ? "Choose a new file to replace the existing lesson, or leave it empty to keep the current file." : mediaType === "video" ? "Upload MP4 H.264 or WebM under 120 MB. Permanent KINGSBALFX branding is applied before upload and may take about the video's playback duration." : "Keep resources under 30 MB for quick downloads."}</p>
                 {mediaType === "video" && (localPreviewUrl || editingItem?.playback_url) && (
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black shadow-xl">
                     <video key={localPreviewUrl || editingItem?.playback_url} src={localPreviewUrl || editingItem?.playback_url} controls preload="metadata" playsInline className="aspect-video w-full bg-black" />

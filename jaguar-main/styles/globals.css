@@ -97,9 +97,9 @@ select {
 }
 
 .feedback-panel {
-  width: 100%;
+  width: min(100%, 560px);
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   gap: 12px;
   align-items: start;
   padding: 14px 16px;
@@ -107,8 +107,45 @@ select {
   border-radius: 12px;
   background: linear-gradient(145deg, rgba(30, 41, 59, 0.96), rgba(8, 15, 30, 0.96));
   color: #f8fafc;
-  box-shadow: 0 14px 34px rgba(2, 6, 23, 0.35);
+  box-shadow: 0 24px 70px rgba(2, 6, 23, 0.7);
   overflow-wrap: anywhere;
+}
+
+.feedback-dock {
+  position: fixed;
+  z-index: 200;
+  right: 0;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: 0;
+  display: flex;
+  justify-content: center;
+  padding: 0 12px;
+  pointer-events: none;
+}
+
+.feedback-dock .feedback-panel {
+  pointer-events: auto;
+  animation: feedback-rise 0.25s ease-out;
+}
+
+.feedback-panel__close {
+  align-self: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  padding: 6px 9px;
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.feedback-panel__close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+@keyframes feedback-rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .feedback-panel__mark {
