@@ -52,6 +52,8 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   const activityRegisteredRef = useRef(false);
   const recorderRef = useRef(null);
   const recordingChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
+  const recordingRenderCleanupRef = useRef(null);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({});
   const [participants, setParticipants] = useState({});
@@ -69,6 +71,8 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   const [presenting, setPresenting] = useState(isHost);
   const [approvedKind, setApprovedKind] = useState("");
   const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [publishingRecording, setPublishingRecording] = useState(false);
   const [recordingStatus, setRecordingStatus] = useState("");
 
   const setLiveRoomActivity = useCallback((active) => {
@@ -271,7 +275,10 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   }, [audioDeviceId, createPeer, displayName, handleSignal, isHost, joined, loadDevices, roomName, supabase, videoDeviceId]);
 
   const leave = useCallback(async () => {
-    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    if (recorderRef.current?.state === "recording" || publishingRecording) {
+      setRecordingStatus("Stop the recording and wait for publishing to finish before leaving the room.");
+      return;
+    }
     screenStreamRef.current?.getTracks().forEach((track) => track.stop());
     screenAudioSendersRef.current.clear();
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -293,7 +300,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
     setApprovedKind("");
     setJoined(false);
     setLiveRoomActivity(false);
-  }, [isHost, setLiveRoomActivity, supabase]);
+  }, [isHost, publishingRecording, setLiveRoomActivity, supabase]);
 
   const replaceTrack = useCallback(async (track) => {
     const operations = [];
@@ -434,8 +441,14 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
 
   const publishRecording = useCallback(async (blob) => {
     if (!supabase || !blob?.size) return;
+    const maxRecordingMb = Number(process.env.NEXT_PUBLIC_MAX_RECORDING_MB || 200);
+    const fileSizeMb = blob.size / 1024 / 1024;
+    setPublishingRecording(true);
     setRecordingStatus("Saving branded session recording...");
     try {
+      if (fileSizeMb > maxRecordingMb) {
+        throw new Error(`Recording is ${fileSizeMb.toFixed(1)} MB, above the ${maxRecordingMb} MB cloud limit.`);
+      }
       const safeRoom = String(roomName || "live-session").replace(/[^a-zA-Z0-9_-]/g, "_");
       const fileName = `KINGSBALFX_${safeRoom}_${Date.now()}.webm`;
       const bucketMap = {
@@ -475,11 +488,19 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
       if (!contentResponse.ok) throw new Error(content.error || "Recording uploaded but could not be published.");
       setRecordingStatus("Recording saved and published to the mentorship library.");
     } catch (err) {
-      setRecordingStatus(err.message || "Unable to save recording.");
+      const recoveryUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = recoveryUrl;
+      anchor.download = `KINGSBALFX_${String(roomName || "live-session").replace(/[^a-zA-Z0-9_-]/g, "_")}_recovery.webm`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(recoveryUrl), 1000);
+      setRecordingStatus(`${err.message || "Unable to save recording."} A KINGSBALFX recovery copy was downloaded to this device.`);
+    } finally {
+      setPublishingRecording(false);
     }
   }, [recordingSegment, recordingTitle, roomName, supabase]);
 
-  const startRecording = useCallback(() => {
+  const startRecording = useCallback(async () => {
     if (!isHost) return;
     const presentationStream = screenStreamRef.current || localStreamRef.current;
     if (!presentationStream || typeof MediaRecorder === "undefined") {
@@ -488,20 +509,24 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
     }
     try {
       recordingChunksRef.current = [];
-      const stream = new MediaStream();
-      presentationStream.getVideoTracks().forEach((track) => stream.addTrack(track));
+      const stream = await createBrandedRecordingStream(presentationStream);
+      recordingRenderCleanupRef.current = stream.cleanup;
       const audioTracks = [
         ...(screenStreamRef.current?.getAudioTracks() || []),
         ...(localStreamRef.current?.getAudioTracks() || []),
       ];
-      [...new Set(audioTracks)].forEach((track) => stream.addTrack(track));
+      [...new Set(audioTracks)].forEach((track) => stream.mediaStream.addTrack(track));
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") ? "video/webm;codecs=vp9,opus" : "video/webm";
-      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 1800000 });
+      const recorder = new MediaRecorder(stream.mediaStream, { mimeType, videoBitsPerSecond: 1800000 });
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
         if (event.data?.size) recordingChunksRef.current.push(event.data);
       };
       recorder.onstop = () => {
+        window.clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+        recordingRenderCleanupRef.current?.();
+        recordingRenderCleanupRef.current = null;
         const blob = new Blob(recordingChunksRef.current, { type: recorder.mimeType || "video/webm" });
         recordingChunksRef.current = [];
         recorderRef.current = null;
@@ -510,6 +535,8 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
       };
       recorder.start(1000);
       setRecording(true);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = window.setInterval(() => setRecordingSeconds((current) => current + 1), 1000);
       setRecordingStatus("Recording in progress. The current host camera or shared screen is being captured.");
     } catch (err) {
       setRecordingStatus(err.message || "Unable to start recording.");
@@ -517,13 +544,18 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   }, [isHost, publishRecording]);
 
   const stopRecording = useCallback(() => {
-    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    if (recorderRef.current?.state === "recording") {
+      setRecordingStatus("Finalizing recording before publishing...");
+      recorderRef.current.stop();
+    }
   }, []);
 
   useEffect(() => {
     loadDevices().catch(() => {});
     if (autoJoin) join();
     return () => {
+      window.clearInterval(recordingTimerRef.current);
+      recordingRenderCleanupRef.current?.();
       leave();
     };
   }, []);
@@ -553,9 +585,9 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
             <button onClick={toggleMic} className={`rounded-lg px-3 py-2 text-sm sm:px-4 ${micEnabled ? "bg-white/10" : "bg-amber-600"}`}>{micEnabled ? "Mute microphone" : "Unmute microphone"}</button>
             <button onClick={toggleCamera} className={`rounded-lg px-3 py-2 text-sm sm:px-4 ${cameraEnabled ? "bg-white/10" : "bg-amber-600"}`}>{cameraEnabled ? "Turn camera off" : "Turn camera on"}</button>
             {isHost && <button onClick={sharingScreen ? stopScreenShare : shareScreen} className="rounded-lg bg-indigo-600 px-3 py-2 text-sm sm:px-4">{sharingScreen ? "Stop sharing" : "Share screen"}</button>}
-            {isHost && <button onClick={recording ? stopRecording : startRecording} className={`rounded-lg px-3 py-2 text-sm sm:px-4 ${recording ? "bg-red-600" : "bg-fuchsia-600"}`}>{recording ? "Stop and publish recording" : "Record session"}</button>}
+            {isHost && <button onClick={recording ? stopRecording : startRecording} disabled={publishingRecording} className={`rounded-lg px-3 py-2 text-sm disabled:opacity-60 sm:px-4 ${recording ? "bg-red-600" : "bg-fuchsia-600"}`}>{publishingRecording ? "Publishing recording..." : recording ? `Stop recording (${formatDuration(recordingSeconds)})` : "Record session"}</button>}
             </>}
-            <button onClick={leave} className="rounded-lg bg-red-600 px-3 py-2 text-sm sm:px-4">Leave room</button>
+            <button onClick={leave} disabled={recording || publishingRecording} className="rounded-lg bg-red-600 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50 sm:px-4">{recording ? "Stop recording before leaving" : publishingRecording ? "Publishing before leaving" : "Leave room"}</button>
           </div>
         )}
       </div>
@@ -576,7 +608,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
         </div>
       )}
       {error && <div className="mt-3 rounded bg-red-950/60 p-2 text-sm text-red-200">{error}</div>}
-      {recordingStatus && <div className={`mt-3 rounded p-2 text-sm ${/unable|requires|could not/i.test(recordingStatus) ? "bg-red-950/60 text-red-200" : "bg-emerald-950/60 text-emerald-200"}`}>{recordingStatus}</div>}
+      {recordingStatus && <div className={`mt-3 rounded p-2 text-sm ${/unable|requires|could not|above|failed|recovery/i.test(recordingStatus) ? "bg-red-950/60 text-red-200" : "bg-emerald-950/60 text-emerald-200"}`}>{recordingStatus}</div>}
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {localStream && <VideoTile stream={sharingScreen ? screenStreamRef.current : localStream} label={`${displayName || "You"} (you)`} muted cameraEnabled={sharingScreen || cameraEnabled} />}
         {Object.entries(remoteStreams).map(([peerId, stream]) => {
@@ -615,4 +647,70 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
       )}
     </div>
   );
+}
+
+function formatDuration(totalSeconds) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+async function createBrandedRecordingStream(sourceStream) {
+  const videoTrack = sourceStream.getVideoTracks()[0];
+  if (!videoTrack || typeof document === "undefined") {
+    return { mediaStream: new MediaStream(sourceStream.getVideoTracks()), cleanup: () => {} };
+  }
+
+  const settings = videoTrack.getSettings();
+  const width = settings.width || 1280;
+  const height = settings.height || 720;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context || typeof canvas.captureStream !== "function") {
+    return { mediaStream: new MediaStream(sourceStream.getVideoTracks()), cleanup: () => {} };
+  }
+  const video = document.createElement("video");
+  video.srcObject = new MediaStream([videoTrack]);
+  video.muted = true;
+  video.playsInline = true;
+  await video.play();
+
+  const logo = new Image();
+  logo.src = "/jaguar.png";
+  await new Promise((resolve) => {
+    logo.onload = resolve;
+    logo.onerror = resolve;
+  });
+
+  let frameId = null;
+  const draw = () => {
+    context.drawImage(video, 0, 0, width, height);
+    const padding = Math.max(14, Math.round(width * 0.015));
+    const logoSize = Math.max(44, Math.round(width * 0.055));
+    const boxWidth = Math.max(190, Math.round(width * 0.2));
+    const boxHeight = logoSize + padding;
+    const x = width - boxWidth - padding;
+    const y = padding;
+    context.fillStyle = "rgba(0, 0, 0, 0.58)";
+    context.fillRect(x, y, boxWidth, boxHeight);
+    if (logo.complete) context.drawImage(logo, x + padding / 2, y + padding / 2, logoSize, logoSize);
+    context.fillStyle = "#ffffff";
+    context.font = `700 ${Math.max(18, Math.round(width * 0.022))}px sans-serif`;
+    context.fillText("KINGSBALFX", x + logoSize + padding, y + boxHeight * 0.62);
+    frameId = window.requestAnimationFrame(draw);
+  };
+  draw();
+
+  const mediaStream = canvas.captureStream(24);
+  return {
+    mediaStream,
+    cleanup: () => {
+      if (frameId) window.cancelAnimationFrame(frameId);
+      mediaStream.getTracks().forEach((track) => track.stop());
+      video.pause();
+      video.srcObject = null;
+    },
+  };
 }

@@ -35,7 +35,7 @@ export default function Uploader({ bucket = DEFAULT_BUCKET, folder = "", allowSe
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to prepare upload.");
-      const { error } = await client.storage.from(effectiveBucket).uploadToSignedUrl(data.path, data.token, file, { cacheControl: "3600", upsert: false });
+      const { error } = await client.storage.from(effectiveBucket).uploadToSignedUrl(data.path, data.token, file, { cacheControl: "3600", contentType: file.type || undefined, upsert: false });
       if (error) throw error;
       setLastUploaded(data);
       setStatus({ type: "success", message: "Upload completed and ready to publish." });
