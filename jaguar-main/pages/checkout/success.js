@@ -5,6 +5,8 @@ import { verifyKorapayCharge } from "../../lib/korapay";
 import { getBotTierDefaults } from "../../lib/pricing-config";
 import { validatePlanPayment } from "../../lib/payment-amount";
 import { activateSubscription } from "../../lib/subscription-lifecycle";
+import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
+import { getSupabaseClient } from "../../lib/supabaseClient";
 
 function buildProfilePlanUpdate(plan) {
   const defaults = getBotTierDefaults(plan);
@@ -119,19 +121,21 @@ export async function getServerSideProps(context) {
       metadata.product ||
       metadata.tier ||
       null;
-    const userId = metadata.userId || metadata.user_id || null;
-    const buyerEmail = result.email || metadata.email || null;
+    const supabaseSession = createPagesServerClient(context);
+    const { data: { session } } = await supabaseSession.auth.getSession();
+    const userId = metadata.userId || metadata.user_id || session?.user?.id || null;
+    const buyerEmail = result.email || metadata.email || session?.user?.email || null;
     const paymentValidation = validatePlanPayment({ amount: result.amount, currency: result.currency, plan });
     if (!paymentValidation.valid) {
       return { props: { success: false, message: paymentValidation.error, reference, plan: null } };
     }
 
-    const { createClient } = await import("@supabase/supabase-js");
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    );
+    const supabaseAdmin = getSupabaseClient({ server: true });
+    if (!supabaseAdmin) {
+      return { props: { success: false, message: "Payment verified, but subscription activation service is unavailable.", reference, plan } };
+    }
 
+    let activation = null;
     try {
       if (plan) {
         const profileUpdate = buildProfilePlanUpdate(plan);
@@ -158,11 +162,21 @@ export async function getServerSideProps(context) {
           }
         }
       }
-      if (buyerEmail && plan) {
-        await activateSubscription({ supabaseAdmin, email: buyerEmail, plan, amount: result.amount, userId, reference: result.reference || reference });
-      }
+      if (!buyerEmail || !plan) throw new Error("Verified payment is missing account email or plan metadata");
+      activation = await activateSubscription({ supabaseAdmin, email: buyerEmail, plan, amount: result.amount, userId, reference: result.reference || reference });
     } catch (upErr) {
       console.error("Failed updating role after payment:", upErr);
+      return {
+        props: {
+          success: false,
+          message: "Payment verified, but subscription activation failed. Reload this page to retry; no new payment is required.",
+          reference,
+          plan,
+        },
+      };
+    }
+    if (!activation?.active) {
+      return { props: { success: false, message: "Payment verified, but subscription is not active yet. Reload to retry.", reference, plan } };
     }
 
     // Redirect logic

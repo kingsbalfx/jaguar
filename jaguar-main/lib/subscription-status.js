@@ -1,7 +1,10 @@
+import { SUCCESSFUL_PAYMENT_STATUSES, validatePlanPayment } from "./payment-amount.js";
+import { activateSubscription } from "./subscription-lifecycle.js";
+
 export const ROLE_RANK = { free: 0, user: 0, all: 0, premium: 1, vip: 2, pro: 3, lifetime: 4, admin: 99 };
 
 export function isSubscriptionActive(subscription, now = new Date()) {
-  if (subscription?.status !== "active") return false;
+  if (String(subscription?.status || "").toLowerCase() !== "active") return false;
   if (!subscription.ended_at) return true;
   const endedAt = new Date(subscription.ended_at);
   return !Number.isNaN(endedAt.getTime()) && endedAt > now;
@@ -19,8 +22,8 @@ export async function getPlanStatus({ supabaseAdmin, email, plan, role }) {
     const { data, error } = await supabaseAdmin
       .from("subscriptions")
       .select("plan, status, ended_at, started_at")
-      .eq("email", email)
-      .eq("plan", normalizedPlan)
+      .ilike("email", String(email).trim())
+      .ilike("plan", normalizedPlan)
       .order("started_at", { ascending: false });
     const subscription = (data || []).find(isSubscriptionActive) || data?.[0];
     if (error || !subscription) return base;
@@ -28,7 +31,7 @@ export async function getPlanStatus({ supabaseAdmin, email, plan, role }) {
     return {
       ...base,
       active,
-      status: active ? "active" : subscription.status === "active" ? "expired" : subscription.status || "inactive",
+      status: active ? "active" : String(subscription.status || "").toLowerCase() === "active" ? "expired" : subscription.status || "inactive",
       source: "subscriptions",
       endedAt: subscription.ended_at || null,
     };
@@ -46,22 +49,81 @@ export async function getPaidAccess({ supabaseAdmin, email, role }) {
     const { data, error } = await supabaseAdmin
       .from("subscriptions")
       .select("plan, status, ended_at, started_at")
-      .eq("email", email)
+      .ilike("email", String(email).trim())
       .order("started_at", { ascending: false });
     if (error) return { active: false, plan: null, plans: [], rank: 0, status: "inactive" };
     const activePlans = (data || [])
       .filter(isSubscriptionActive)
-      .sort((a, b) => (ROLE_RANK[b.plan] || 0) - (ROLE_RANK[a.plan] || 0));
+      .sort((a, b) => (ROLE_RANK[String(b.plan || "").toLowerCase()] || 0) - (ROLE_RANK[String(a.plan || "").toLowerCase()] || 0));
     const highest = activePlans[0];
-    return highest
-      ? {
-          active: true,
-          plan: highest.plan,
-          plans: activePlans.map((subscription) => subscription.plan),
-          rank: ROLE_RANK[highest.plan] || 0,
-          status: "active",
+    const highestPlan = String(highest?.plan || "").toLowerCase();
+    if (highest) {
+      return {
+        active: true,
+        plan: highestPlan,
+        plans: activePlans.map((subscription) => String(subscription.plan || "").toLowerCase()),
+        rank: ROLE_RANK[highestPlan] || 0,
+        status: "active",
+      };
+    }
+
+    const { data: payments, error: paymentError } = await supabaseAdmin
+      .from("payments")
+      .select("customer_email,plan,status,amount,reference,received_at,user_id")
+      .ilike("customer_email", String(email).trim())
+      .order("received_at", { ascending: false })
+      .limit(20);
+    if (!paymentError) {
+      const recentPaymentLimit = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const verifiedPayment = (payments || []).find((payment) => {
+        const successful = SUCCESSFUL_PAYMENT_STATUSES.has(String(payment.status || "").toLowerCase());
+        const receivedAt = new Date(payment.received_at || 0).getTime();
+        const paymentPlan = String(payment.plan || "").toLowerCase();
+        const matchingSubscriptions = (data || []).filter(
+          (subscription) => String(subscription.plan || "").toLowerCase() === paymentPlan
+        );
+        const latestMatching = matchingSubscriptions.sort(
+          (a, b) => new Date(b.started_at || 0).getTime() - new Date(a.started_at || 0).getTime()
+        )[0];
+        const latestStatus = String(latestMatching?.status || "").toLowerCase();
+        const latestEnd = new Date(latestMatching?.ended_at || 0).getTime();
+        const latestStart = new Date(latestMatching?.started_at || 0).getTime();
+        const deliberatelyDisabled = ["revoked", "cancelled", "canceled"].includes(latestStatus);
+        const expired = latestStatus === "expired" ||
+          (latestStatus === "active" && latestEnd > 0 && latestEnd <= Date.now());
+        const isEligibleRepair = !deliberatelyDisabled && (
+          !latestMatching
+            ? receivedAt >= recentPaymentLimit
+            : expired
+            ? receivedAt > Math.max(latestEnd, latestStart)
+            : receivedAt >= recentPaymentLimit && receivedAt >= latestStart - 60 * 60 * 1000
+        );
+        return successful && isEligibleRepair &&
+          validatePlanPayment({ amount: payment.amount, currency: "NGN", plan: payment.plan }).valid;
+      });
+      if (verifiedPayment) {
+        const repaired = await activateSubscription({
+          supabaseAdmin,
+          email,
+          plan: verifiedPayment.plan,
+          amount: verifiedPayment.amount,
+          userId: verifiedPayment.user_id,
+          reference: verifiedPayment.reference,
+        });
+        const repairedPlan = String(verifiedPayment.plan || "").toLowerCase();
+        if (repaired?.active) {
+          return {
+            active: true,
+            plan: repairedPlan,
+            plans: [repairedPlan],
+            rank: ROLE_RANK[repairedPlan] || 0,
+            status: "active",
+            repaired: true,
+          };
         }
-      : { active: false, plan: null, plans: [], rank: 0, status: "inactive" };
+      }
+    }
+    return { active: false, plan: null, plans: [], rank: 0, status: "inactive" };
   } catch (err) {
     console.error("getPaidAccess error:", err);
     return { active: false, plan: null, plans: [], rank: 0, status: "inactive" };

@@ -3,6 +3,7 @@ import { verifyKorapayCharge } from "../../../lib/korapay";
 import { getBotTierDefaults } from "../../../lib/pricing-config";
 import { validatePlanPayment } from "../../../lib/payment-amount";
 import { activateSubscription } from "../../../lib/subscription-lifecycle";
+import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 
 function buildProfilePlanUpdate(plan) {
   const defaults = getBotTierDefaults(plan);
@@ -65,14 +66,18 @@ export default async function handler(req, res) {
 
     const metadata = result.metadata || {};
     const plan = extractPlan(metadata);
-    const userId = metadata.userId || metadata.user_id || null;
-    const buyerEmail = result.email || metadata.email || null;
+    const supabaseSession = createPagesServerClient({ req, res });
+    const { data: { session } } = await supabaseSession.auth.getSession();
+    const userId = metadata.userId || metadata.user_id || session?.user?.id || null;
+    const buyerEmail = result.email || metadata.email || session?.user?.email || null;
     const paymentValidation = validatePlanPayment({ amount: result.amount, currency: result.currency, plan });
     if (!paymentValidation.valid) {
       return res.status(400).json({ error: paymentValidation.error });
     }
 
     const supabaseAdmin = getSupabaseClient({ server: true });
+    if (!supabaseAdmin) return res.status(500).json({ error: "Subscription activation service is not configured" });
+    let activation = null;
     if (supabaseAdmin) {
       try {
         await supabaseAdmin.from("payments").insert([
@@ -119,12 +124,14 @@ export default async function handler(req, res) {
         console.warn("Role update failed:", e?.message || e);
       }
 
+      if (!buyerEmail || !plan) {
+        return res.status(400).json({ error: "Verified payment is missing account email or plan metadata" });
+      }
       try {
-        if (buyerEmail && plan) {
-          await activateSubscription({ supabaseAdmin, email: buyerEmail, plan, amount: result.amount, userId, reference: result.reference || reference });
-        }
+        activation = await activateSubscription({ supabaseAdmin, email: buyerEmail, plan, amount: result.amount, userId, reference: result.reference || reference });
       } catch (e) {
-        console.warn("Subscription upsert failed:", e?.message || e);
+        console.error("Subscription activation failed:", e?.message || e);
+        return res.status(500).json({ error: "Payment verified, but subscription activation failed. Retry verification; no new payment is required." });
       }
     }
 
@@ -133,6 +140,8 @@ export default async function handler(req, res) {
       reference: result.reference,
       plan,
       status: result.status,
+      subscriptionActive: Boolean(activation?.active),
+      repaired: Boolean(activation?.repaired),
     });
   } catch (err) {
     console.error("korapay/verify exception:", err);

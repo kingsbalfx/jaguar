@@ -244,5 +244,6 @@ export async function handleKorapayEvent(rawBody, eventJson) {
     }
   } catch (e) {
     console.warn("Failed saving Korapay event to supabase:", e.message || e);
+    throw e;
   }
 }
