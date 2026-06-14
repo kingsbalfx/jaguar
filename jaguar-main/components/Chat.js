@@ -12,8 +12,11 @@ export default function Chat({ channel = "public", roomId = null }) {
   const [typing, setTyping] = useState([]);
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
-  const bottomRef = useRef(null);
+  const [showNewMessages, setShowNewMessages] = useState(false);
+  const messagesRef = useRef(null);
   const channelRef = useRef(null);
+  const stickToBottomRef = useRef(true);
+  const previousMessageCountRef = useRef(0);
 
   const loadMessages = async () => {
     const response = await fetch(`/api/chat/messages?roomKey=${encodeURIComponent(roomKey)}`);
@@ -42,9 +45,36 @@ export default function Chat({ channel = "public", roomId = null }) {
     };
   }, [roomKey, supabase]);
 
-  useEffect(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), [messages]);
+  useEffect(() => {
+    const container = messagesRef.current;
+    if (!container) return;
+    const hasNewMessage = messages.length > previousMessageCountRef.current;
+    previousMessageCountRef.current = messages.length;
+    if (stickToBottomRef.current) {
+      container.scrollTo({ top: container.scrollHeight, behavior: hasNewMessage ? "smooth" : "auto" });
+      setShowNewMessages(false);
+    } else if (hasNewMessage) {
+      setShowNewMessages(true);
+    }
+  }, [messages]);
 
   const notifyTyping = (active) => channelRef.current?.send({ type: "broadcast", event: "typing", payload: { name: user?.user_metadata?.full_name || user?.email || "Someone", active } });
+
+  const scrollChatToBottom = () => {
+    const container = messagesRef.current;
+    if (!container) return;
+    stickToBottomRef.current = true;
+    setShowNewMessages(false);
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+  };
+
+  const handleMessageScroll = () => {
+    const container = messagesRef.current;
+    if (!container) return;
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+    stickToBottomRef.current = nearBottom;
+    if (nearBottom) setShowNewMessages(false);
+  };
 
   const send = async () => {
     const content = text.trim();
@@ -60,6 +90,7 @@ export default function Chat({ channel = "public", roomId = null }) {
     const data = await response.json();
     if (!response.ok) setError(data.error || "Unable to send message.");
     else {
+      stickToBottomRef.current = true;
       if (data.message) setMessages((current) => [...current.filter((item) => item.id !== data.message.id), data.message]);
       setText("");
       setReplyTo(null);
@@ -80,40 +111,66 @@ export default function Chat({ channel = "public", roomId = null }) {
   };
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0b141a] text-white">
-      <div className="border-b border-white/10 bg-[#202c33] px-4 py-3">
-        <div className="font-semibold">Mentorship Chat</div>
-        <div className="text-xs text-emerald-300">{typing.length ? `${typing.join(", ")} typing...` : "Fast room messages"}</div>
+    <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0b141a] text-white shadow-2xl">
+      <div className="flex items-center gap-3 border-b border-white/10 bg-[#202c33] px-4 py-3">
+        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-700 text-sm font-bold text-white shadow-lg">
+          MC
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-semibold">Mentorship Community</div>
+          <div className="truncate text-xs text-emerald-300">{typing.length ? `${typing.join(", ")} typing...` : `${messages.length} room messages`}</div>
+        </div>
+        <div className="rounded-full bg-white/5 px-3 py-1.5 text-[11px] text-gray-300">Live chat</div>
       </div>
-      <div className="h-[430px] space-y-2 overflow-y-auto p-3">
+      <div className="relative">
+      <div
+        ref={messagesRef}
+        onScroll={handleMessageScroll}
+        className="h-[min(62vh,560px)] min-h-[390px] space-y-2 overflow-y-auto bg-[#0b141a] p-3 sm:p-5"
+        style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(255,255,255,0.035) 0 1px, transparent 1.5px)", backgroundSize: "18px 18px" }}
+      >
+        {!messages.length && (
+          <div className="mx-auto mt-12 max-w-sm rounded-xl bg-[#182229]/95 px-4 py-3 text-center text-sm text-gray-300 shadow">
+            No messages yet. Start the mentorship conversation.
+          </div>
+        )}
         {messages.map((message) => {
           const mine = message.sender_id === user?.id;
           const replied = messages.find((item) => item.id === message.reply_to);
           return (
             <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[85%] rounded-xl px-3 py-2 shadow ${mine ? "bg-[#005c4b]" : "bg-[#202c33]"}`}>
+              <div className={`group max-w-[88%] rounded-xl px-3 py-2 shadow-md sm:max-w-[72%] ${mine ? "rounded-tr-sm bg-[#005c4b]" : "rounded-tl-sm bg-[#202c33]"}`}>
                 {!mine && <div className="text-xs font-semibold text-emerald-300">{message.sender_name || "Member"}</div>}
-                {replied && <div className="mb-1 border-l-2 border-emerald-400 bg-black/20 px-2 py-1 text-xs">{replied.content}</div>}
-                <div className="whitespace-pre-wrap break-words text-sm">{message.content}</div>
-                <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-gray-300">
-                  <span>{new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                {replied && <div className="mb-1.5 max-h-20 overflow-hidden rounded border-l-4 border-emerald-400 bg-black/20 px-2 py-1.5 text-xs text-gray-200">{replied.content}</div>}
+                <div className="whitespace-pre-wrap break-words pr-2 text-sm leading-relaxed">{message.content}</div>
+                <div className="mt-1 flex flex-wrap items-center justify-end gap-2 text-[10px] text-gray-300">
                   {message.edited_at && <span>edited</span>}
-                  <button onClick={() => setReplyTo(message)}>Reply</button>
-                  {mine && <button onClick={() => { setEditing(message); setText(message.content); }}>Edit</button>}
-                  {mine && <button onClick={() => remove(message)}>Delete</button>}
-                  {mine && <span className="text-sky-300">Sent</span>}
+                  <span>{new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                  {mine && <span className="font-semibold text-sky-300">Sent</span>}
+                </div>
+                <div className="mt-1 flex flex-wrap justify-end gap-3 border-t border-white/5 pt-1 text-[10px] text-gray-300 opacity-80 sm:opacity-0 sm:transition sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                  <button type="button" onClick={() => setReplyTo(message)} className="hover:text-white">Reply</button>
+                  {mine && <button type="button" onClick={() => { setEditing(message); setText(message.content); }} className="hover:text-white">Edit</button>}
+                  {mine && <button type="button" onClick={() => remove(message)} className="hover:text-red-300">Delete</button>}
                 </div>
               </div>
             </div>
           );
         })}
-        <div ref={bottomRef} />
+      </div>
+      {showNewMessages && (
+        <button type="button" onClick={scrollChatToBottom} className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-xl">
+          New messages
+        </button>
+      )}
       </div>
       {(replyTo || editing) && <div className="flex justify-between bg-[#182229] px-3 py-2 text-xs"><span>{editing ? `Editing: ${editing.content}` : `Replying to: ${replyTo.content}`}</span><button onClick={() => { setReplyTo(null); setEditing(null); setText(""); }}>Cancel</button></div>}
       {error && <div className="border-t border-red-400/20 bg-red-950/70 px-3 py-2 text-xs text-red-200">{error}</div>}
       <div className="grid grid-cols-[1fr_auto] items-end gap-2 border-t border-white/10 bg-[#202c33] p-3">
-        <textarea value={text} onFocus={() => notifyTyping(true)} onBlur={() => notifyTyping(false)} onChange={(event) => { setText(event.target.value); notifyTyping(true); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} className="max-h-28 min-h-[42px] min-w-0 resize-none rounded-xl bg-[#2a3942] px-3 py-2 text-sm outline-none" placeholder="Message" />
-        <button onClick={send} disabled={sending || !user} className="rounded-full bg-emerald-600 px-4 py-2 disabled:opacity-60">{sending ? "Sending..." : "Send"}</button>
+        <textarea value={text} onFocus={() => notifyTyping(true)} onBlur={() => notifyTyping(false)} onChange={(event) => { setText(event.target.value); notifyTyping(true); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} className="max-h-28 min-h-[46px] min-w-0 resize-none rounded-3xl bg-[#2a3942] px-4 py-3 text-sm outline-none placeholder:text-gray-400 focus:ring-1 focus:ring-emerald-500/60" placeholder="Type a message" />
+        <button type="button" onClick={send} disabled={sending || !user || !text.trim()} aria-label="Send message" className="grid h-12 w-12 place-items-center rounded-full bg-emerald-600 text-sm font-bold shadow-lg transition hover:bg-emerald-500 disabled:opacity-40">
+          {sending ? "..." : "Send"}
+        </button>
       </div>
     </div>
   );
