@@ -41,9 +41,6 @@ export async function getServerSideProps(ctx) {
   const role = (profile?.role || "user").toLowerCase();
   if (role === "admin") return { redirect: { destination: "/admin", permanent: false } };
   const access = await getPaidAccess({ supabaseAdmin, email: session.user.email, role });
-  if (access.active && access.plan !== planId) {
-    return { redirect: { destination: `/dashboard/${access.plan}`, permanent: false } };
-  }
   if (role !== planId && !access.active) return { redirect: { destination: "/dashboard", permanent: false } };
 
   const planStatus = await getPlanStatus({

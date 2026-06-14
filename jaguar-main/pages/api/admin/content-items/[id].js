@@ -66,20 +66,25 @@ export default async function handler(req, res) {
       isPublished,
     } = req.body || {};
 
+    const updates = {
+      title,
+      description: description || null,
+      segment: segment || "all",
+      media_type: mediaType,
+      media_url: mediaUrl || null,
+      body: body || null,
+      is_published: isPublished !== false,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Editing lesson details without uploading a replacement must keep the
+    // existing storage file available to subscribers.
+    if (storagePath) updates.storage_path = storagePath;
+    if (publicUrl) updates.public_url = publicUrl;
+
     const { data, error } = await supabaseAdmin
       .from("content_items")
-      .update({
-        title,
-        description: description || null,
-        segment: segment || "all",
-        media_type: mediaType,
-        media_url: mediaUrl || null,
-        storage_path: storagePath || null,
-        public_url: publicUrl || null,
-        body: body || null,
-        is_published: isPublished !== false,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updates)
       .eq("id", id)
       .select("*")
       .maybeSingle();

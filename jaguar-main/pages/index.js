@@ -400,13 +400,7 @@ export default function Home({
               return (
                 <button
                   key={key}
-                  onClick={() => {
-                    if (mode === key) {
-                      router.push(accessUrl);
-                    } else {
-                      setMode(key);
-                    }
-                  }}
+                  onClick={() => setMode(key)}
                   className={`fire-toggle ${isActive ? "is-active" : ""}`}
                   style={{
                     "--fire-color": style.color,

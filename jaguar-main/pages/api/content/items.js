@@ -21,13 +21,15 @@ export default async function handler(req, res) {
   const { data: profile } = await supabaseAdmin.from("profiles").select("role").eq("id", session.user.id).maybeSingle();
   const role = String(profile?.role || "user").toLowerCase();
   const access = await getPaidAccess({ supabaseAdmin, email: session.user.email, role });
+  const profileRank = ROLE_RANK[role] || 0;
+  const effectiveRank = Math.max(profileRank, access.active ? access.rank : 0);
   const { data, error } = await supabaseAdmin
     .from("content_items").select("*").eq("is_published", true).order("created_at", { ascending: false });
   if (error) return res.status(500).json({ error: "failed to load content" });
 
   const allowedItems = (data || []).filter((item) => {
     const segment = String(item.segment || "all").toLowerCase();
-    return segment === "all" || segment === "free" || (access.active && access.rank >= (ROLE_RANK[segment] ?? 99));
+    return segment === "all" || segment === "free" || effectiveRank >= (ROLE_RANK[segment] ?? 99);
   });
   const items = await Promise.all(allowedItems.map(async (item) => {
     if (!item.storage_path) return item;
@@ -42,5 +44,5 @@ export default async function handler(req, res) {
       download_url: download?.signedUrl || item.public_url || null,
     };
   }));
-  return res.status(200).json({ items, role, accessStatus: access.status });
+  return res.status(200).json({ items, role, accessStatus: access.status, effectiveRank });
 }
