@@ -165,7 +165,7 @@ export default function Content() {
   }
 
   return (
-    <div className="p-6 min-h-[calc(100vh-160px)]">
+    <div className="min-h-[calc(100vh-160px)] p-4 sm:p-6">
       <h2 className="text-2xl font-bold">Content Manager</h2>
       <p className="mt-2 text-gray-300">
         Upload videos, audio, PDFs, or text content and assign them to subscriber segments.

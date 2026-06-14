@@ -23,7 +23,7 @@ export default function CheckoutSuccess({ success, message, reference, plan, dia
       : "/dashboard";
 
   return (
-    <main className="container mx-auto px-6 py-12 text-center">
+    <main className="container mx-auto px-4 py-8 text-center sm:px-6 sm:py-12">
         <div className="max-w-lg mx-auto bg-gray-800/50 rounded-lg shadow-lg p-8">
           {success ? (
             <svg className="h-16 w-16 text-green-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

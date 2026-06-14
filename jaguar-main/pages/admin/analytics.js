@@ -69,12 +69,12 @@ function calculateTradeMetrics(trades) {
 export default function Analytics({ analytics }) {
   const [filter, setFilter] = useState("all");
 
-  if (!analytics) return <main className="container mx-auto p-6 text-gray-300">No trade data available</main>;
+  if (!analytics) return <main className="container mx-auto p-4 text-gray-300 sm:p-6">No trade data available</main>;
 
   const fmtNum = (n) => (typeof n === "number" ? n.toFixed(2) : "-");
 
   return (
-    <main className="container mx-auto p-6">
+    <main className="container mx-auto p-4 sm:p-6">
       <h1 className="text-3xl font-bold mb-6">Trade Analytics</h1>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -91,7 +91,7 @@ export default function Analytics({ analytics }) {
         <Card title="Max Drawdown" value={fmtNum(analytics.maxDrawdown) + "%"} />
       </div>
 
-      <div className="bg-white/5 rounded-lg p-6 mb-6">
+      <div className="mb-6 rounded-lg bg-white/5 p-4 sm:p-6">
         <h2 className="text-xl font-bold mb-4">Performance by Symbol</h2>
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">

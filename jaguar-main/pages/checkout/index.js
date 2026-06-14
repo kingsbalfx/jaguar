@@ -131,7 +131,7 @@ export default function Checkout() {
   return (
     <main className="app-bg text-white relative overflow-hidden">
       <div className="candle-backdrop" aria-hidden="true" />
-      <div className="app-content container mx-auto px-6 py-8">
+      <div className="app-content container mx-auto px-4 py-6 sm:px-6 sm:py-8">
         <h1 className="text-2xl font-bold mb-4">Checkout</h1>
 
         <div className="mb-4">

@@ -140,10 +140,10 @@ export default function Chat({ channel = "public", roomId = null }) {
         <div ref={bottomRef} />
       </div>
       {(replyTo || editing) && <div className="flex justify-between bg-[#182229] px-3 py-2 text-xs"><span>{editing ? `Editing: ${editing.content}` : `Replying to: ${replyTo.content}`}</span><button onClick={() => { setReplyTo(null); setEditing(null); setText(""); }}>Cancel</button></div>}
-      <div className="flex items-end gap-2 border-t border-white/10 bg-[#202c33] p-3">
+      <div className="grid grid-cols-[auto_1fr_auto] items-end gap-2 border-t border-white/10 bg-[#202c33] p-3">
         <input ref={fileRef} type="file" className="hidden" onChange={upload} />
-        <button disabled={uploading} onClick={() => fileRef.current?.click()} className="rounded-full bg-white/10 px-3 py-2">{uploading ? "..." : "Attach"}</button>
-        <textarea value={text} onFocus={() => notifyTyping(true)} onBlur={() => notifyTyping(false)} onChange={(event) => { setText(event.target.value); notifyTyping(true); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} className="max-h-28 min-h-[42px] flex-1 resize-none rounded-xl bg-[#2a3942] px-3 py-2 text-sm outline-none" placeholder="Message" />
+        <button disabled={uploading} onClick={() => fileRef.current?.click()} className="rounded-full bg-white/10 px-3 py-2 text-sm">{uploading ? "..." : "Attach"}</button>
+        <textarea value={text} onFocus={() => notifyTyping(true)} onBlur={() => notifyTyping(false)} onChange={(event) => { setText(event.target.value); notifyTyping(true); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} className="max-h-28 min-h-[42px] min-w-0 resize-none rounded-xl bg-[#2a3942] px-3 py-2 text-sm outline-none" placeholder="Message" />
         <button onClick={send} className="rounded-full bg-emerald-600 px-4 py-2">Send</button>
       </div>
     </div>

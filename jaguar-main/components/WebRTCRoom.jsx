@@ -18,7 +18,7 @@ function VideoTile({ stream, label, muted = false, cameraEnabled = true }) {
     if (ref.current) ref.current.srcObject = stream || null;
   }, [stream]);
   return (
-    <div className="relative overflow-hidden rounded-xl bg-black/60 min-h-[180px]">
+    <div className="relative aspect-video min-h-[150px] overflow-hidden rounded-xl bg-black/60 sm:min-h-[180px]">
       <video ref={ref} autoPlay playsInline muted={muted} className="h-full w-full object-cover" />
       {!cameraEnabled && <div className="absolute inset-0 grid place-items-center bg-slate-900 text-3xl font-bold">{String(label || "?").slice(0, 1).toUpperCase()}</div>}
       <div className="absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 text-xs text-white">{label}</div>
@@ -267,7 +267,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   const participantCount = Object.keys(participants).length || (joined ? 1 : 0);
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 to-slate-950 p-4 text-white shadow-2xl">
+    <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 to-slate-950 p-3 text-white shadow-2xl sm:p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-widest text-emerald-300">WebRTC Mentorship Room</div>
@@ -278,13 +278,13 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
           </div>
         </div>
         {!joined ? (
-          <button onClick={join} disabled={joining} className="rounded-xl bg-emerald-600 px-5 py-3 font-semibold shadow-lg disabled:opacity-60">{joining ? "Joining..." : "Join room"}</button>
+          <button onClick={join} disabled={joining} className="w-full rounded-xl bg-emerald-600 px-5 py-3 font-semibold shadow-lg disabled:opacity-60 sm:w-auto">{joining ? "Joining..." : "Join room"}</button>
         ) : (
-          <div className="flex flex-wrap gap-2 rounded-xl bg-black/30 p-2">
-            <button onClick={toggleMic} className={`rounded-lg px-4 py-2 ${micEnabled ? "bg-white/10" : "bg-amber-600"}`}>{micEnabled ? "Mute microphone" : "Unmute microphone"}</button>
-            <button onClick={toggleCamera} className={`rounded-lg px-4 py-2 ${cameraEnabled ? "bg-white/10" : "bg-amber-600"}`}>{cameraEnabled ? "Turn camera off" : "Turn camera on"}</button>
-            <button onClick={sharingScreen ? stopScreenShare : shareScreen} className="rounded-lg bg-indigo-600 px-4 py-2">{sharingScreen ? "Stop sharing" : "Share screen"}</button>
-            <button onClick={leave} className="rounded-lg bg-red-600 px-4 py-2">Leave room</button>
+          <div className="grid w-full grid-cols-1 gap-2 rounded-xl bg-black/30 p-2 sm:grid-cols-2 lg:flex lg:w-auto lg:flex-wrap">
+            <button onClick={toggleMic} className={`rounded-lg px-3 py-2 text-sm sm:px-4 ${micEnabled ? "bg-white/10" : "bg-amber-600"}`}>{micEnabled ? "Mute microphone" : "Unmute microphone"}</button>
+            <button onClick={toggleCamera} className={`rounded-lg px-3 py-2 text-sm sm:px-4 ${cameraEnabled ? "bg-white/10" : "bg-amber-600"}`}>{cameraEnabled ? "Turn camera off" : "Turn camera on"}</button>
+            <button onClick={sharingScreen ? stopScreenShare : shareScreen} className="rounded-lg bg-indigo-600 px-3 py-2 text-sm sm:px-4">{sharingScreen ? "Stop sharing" : "Share screen"}</button>
+            <button onClick={leave} className="rounded-lg bg-red-600 px-3 py-2 text-sm sm:px-4">Leave room</button>
           </div>
         )}
       </div>

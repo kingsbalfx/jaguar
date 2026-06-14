@@ -233,7 +233,7 @@ export default function Register() {
   return (
     <div className="app-bg text-white relative overflow-hidden">
       <div className="candle-backdrop" aria-hidden="true" />
-      <div className="app-content min-h-[calc(100vh-160px)] flex items-center justify-center px-6 py-12">
+      <div className="app-content min-h-[calc(100vh-160px)] flex items-center justify-center px-4 py-6 sm:px-6 sm:py-12">
         <div className="login-shell">
           <div className="login-side">
             <div className="login-brand">

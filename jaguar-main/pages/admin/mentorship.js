@@ -87,7 +87,7 @@ export default function Mentorship({ adminName }) {
   };
 
   return (
-    <div className="min-h-screen p-6 text-white">
+    <div className="min-h-screen p-4 text-white sm:p-6">
       <h1 className="text-2xl font-bold">WebRTC Mentorship Dashboard</h1>
       <p className="mt-1 text-sm text-gray-300">Create private one-to-one sessions or selected subscription-group WebRTC rooms.</p>
       <div className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">

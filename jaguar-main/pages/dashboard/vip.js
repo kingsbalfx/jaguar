@@ -64,7 +64,7 @@ export default function VipDashboard({ planStatus }) {
   return (
     <section className="relative overflow-hidden">
       <div className="candle-backdrop" aria-hidden="true" />
-      <div className="container mx-auto px-6 py-8 text-white">
+      <div className="container mx-auto px-4 py-6 text-white sm:px-6 sm:py-8">
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
           <div>
             <div className="text-xs uppercase tracking-widest text-purple-200">VIP Access</div>

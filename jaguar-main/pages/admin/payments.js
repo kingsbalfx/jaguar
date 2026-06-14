@@ -33,7 +33,7 @@ export const getServerSideProps = async (ctx) => {
 
 export default function AdminPayments({ payments }) {
   return (
-    <main className="container mx-auto p-6">
+    <main className="container mx-auto p-4 sm:p-6">
       <h1 className="text-2xl font-bold mb-4">Payments</h1>
       <div className="overflow-x-auto bg-white/5 rounded-lg p-4">
         <table className="min-w-full text-left">

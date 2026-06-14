@@ -190,7 +190,7 @@ export default function Users() {
   };
 
   return (
-    <div className="p-6 min-h-[calc(100vh-160px)]">
+    <div className="min-h-[calc(100vh-160px)] p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold">Users & Bot Limits</h2>

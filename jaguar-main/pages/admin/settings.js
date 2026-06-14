@@ -235,7 +235,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="p-6 max-w-3xl">
+    <div className="max-w-3xl p-4 sm:p-6">
       <h2 className="text-2xl font-bold mb-2">Admin Settings</h2>
       <p className="text-gray-300 mb-6">
         Enter MT5 login details once. The bot will fetch these from Supabase and auto-connect on

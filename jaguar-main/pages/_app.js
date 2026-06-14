@@ -102,7 +102,7 @@ export default function MyApp({ Component, pageProps }) {
 
       <Header />
 
-      <main className={`flex-grow app-bg relative overflow-hidden${isAuthRoute ? " auth-main" : ""}`}>
+      <main className={`flex-grow app-bg relative overflow-x-hidden${isAuthRoute ? " auth-main" : ""}`}>
         {showCandle && <div className="candle-backdrop" aria-hidden="true" />}
         <div className={`app-content${showQuickNav ? " with-quicknav" : ""}`}>
           <Component {...pageProps} />

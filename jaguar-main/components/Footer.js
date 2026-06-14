@@ -63,8 +63,8 @@ export default function Footer() {
   return (
     <footer className="w-full bg-slate-950/90 text-gray-400 border-t border-white/10">
       <div className="h-px w-full bg-gradient-to-r from-transparent via-indigo-500/40 to-transparent" />
-      <div className="max-w-7xl mx-auto px-6 py-8 flex flex-col md:flex-row justify-between items-center gap-6">
-        <div>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-col md:flex-row justify-between items-center gap-6">
+        <div className="text-center md:text-left">
           <h3 className="text-white font-bold text-2xl">KINGSBALFX</h3>
           <p className="text-sm text-gray-400">
             Forex Education • Structured Mentorship • Risk Management

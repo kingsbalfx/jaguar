@@ -54,7 +54,7 @@ export default function DashboardHome({ email }) {
   return (
     <div className="app-bg text-white relative overflow-hidden min-h-[calc(100vh-160px)]">
       <div className="candle-backdrop" aria-hidden="true" />
-      <div className="app-content container mx-auto px-6 py-16">
+      <div className="app-content container mx-auto px-4 py-10 sm:px-6 sm:py-16">
         <div className="max-w-2xl mx-auto bg-black/70 border border-white/10 rounded-2xl p-8 text-center">
           <h1 className="text-3xl font-bold mb-3">Welcome back</h1>
           <p className="text-gray-300 mb-6">

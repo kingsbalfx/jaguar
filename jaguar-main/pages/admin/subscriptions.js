@@ -50,7 +50,7 @@ export default function Subscriptions() {
   };
 
   return (
-    <main className="container mx-auto space-y-6 p-6 text-white">
+    <main className="container mx-auto space-y-6 p-4 text-white sm:p-6">
       <div>
         <h1 className="text-2xl font-bold">Subscription Management</h1>
         <p className="mt-1 text-sm text-gray-300">Review active, expired, and repairable verified subscriptions.</p>

@@ -116,10 +116,10 @@ export default function AdminPage({ profile, metrics, recentUsers }) {
   const resolveUserName = (user) => user?.name || user?.username || user?.email || "Unnamed user";
 
   return (
-    <main className="container mx-auto px-6 py-8">
-      <div className="flex gap-6">
+    <main className="container mx-auto px-4 py-6 sm:px-6 sm:py-8">
+      <div className="flex flex-col gap-6 xl:flex-row">
         {/* Sidebar */}
-        <aside className={`w-64 p-4 rounded-lg bg-black/30 ${menuOpen ? "" : "hidden"}`}>
+        <aside className={`w-full p-4 rounded-lg bg-black/30 xl:w-64 ${menuOpen ? "" : "hidden"}`}>
           <div className="flex justify-between items-center mb-4">
             <div>
               <div className="text-sm text-gray-300">Signed in as</div>
@@ -280,7 +280,7 @@ export default function AdminPage({ profile, metrics, recentUsers }) {
               <p className="text-gray-300 mb-4">
                 Manage lessons, upload videos, and publish to landing pages. Use the upload page to add mp4/jpg/pdf resources for VIP/Premium.
               </p>
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <Link href="/admin/mentorship/upload" legacyBehavior>
                   <a className="px-4 py-2 bg-yellow-400 text-black rounded">Upload Lesson</a>
                 </Link>

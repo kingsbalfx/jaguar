@@ -126,7 +126,7 @@ function NavPanel({ links, role, pathname, onSignOut, compact = false }) {
 
   return (
     <div
-      className={`${compact ? "w-[min(22rem,calc(100vw-2rem))]" : "w-72"} quick-nav-panel`}
+      className={`${compact ? "w-[min(22rem,calc(100vw-2rem))] max-w-full" : "w-72"} quick-nav-panel`}
     >
       <div className="quick-nav-header">
         <div className="flex items-center justify-between gap-3">
@@ -268,7 +268,7 @@ export default function QuickNav() {
             <span>{open ? "Close Nav" : "Quick Nav"}</span>
           </button>
           {open && (
-            <div className="absolute right-0 mt-3">
+            <div className="quick-nav-popover">
               <NavPanel
                 links={links}
                 role={effectiveRole}
@@ -298,7 +298,7 @@ export default function QuickNav() {
         <span>{open ? "Close Nav" : "Quick Nav"}</span>
       </button>
       {open && (
-        <div className="absolute right-0 mt-3">
+        <div className="quick-nav-popover">
           <NavPanel
             links={links}
             role={effectiveRole}

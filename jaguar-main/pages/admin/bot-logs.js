@@ -81,10 +81,10 @@ export default function BotLogs() {
     })();
   }, []);
 
-  if (loading) return <main className="container mx-auto p-6">Loading...</main>;
+  if (loading) return <main className="container mx-auto p-4 sm:p-6">Loading...</main>;
 
   return (
-    <main className="container mx-auto p-6">
+    <main className="container mx-auto p-4 sm:p-6">
       <h1 className="text-2xl font-bold mb-4">Bot Logs</h1>
       <section id="market-edge" className="bg-white/5 rounded-lg p-4 mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
