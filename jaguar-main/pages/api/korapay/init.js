@@ -9,9 +9,13 @@ function getTierById(plan) {
   return Object.values(PRICING_TIERS).find((tier) => tier.id === planId) || null;
 }
 
+function publicPlanSlug(plan) {
+  return String(plan || "").toLowerCase() === "premium" ? "ACADEMY" : String(plan || "").toUpperCase();
+}
+
 function generateReference(plan) {
   const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `KBS_${plan}_${Date.now()}_${suffix}`;
+  return `KBS_${publicPlanSlug(plan)}_${Date.now()}_${suffix}`;
 }
 
 export default async function handler(req, res) {
@@ -42,9 +46,7 @@ export default async function handler(req, res) {
     const baseUrl = getURL().replace(/\/$/, "");
     const reference = generateReference(tier.id);
 
-    const redirectUrl = `${baseUrl}/checkout/success?plan=${encodeURIComponent(
-      tier.id
-    )}`;
+    const redirectUrl = `${baseUrl}/checkout/success?plan=${encodeURIComponent(tier.displayName)}`;
 
     const init = await initKorapayCharge({
       amount: tier.price,

@@ -1,21 +1,8 @@
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 import { verifyKorapayCharge } from "../../../lib/korapay";
-import { getBotTierDefaults } from "../../../lib/pricing-config";
 import { validatePlanPayment } from "../../../lib/payment-amount";
 import { activateSubscription } from "../../../lib/subscription-lifecycle";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
-
-function buildProfilePlanUpdate(plan) {
-  const defaults = getBotTierDefaults(plan);
-  return {
-    role: plan,
-    bot_tier: defaults.botTier,
-    bot_max_signals_per_day: defaults.botMaxSignalsPerDay,
-    bot_max_concurrent_trades: defaults.botMaxConcurrentTrades,
-    bot_signal_quality: defaults.botSignalQuality,
-    bot_tier_updated_at: new Date().toISOString(),
-  };
-}
 
 function normalizeReference(value) {
   if (!value) return null;
@@ -97,33 +84,6 @@ export default async function handler(req, res) {
         console.warn("Payment insert failed:", e?.message || e);
       }
 
-      try {
-        if (plan) {
-          const profileUpdate = buildProfilePlanUpdate(plan);
-          if (userId) {
-            await supabaseAdmin.from("profiles").update(profileUpdate).eq("id", userId);
-            try {
-              await supabaseAdmin.auth.admin.updateUserById(userId, {
-                app_metadata: { role: plan },
-              });
-            } catch (e) {
-              console.warn("auth.admin.updateUserById failed:", e?.message || e);
-            }
-          } else if (buyerEmail) {
-            const { data: profile } = await supabaseAdmin
-              .from("profiles")
-              .select("id")
-              .eq("email", buyerEmail)
-              .maybeSingle();
-            if (profile?.id) {
-              await supabaseAdmin.from("profiles").update(profileUpdate).eq("id", profile.id);
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("Role update failed:", e?.message || e);
-      }
-
       if (!buyerEmail || !plan) {
         return res.status(400).json({ error: "Verified payment is missing account email or plan metadata" });
       }
@@ -131,7 +91,10 @@ export default async function handler(req, res) {
         activation = await activateSubscription({ supabaseAdmin, email: buyerEmail, plan, amount: result.amount, userId, reference: result.reference || reference });
       } catch (e) {
         console.error("Subscription activation failed:", e?.message || e);
-        return res.status(500).json({ error: "Payment verified, but subscription activation failed. Retry verification; no new payment is required." });
+        return res.status(500).json({
+          error: "Payment verified, but subscription activation failed. Retry verification; no new payment is required.",
+          diagnostic: e?.message || "Unknown subscription database error",
+        });
       }
     }
 

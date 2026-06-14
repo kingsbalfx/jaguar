@@ -8,6 +8,30 @@ export function subscriptionEndDate(plan, startedAt = new Date()) {
     : null;
 }
 
+async function writeSubscription({ supabaseAdmin, email, plan, payload, exists }) {
+  const variants = [
+    payload,
+    { status: payload.status, started_at: payload.started_at, ended_at: payload.ended_at },
+    { status: payload.status },
+  ];
+  let lastError = null;
+  for (const variant of variants) {
+    const result = exists
+      ? await supabaseAdmin
+          .from("subscriptions")
+          .update({ ...variant, email, plan })
+          .ilike("email", email)
+          .ilike("plan", plan)
+      : await supabaseAdmin.from("subscriptions").insert({ email, plan, ...variant });
+    if (!result.error) return;
+    lastError = result.error;
+    if (result.error.code !== "42703" && !String(result.error.message || "").toLowerCase().includes("column")) {
+      break;
+    }
+  }
+  throw lastError || new Error("Subscription write failed");
+}
+
 export async function activateSubscription({ supabaseAdmin, email, plan, amount, userId, reference }) {
   if (!supabaseAdmin || !email || !plan) throw new Error("Missing subscription activation details");
   const normalizedEmail = String(email).trim().toLowerCase();
@@ -27,8 +51,19 @@ export async function activateSubscription({ supabaseAdmin, email, plan, amount,
         .select("status,ended_at")
         .ilike("email", normalizedEmail)
         .ilike("plan", normalizedPlan);
-      if (currentError) throw currentError;
-      const active = (currentSubscriptions || []).some((subscription) => {
+      let subscriptions = currentSubscriptions || [];
+      if (currentError?.code === "42703" || String(currentError?.message || "").toLowerCase().includes("column")) {
+        const fallback = await supabaseAdmin
+          .from("subscriptions")
+          .select("status")
+          .ilike("email", normalizedEmail)
+          .ilike("plan", normalizedPlan);
+        if (fallback.error) throw fallback.error;
+        subscriptions = fallback.data || [];
+      } else if (currentError) {
+        throw currentError;
+      }
+      const active = subscriptions.some((subscription) => {
         if (String(subscription.status || "").toLowerCase() !== "active") return false;
         return !subscription.ended_at || new Date(subscription.ended_at) > new Date();
       });
@@ -40,7 +75,7 @@ export async function activateSubscription({ supabaseAdmin, email, plan, amount,
           endedAt: existingActivation.ended_at,
         };
       }
-      const deliberatelyDisabled = (currentSubscriptions || []).some((subscription) =>
+      const deliberatelyDisabled = subscriptions.some((subscription) =>
         ["revoked", "cancelled", "canceled"].includes(String(subscription.status || "").toLowerCase())
       );
       if (deliberatelyDisabled) {
@@ -70,22 +105,18 @@ export async function activateSubscription({ supabaseAdmin, email, plan, amount,
   const payload = { status: "active", amount: amount || 0, started_at: startedAt, ended_at: endedAt };
   const existing = await supabaseAdmin
     .from("subscriptions")
-    .select("email,plan")
+    .select("email,plan,status")
     .ilike("email", normalizedEmail)
     .ilike("plan", normalizedPlan)
     .limit(1);
   if (existing.error) throw existing.error;
-  if (existing.data?.[0]) {
-    const result = await supabaseAdmin
-      .from("subscriptions")
-      .update({ ...payload, email: normalizedEmail, plan: normalizedPlan })
-      .ilike("email", normalizedEmail)
-      .ilike("plan", normalizedPlan);
-    if (result.error) throw result.error;
-  } else {
-    const result = await supabaseAdmin.from("subscriptions").insert({ email: normalizedEmail, plan: normalizedPlan, ...payload });
-    if (result.error) throw result.error;
-  }
+  await writeSubscription({
+    supabaseAdmin,
+    email: normalizedEmail,
+    plan: normalizedPlan,
+    payload,
+    exists: Boolean(existing.data?.[0]),
+  });
 
   const profileUpdate = { role: normalizedPlan, updated_at: startedAt };
   const profileResult = userId

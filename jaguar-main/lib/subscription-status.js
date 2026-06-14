@@ -3,6 +3,24 @@ import { activateSubscription } from "./subscription-lifecycle.js";
 
 export const ROLE_RANK = { free: 0, user: 0, all: 0, premium: 1, vip: 2, pro: 3, lifetime: 4, admin: 99 };
 
+async function loadSubscriptions(supabaseAdmin, email, plan = null) {
+  let query = supabaseAdmin
+    .from("subscriptions")
+    .select("plan, status, ended_at, started_at")
+    .ilike("email", String(email).trim());
+  if (plan) query = query.ilike("plan", plan);
+  let result = await query.order("started_at", { ascending: false });
+  if (result.error?.code === "42703" || String(result.error?.message || "").toLowerCase().includes("column")) {
+    let fallback = supabaseAdmin
+      .from("subscriptions")
+      .select("plan, status")
+      .ilike("email", String(email).trim());
+    if (plan) fallback = fallback.ilike("plan", plan);
+    result = await fallback;
+  }
+  return result;
+}
+
 export function isSubscriptionActive(subscription, now = new Date()) {
   if (String(subscription?.status || "").toLowerCase() !== "active") return false;
   if (!subscription.ended_at) return true;
@@ -19,12 +37,7 @@ export async function getPlanStatus({ supabaseAdmin, email, plan, role }) {
   if (!supabaseAdmin || !email || !normalizedPlan) return base;
 
   try {
-    const { data, error } = await supabaseAdmin
-      .from("subscriptions")
-      .select("plan, status, ended_at, started_at")
-      .ilike("email", String(email).trim())
-      .ilike("plan", normalizedPlan)
-      .order("started_at", { ascending: false });
+    const { data, error } = await loadSubscriptions(supabaseAdmin, email, normalizedPlan);
     const subscription = (data || []).find(isSubscriptionActive) || data?.[0];
     if (error || !subscription) return base;
     const active = isSubscriptionActive(subscription);
@@ -46,11 +59,7 @@ export async function getPaidAccess({ supabaseAdmin, email, role }) {
   if (normalizedRole === "admin") return { active: true, plan: "admin", plans: ["admin"], rank: 99, status: "active" };
   if (!supabaseAdmin || !email) return { active: false, plan: null, plans: [], rank: 0, status: "inactive" };
   try {
-    const { data, error } = await supabaseAdmin
-      .from("subscriptions")
-      .select("plan, status, ended_at, started_at")
-      .ilike("email", String(email).trim())
-      .order("started_at", { ascending: false });
+    const { data, error } = await loadSubscriptions(supabaseAdmin, email);
     if (error) return { active: false, plan: null, plans: [], rank: 0, status: "inactive" };
     const activePlans = (data || [])
       .filter(isSubscriptionActive)

@@ -2,25 +2,14 @@
 import React from "react";
 import Link from "next/link";
 import { verifyKorapayCharge } from "../../lib/korapay";
-import { getBotTierDefaults } from "../../lib/pricing-config";
+import { getPricingTier } from "../../lib/pricing-config";
 import { validatePlanPayment } from "../../lib/payment-amount";
 import { activateSubscription } from "../../lib/subscription-lifecycle";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 
-function buildProfilePlanUpdate(plan) {
-  const defaults = getBotTierDefaults(plan);
-  return {
-    role: plan,
-    bot_tier: defaults.botTier,
-    bot_max_signals_per_day: defaults.botMaxSignalsPerDay,
-    bot_max_concurrent_trades: defaults.botMaxConcurrentTrades,
-    bot_signal_quality: defaults.botSignalQuality,
-    bot_tier_updated_at: new Date().toISOString(),
-  };
-}
-
-export default function CheckoutSuccess({ success, message, reference, plan }) {
+export default function CheckoutSuccess({ success, message, reference, plan, diagnostic }) {
+  const planLabel = getPricingTier(plan)?.displayName || plan || "selected";
   const dashboardUrl =
     plan === "vip"
       ? "/dashboard/vip"
@@ -48,11 +37,13 @@ export default function CheckoutSuccess({ success, message, reference, plan }) {
             {success ? "Payment Successful" : "Payment Verification Failed"}
           </h1>
           <p className="text-gray-300 mb-6">{message}</p>
+          {plan && <div className="mt-2 text-gray-300">Plan: <strong>{planLabel}</strong></div>}
           {reference && (
             <div className="mt-4 text-gray-400">
               Reference: <strong>{reference}</strong>
             </div>
           )}
+          {diagnostic && <div className="mt-4 rounded bg-red-950/50 p-3 text-left text-xs text-red-200">{diagnostic}</div>}
           {success && (
             <div className="mt-8">
               <Link href={dashboardUrl} className="bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 transition duration-300">
@@ -137,31 +128,6 @@ export async function getServerSideProps(context) {
 
     let activation = null;
     try {
-      if (plan) {
-        const profileUpdate = buildProfilePlanUpdate(plan);
-        if (userId) {
-          await supabaseAdmin.from("profiles").update(profileUpdate).eq("id", userId);
-          try {
-            await supabaseAdmin.auth.admin.updateUserById(userId, {
-              app_metadata: { role: plan },
-            });
-          } catch (e) {
-            console.warn("auth.admin.updateUserById failed:", e?.message || e);
-          }
-        } else if (buyerEmail) {
-          const { data: profileRow } = await supabaseAdmin
-            .from("profiles")
-            .select("id")
-            .eq("email", buyerEmail)
-            .maybeSingle();
-
-          if (profileRow?.id) {
-            await supabaseAdmin.from("profiles").update(profileUpdate).eq("id", profileRow.id);
-          } else {
-            await supabaseAdmin.from("profiles").insert([{ email: buyerEmail, ...profileUpdate }]);
-          }
-        }
-      }
       if (!buyerEmail || !plan) throw new Error("Verified payment is missing account email or plan metadata");
       activation = await activateSubscription({ supabaseAdmin, email: buyerEmail, plan, amount: result.amount, userId, reference: result.reference || reference });
     } catch (upErr) {
@@ -172,6 +138,7 @@ export async function getServerSideProps(context) {
           message: "Payment verified, but subscription activation failed. Reload this page to retry; no new payment is required.",
           reference,
           plan,
+          diagnostic: upErr?.message || "Unknown subscription database error",
         },
       };
     }
