@@ -97,8 +97,26 @@ export default async function handler(req, res) {
       }
     });
 
-    const users = (profiles || []).map((profile) => {
+    const { data: authData } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    const profilesById = new Map((profiles || []).map((profile) => [profile.id, profile]));
+    const mergedProfiles = [...(profiles || [])];
+    for (const authUser of authData?.users || []) {
+      if (!profilesById.has(authUser.id)) {
+        mergedProfiles.push({
+          id: authUser.id,
+          email: authUser.email,
+          name: authUser.user_metadata?.full_name || authUser.user_metadata?.name || null,
+          username: authUser.user_metadata?.username || null,
+          role: authUser.app_metadata?.role || "user",
+          created_at: authUser.created_at,
+        });
+      }
+    }
+    const authById = new Map((authData?.users || []).map((user) => [user.id, user]));
+
+    const users = mergedProfiles.map((profile) => {
       const sub = byEmail.get(String(profile.email || "").toLowerCase());
+      const authUser = authById.get(profile.id);
       return {
         ...profile,
         trading_profile: usedExtended ? profile.trading_profile || "balanced" : undefined,
@@ -106,6 +124,8 @@ export default async function handler(req, res) {
         planStatus: sub ? (isSubscriptionActive(sub) ? "active" : sub.status === "active" ? "expired" : sub.status) : "none",
         startedAt: sub?.started_at || null,
         endedAt: sub?.ended_at || null,
+        lastSignInAt: authUser?.last_sign_in_at || null,
+        emailConfirmedAt: authUser?.email_confirmed_at || null,
       };
     });
 

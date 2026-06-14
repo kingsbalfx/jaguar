@@ -9,6 +9,7 @@ import { getPaidAccess, getPlanStatus } from "../../lib/subscription-status";
 import PlanInactivePanel from "../../components/PlanInactivePanel";
 import MentorshipCards from "../../components/MentorshipCards";
 import RiskDisclaimer from "../../components/RiskDisclaimer";
+import PlanPerformancePanel from "../../components/PlanPerformancePanel";
 
 export async function getServerSideProps(ctx) {
   const planId = "lifetime";
@@ -121,6 +122,7 @@ export default function LifetimeDashboard({ planStatus }) {
           <ContentLibrary />
         </div>
         <div className="mt-6"><MentorshipCards /></div>
+        <PlanPerformancePanel plan="lifetime" />
         <div className="mt-6"><RiskDisclaimer /></div>
         </>}
       </div>

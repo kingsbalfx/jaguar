@@ -64,10 +64,17 @@ export default async function handler(req, res) {
           activeByEmail.set(email, subscription.plan);
         }
       }
-      const activeUsers = (users || [])
-        .filter((user) => activeByEmail.has(String(user.email || "").toLowerCase()))
-        .map((user) => ({ ...user, activePlan: activeByEmail.get(String(user.email || "").toLowerCase()) }));
-      return res.status(200).json({ session: data || null, users: activeUsers });
+      const segmentedUsers = (users || []).map((user) => {
+        const email = String(user.email || "").toLowerCase();
+        const profilePlan = String(user.role || "user").toLowerCase();
+        const activePlan = activeByEmail.get(email) || profilePlan;
+        return {
+          ...user,
+          activePlan,
+          accessStatus: activeByEmail.has(email) || profilePlan === "lifetime" ? "active" : "profile role",
+        };
+      });
+      return res.status(200).json({ session: data || null, users: segmentedUsers });
     }
 
     const {

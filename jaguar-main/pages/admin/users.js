@@ -331,6 +331,11 @@ export default function Users() {
                     {" | "}Status:{" "}
                     <span className="text-white">{(user.planStatus || "none").toUpperCase()}</span>
                   </div>
+                  <div className="mt-1 text-xs text-gray-400">
+                    Joined: <span className="text-gray-200">{user.created_at ? new Date(user.created_at).toLocaleDateString() : "Unknown"}</span>
+                    {" | "}Last sign-in: <span className="text-gray-200">{user.lastSignInAt ? new Date(user.lastSignInAt).toLocaleString() : "No sign-in recorded"}</span>
+                    {" | "}Email: <span className={user.emailConfirmedAt ? "text-emerald-300" : "text-amber-300"}>{user.emailConfirmedAt ? "Verified" : "Unverified"}</span>
+                  </div>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <span className="text-xs px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-200">
                       Signals/day: {formatLimit(user.bot_max_signals_per_day)}
