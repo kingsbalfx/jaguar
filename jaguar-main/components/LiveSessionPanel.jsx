@@ -7,6 +7,7 @@ const Chat = dynamic(() => import("./Chat"), { ssr: false });
 export default function LiveSessionPanel({ heading = "Live Mentorship" }) {
   const [session, setSession] = useState(null);
   const [role, setRole] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -17,6 +18,7 @@ export default function LiveSessionPanel({ heading = "Live Mentorship" }) {
         if (!response.ok) throw new Error(data?.error || "Unable to load live session.");
         setSession(data.session || null);
         setRole(data.role || "");
+        setDisplayName(data.displayName || data.role || "Subscriber");
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -36,7 +38,7 @@ export default function LiveSessionPanel({ heading = "Live Mentorship" }) {
           {session.room_mode ? ` · ${session.room_mode === "one_to_one" ? "Private 1:1" : "Group room"}` : ""}
         </div>
       </div>
-      <WebRTCRoom roomName={session.room_name || session.id} displayName={role || "Subscriber"} />
+      <WebRTCRoom roomName={session.room_name || session.id} displayName={displayName || role || "Subscriber"} />
       <Chat channel={session.segment || role || "mentorship"} roomId={session.room_name || session.id} />
     </div>
   );

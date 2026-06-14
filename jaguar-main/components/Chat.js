@@ -11,6 +11,8 @@ export default function Chat({ channel = "public", roomId = null }) {
   const [typing, setTyping] = useState([]);
   const [readCounts, setReadCounts] = useState({});
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+  const [sending, setSending] = useState(false);
   const fileRef = useRef(null);
   const bottomRef = useRef(null);
   const channelRef = useRef(null);
@@ -19,11 +21,16 @@ export default function Chat({ channel = "public", roomId = null }) {
   const loadMessages = async () => {
     if (!supabase) return;
     const activeUser = user || (await supabase.auth.getUser()).data?.user || null;
-    const [{ data }, { data: reads }, { data: reactions }] = await Promise.all([
+    const [{ data, error: messagesError }, { data: reads }, { data: reactions }] = await Promise.all([
       supabase.from("mentorship_messages").select("*").eq("room_key", roomKey).is("deleted_at", null).order("created_at").limit(300),
       supabase.from("mentorship_message_reads").select("message_id,user_id").eq("room_key", roomKey),
       supabase.from("mentorship_message_reactions").select("message_id,user_id,emoji"),
     ]);
+    if (messagesError) {
+      setError(messagesError.message || "Unable to load chat messages.");
+      return;
+    }
+    setError("");
     const reactionMap = (reactions || []).reduce((map, reaction) => {
       const current = map[reaction.message_id] || {};
       current[reaction.emoji] = [...(current[reaction.emoji] || []), reaction.user_id];
@@ -72,16 +79,32 @@ export default function Chat({ channel = "public", roomId = null }) {
 
   const send = async () => {
     const content = text.trim();
-    if (!content || !supabase || !user) return;
-    if (editing) {
-      await supabase.from("mentorship_messages").update({ content, edited_at: new Date().toISOString() }).eq("id", editing.id).eq("sender_id", user.id);
-    } else {
-      await supabase.from("mentorship_messages").insert({ room_key: roomKey, sender_id: user.id, sender_name: user.email, content, reply_to: replyTo?.id || null });
+    if (!content || !supabase || !user || sending) return;
+    setSending(true);
+    setError("");
+    try {
+      if (editing) {
+        const { error: updateError } = await supabase.from("mentorship_messages").update({ content, edited_at: new Date().toISOString() }).eq("id", editing.id).eq("sender_id", user.id);
+        if (updateError) throw updateError;
+      } else {
+        const { data: inserted, error: insertError } = await supabase
+          .from("mentorship_messages")
+          .insert({ room_key: roomKey, sender_id: user.id, sender_name: user.user_metadata?.full_name || user.user_metadata?.name || user.email, content, reply_to: replyTo?.id || null })
+          .select("*")
+          .single();
+        if (insertError) throw insertError;
+        if (inserted) setMessages((current) => [...current.filter((message) => message.id !== inserted.id), inserted]);
+      }
+      setText("");
+      setReplyTo(null);
+      setEditing(null);
+      notifyTyping(false);
+      await loadMessages();
+    } catch (err) {
+      setError(err.message || "Unable to send message.");
+    } finally {
+      setSending(false);
     }
-    setText("");
-    setReplyTo(null);
-    setEditing(null);
-    notifyTyping(false);
   };
 
   const remove = async (message) => {
@@ -140,11 +163,12 @@ export default function Chat({ channel = "public", roomId = null }) {
         <div ref={bottomRef} />
       </div>
       {(replyTo || editing) && <div className="flex justify-between bg-[#182229] px-3 py-2 text-xs"><span>{editing ? `Editing: ${editing.content}` : `Replying to: ${replyTo.content}`}</span><button onClick={() => { setReplyTo(null); setEditing(null); setText(""); }}>Cancel</button></div>}
+      {error && <div className="border-t border-red-400/20 bg-red-950/70 px-3 py-2 text-xs text-red-200">{error}</div>}
       <div className="grid grid-cols-[auto_1fr_auto] items-end gap-2 border-t border-white/10 bg-[#202c33] p-3">
         <input ref={fileRef} type="file" className="hidden" onChange={upload} />
         <button disabled={uploading} onClick={() => fileRef.current?.click()} className="rounded-full bg-white/10 px-3 py-2 text-sm">{uploading ? "..." : "Attach"}</button>
         <textarea value={text} onFocus={() => notifyTyping(true)} onBlur={() => notifyTyping(false)} onChange={(event) => { setText(event.target.value); notifyTyping(true); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} className="max-h-28 min-h-[42px] min-w-0 resize-none rounded-xl bg-[#2a3942] px-3 py-2 text-sm outline-none" placeholder="Message" />
-        <button onClick={send} className="rounded-full bg-emerald-600 px-4 py-2">Send</button>
+        <button onClick={send} disabled={sending || !user} className="rounded-full bg-emerald-600 px-4 py-2 disabled:opacity-60">{sending ? "Sending..." : "Send"}</button>
       </div>
     </div>
   );

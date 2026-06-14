@@ -10,13 +10,14 @@ export default async function handler(req, res) {
 
   const supabaseAdmin = getSupabaseClient({ server: true });
   if (!supabaseAdmin) return res.status(500).json({ error: "Supabase admin client not configured" });
-  const { data: profile } = await supabaseAdmin.from("profiles").select("role").eq("id", session.user.id).maybeSingle();
+  const { data: profile } = await supabaseAdmin.from("profiles").select("role,name,username,email").eq("id", session.user.id).maybeSingle();
   const role = String(profile?.role || "user").toLowerCase();
   const access = await getPaidAccess({ supabaseAdmin, email: session.user.email, role });
   const { data, error } = await supabaseAdmin
     .from("live_sessions").select("*").eq("active", true).order("starts_at", { ascending: true }).limit(1).maybeSingle();
   if (error && error.code !== "42P01") return res.status(500).json({ error: "failed to load live session" });
-  if (!data) return res.status(200).json({ session: null, role, accessStatus: access.status });
+  const displayName = profile?.name || profile?.username || profile?.email || session.user.email || "Subscriber";
+  if (!data) return res.status(200).json({ session: null, role, displayName, accessStatus: access.status });
 
   const segment = String(data.segment || "all").toLowerCase();
   const targets = Array.isArray(data.target_user_ids) ? data.target_user_ids : [];
@@ -25,5 +26,5 @@ export default async function handler(req, res) {
   if (role !== "admin" && (!segmentAllowed || !targetAllowed)) {
     return res.status(200).json({ session: null, role, accessStatus: access.status });
   }
-  return res.status(200).json({ session: data, role, accessStatus: access.status });
+  return res.status(200).json({ session: data, role, displayName, accessStatus: access.status });
 }

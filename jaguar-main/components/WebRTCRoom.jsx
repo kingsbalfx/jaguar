@@ -50,6 +50,18 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   const [stageRequests, setStageRequests] = useState([]);
   const [requestSent, setRequestSent] = useState("");
   const [presenting, setPresenting] = useState(isHost);
+  const [approvedKind, setApprovedKind] = useState("");
+
+  const removePeer = useCallback((peerId) => {
+    peersRef.current.get(peerId)?.close();
+    peersRef.current.delete(peerId);
+    screenAudioSendersRef.current.delete(peerId);
+    setRemoteStreams((current) => {
+      const next = { ...current };
+      delete next[peerId];
+      return next;
+    });
+  }, []);
 
   const loadDevices = useCallback(async () => {
     if (!navigator.mediaDevices?.enumerateDevices) return;
@@ -96,14 +108,21 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
       };
       peer.ontrack = (event) => attachRemoteStream(peerId, event.streams[0]);
       peer.onconnectionstatechange = () => {
-        if (["closed", "failed", "disconnected"].includes(peer.connectionState)) {
-          peer.close();
-          peersRef.current.delete(peerId);
-          setRemoteStreams((current) => {
-            const next = { ...current };
-            delete next[peerId];
-            return next;
-          });
+        if (["closed", "failed"].includes(peer.connectionState)) {
+          removePeer(peerId);
+        }
+        if (peer.connectionState === "disconnected") {
+          window.setTimeout(async () => {
+            if (peer.connectionState !== "disconnected") return;
+            removePeer(peerId);
+            if (!isHost) {
+              await channelRef.current?.send({
+                type: "broadcast",
+                event: "reconnect-request",
+                payload: { source: clientId.current },
+              });
+            }
+          }, 2000);
         }
       };
       if (initiator) {
@@ -113,13 +132,18 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
       }
       return peer;
     },
-    [attachRemoteStream, isHost, sendSignal],
+    [attachRemoteStream, isHost, removePeer, sendSignal],
   );
 
   const handleSignal = useCallback(
     async ({ payload }) => {
       if (!payload || payload.target !== clientId.current || payload.source === clientId.current) return;
-      const peer = createPeer(payload.source, false);
+      let peer = peersRef.current.get(payload.source);
+      if (payload.type === "offer" && peer && peer.signalingState !== "stable") {
+        removePeer(payload.source);
+        peer = null;
+      }
+      peer = peer || createPeer(payload.source, false);
       if (payload.type === "offer") {
         await peer.setRemoteDescription(new RTCSessionDescription(payload.data));
         const answer = await peer.createAnswer();
@@ -131,7 +155,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
         await peer.addIceCandidate(new RTCIceCandidate(payload.data));
       }
     },
-    [createPeer, sendSignal],
+    [createPeer, removePeer, sendSignal],
   );
 
   const join = useCallback(async () => {
@@ -161,7 +185,10 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
           });
           setMicEnabled(false);
         }
-        if (payload.action === "approve-presenter") startPresenting(payload.kind || "camera");
+        if (payload.action === "approve-presenter") {
+          setApprovedKind(payload.kind || "camera");
+          setRequestSent("");
+        }
         if (payload.action === "stop-presenter") stopPresenting();
         if (payload.action === "kick") leave();
       });
@@ -174,20 +201,17 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
       });
       channel.on("broadcast", { event: "presenter-ready" }, ({ payload }) => {
         if (!payload?.source || payload.source === clientId.current) return;
-        peersRef.current.get(payload.source)?.close();
-        peersRef.current.delete(payload.source);
-        createPeer(payload.source, false);
+        if (!peersRef.current.has(payload.source)) createPeer(payload.source, false);
       });
       channel.on("broadcast", { event: "presenter-stopped" }, ({ payload }) => {
         const peerId = payload?.source;
         if (!peerId) return;
-        peersRef.current.get(peerId)?.close();
-        peersRef.current.delete(peerId);
-        setRemoteStreams((current) => {
-          const next = { ...current };
-          delete next[peerId];
-          return next;
-        });
+        removePeer(peerId);
+      });
+      channel.on("broadcast", { event: "reconnect-request" }, ({ payload }) => {
+        if (!isHost || !payload?.source) return;
+        removePeer(payload.source);
+        createPeer(payload.source, true);
       });
       channel.on("presence", { event: "sync" }, () => {
         const state = channel.presenceState();
@@ -197,6 +221,10 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
             if (peerId !== clientId.current) createPeer(peerId, true);
           });
         }
+        const presentIds = new Set(Object.keys(state));
+        peersRef.current.forEach((_peer, peerId) => {
+          if (!presentIds.has(peerId)) removePeer(peerId);
+        });
       });
       await channel.subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
@@ -231,6 +259,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
     setPresenting(isHost);
     presentingRef.current = isHost;
     setRequestSent("");
+    setApprovedKind("");
     setJoined(false);
   }, [isHost, supabase]);
 
@@ -260,21 +289,24 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
     try {
       setError("");
       if (!navigator.mediaDevices?.getDisplayMedia) throw new Error("Screen sharing is not supported by this browser.");
-      const screen = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      let screen;
+      try {
+        screen = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      } catch (firstError) {
+        if (firstError?.name === "NotAllowedError") throw firstError;
+        screen = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      }
       const track = screen.getVideoTracks()[0];
       if (!track) throw new Error("No window or screen was selected.");
-      const systemAudio = screen.getAudioTracks()[0];
       screenStreamRef.current = screen;
       track.onended = stopScreenShare;
       await replaceTrack(track);
-      if (systemAudio) {
-        peersRef.current.forEach((peer, peerId) => {
-          screenAudioSendersRef.current.set(peerId, peer.addTrack(systemAudio, screen));
-        });
-      }
       setSharingScreen(true);
     } catch (err) {
-      setError(err.message || "Screen sharing was cancelled.");
+      const message = err?.name === "NotAllowedError"
+        ? "Screen sharing was cancelled or blocked. Use Chrome or Edge on HTTPS, select a screen/window, then click the browser Share button."
+        : err.message || "Screen sharing was cancelled.";
+      setError(message);
     }
   }, [replaceTrack, stopScreenShare]);
 
@@ -291,7 +323,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
     try {
       setError("");
       const stream = kind === "screen"
-        ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+        ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
         : await navigator.mediaDevices.getUserMedia({
             audio: audioDeviceId ? { deviceId: { exact: audioDeviceId }, echoCancellation: true, noiseSuppression: true } : { echoCancellation: true, noiseSuppression: true },
             video: videoDeviceId ? { deviceId: { exact: videoDeviceId } } : true,
@@ -302,6 +334,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
       setLocalStream(stream);
       setPresenting(true);
       setRequestSent("");
+      setApprovedKind("");
       stream.getVideoTracks()[0]?.addEventListener("ended", stopPresenting);
       peersRef.current.forEach((peer) => peer.close());
       peersRef.current.clear();
@@ -387,8 +420,9 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
           <button onClick={join} disabled={joining} className="w-full rounded-xl bg-emerald-600 px-5 py-3 font-semibold shadow-lg disabled:opacity-60 sm:w-auto">{joining ? "Joining..." : "Join room"}</button>
         ) : (
           <div className="grid w-full grid-cols-1 gap-2 rounded-xl bg-black/30 p-2 sm:grid-cols-2 lg:flex lg:w-auto lg:flex-wrap">
-            {!isHost && !presenting && <button onClick={() => requestStage("camera")} disabled={Boolean(requestSent)} className="rounded-lg bg-sky-600 px-3 py-2 text-sm disabled:opacity-60 sm:px-4">{requestSent === "camera" ? "Camera request sent" : "Raise hand for camera"}</button>}
-            {!isHost && !presenting && <button onClick={() => requestStage("screen")} disabled={Boolean(requestSent)} className="rounded-lg bg-violet-600 px-3 py-2 text-sm disabled:opacity-60 sm:px-4">{requestSent === "screen" ? "Screen request sent" : "Request screen share"}</button>}
+            {!isHost && !presenting && !approvedKind && <button onClick={() => requestStage("camera")} disabled={Boolean(requestSent)} className="rounded-lg bg-sky-600 px-3 py-2 text-sm disabled:opacity-60 sm:px-4">{requestSent === "camera" ? "Camera request sent" : "Raise hand for camera"}</button>}
+            {!isHost && !presenting && !approvedKind && <button onClick={() => requestStage("screen")} disabled={Boolean(requestSent)} className="rounded-lg bg-violet-600 px-3 py-2 text-sm disabled:opacity-60 sm:px-4">{requestSent === "screen" ? "Screen request sent" : "Request screen share"}</button>}
+            {!isHost && !presenting && approvedKind && <button onClick={() => startPresenting(approvedKind)} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm sm:px-4">Start approved {approvedKind === "screen" ? "screen share" : "camera"}</button>}
             {!isHost && presenting && <button onClick={stopPresenting} className="rounded-lg bg-red-600 px-3 py-2 text-sm sm:px-4">Leave stage</button>}
             {(isHost || presenting) && <>
             <button onClick={toggleMic} className={`rounded-lg px-3 py-2 text-sm sm:px-4 ${micEnabled ? "bg-white/10" : "bg-amber-600"}`}>{micEnabled ? "Mute microphone" : "Unmute microphone"}</button>
