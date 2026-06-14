@@ -244,11 +244,11 @@ export default function Register() {
             </div>
             <h1 className="login-hero-title">Join the trading desk in minutes.</h1>
             <p className="login-hero-text">
-              Secure your seat, unlock mentorship rooms, and start tracking the signals that matter.
+              Secure your seat, unlock mentorship rooms, and follow a structured learning path.
             </p>
             <div className="login-bullets">
               <div>• Structured onboarding with profile completion</div>
-              <div>• Tiered dashboard access and live room entry</div>
+              <div>• Plan-based dashboard access and live room entry</div>
               <div>• Upgrade anytime with instant plan switches</div>
             </div>
             <div className="login-badge">Trusted • Private • Built for focus</div>

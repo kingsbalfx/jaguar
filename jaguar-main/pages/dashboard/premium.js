@@ -67,8 +67,8 @@ export default function PremiumDashboard({ planStatus }) {
       <div className="container mx-auto px-6 py-8 text-white">
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
           <div>
-            <div className="text-xs uppercase tracking-widest text-indigo-200">Premium Access</div>
-            <h2 className="text-2xl font-bold">Premium Dashboard</h2>
+            <div className="text-xs uppercase tracking-widest text-indigo-200">Academy Access</div>
+            <h2 className="text-2xl font-bold">Academy Dashboard</h2>
             <p className="text-sm text-gray-300 mt-1">{tier.description}</p>
           </div>
           <div className="text-right">

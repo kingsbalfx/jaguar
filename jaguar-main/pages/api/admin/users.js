@@ -1,6 +1,7 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 import { getBotTierDefaults, normalizeBotLimit } from "../../../lib/pricing-config";
+import { isSubscriptionActive } from "../../../lib/subscription-status";
 
 const USER_SELECT_BASE =
   "id,email,name,username,role,lifetime,bot_tier,bot_max_signals_per_day,bot_max_concurrent_trades,bot_signal_quality,bot_tier_updated_at,created_at";
@@ -81,23 +82,28 @@ export default async function handler(req, res) {
 
     const byEmail = new Map();
     (subs || []).forEach((sub) => {
-      const current = byEmail.get(sub.email);
+      const email = String(sub.email || "").toLowerCase();
+      const current = byEmail.get(email);
       if (!current) {
-        byEmail.set(sub.email, sub);
+        byEmail.set(email, sub);
+        return;
+      }
+      if (isSubscriptionActive(sub) && !isSubscriptionActive(current)) {
+        byEmail.set(email, sub);
         return;
       }
       if ((sub.started_at || "") > (current.started_at || "")) {
-        byEmail.set(sub.email, sub);
+        byEmail.set(email, sub);
       }
     });
 
     const users = (profiles || []).map((profile) => {
-      const sub = byEmail.get(profile.email);
+      const sub = byEmail.get(String(profile.email || "").toLowerCase());
       return {
         ...profile,
         trading_profile: usedExtended ? profile.trading_profile || "balanced" : undefined,
         plan: sub?.plan || profile.role || "user",
-        planStatus: sub?.status || "none",
+        planStatus: sub ? (isSubscriptionActive(sub) ? "active" : sub.status === "active" ? "expired" : sub.status) : "none",
         startedAt: sub?.started_at || null,
         endedAt: sub?.ended_at || null,
       };

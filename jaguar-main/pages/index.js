@@ -210,12 +210,12 @@ export default function Home({
   });
 
   const toggleDescriptions = {
-    free: "Free trial access to starter signals and weekly lesson drops.",
-    premium: "Premium adds daily signals, bot access, and advanced analytics.",
-    vip: "VIP unlocks mentorship sessions, priority support, and deeper trade guidance.",
-    pro: "Pro gives 1:1 coaching, custom strategies, and elite execution rules.",
+    free: "Free access to intro lessons, risk guidance, and sample content.",
+    premium: "Academy adds structured lessons, PDFs, community access, and weekly live classes.",
+    vip: "VIP adds assignment review, journal review, group mentorship, and priority Q&A.",
+    pro: "Pro adds private mentorship, deeper strategy correction, and personal risk review.",
     lifetime:
-      "Lifetime members keep every upgrade, session, and signal forever.",
+      "Lifetime members keep recorded lessons, PDFs, community access, and future course updates.",
   };
 
   const toggleStyles = {
@@ -227,7 +227,7 @@ export default function Home({
     premium: {
       color: "#3b82f6",
       border: "rgba(59, 130, 246, 0.6)",
-      label: "Premium",
+      label: "Academy",
     },
     vip: { color: "#a855f7", border: "rgba(168, 85, 247, 0.6)", label: "VIP" },
     pro: { color: "#6366f1", border: "rgba(99, 102, 241, 0.6)", label: "Pro" },
@@ -253,10 +253,10 @@ export default function Home({
   const tierBadge = tier?.badge || "Access";
   const tierHighlights = tier?.features
     ? [
-        `Signal quality: ${tier.features.signalQuality || "standard"}`,
-        `Signals/day: ${tier.features.maxSignalsPerDay || 0}`,
-        `Mentorship: ${tier.features.mentorship ? "Yes" : "No"}`,
-        `Bot access: ${tier.features.botAccess ? "Yes" : "No"}`,
+        `Mentorship: ${tier.features.mentorship ? "Included" : "Content access"}`,
+        `Community: ${tier.features.communityAccess || "Limited"}`,
+        `Assignment review: ${tier.features.assignmentReview ? "Included" : "Not included"}`,
+        `Private testing: ${tier.features.privateTestingOnly ? "Controlled opt-in" : "Not included"}`,
       ]
     : [];
 
@@ -274,13 +274,11 @@ export default function Home({
               KingsBalfx Trading Lab
             </div>
             <h1 className="display-font mt-4 text-4xl md:text-6xl font-bold leading-tight">
-              Forex mentorship, live signals, and a bot engine built for
-              consistency.
+              Structured forex education and mentorship built for disciplined growth.
             </h1>
             <p className="mt-4 text-lg text-gray-300 max-w-2xl">
-              Build your edge with guided ICT strategy, disciplined risk
-              controls, and signals tuned to your tier. Every plan delivers
-              actionable setups, clean execution, and a clear growth path.
+              Build your process with guided ICT education, disciplined risk
+              controls, practical reviews, and a clear learning path.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link href="/pricing">
@@ -489,33 +487,33 @@ export default function Home({
           <div className="relative grid gap-8 md:grid-cols-[1.1fr_0.9fr] items-center">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-yellow-400/40 bg-yellow-400/10 px-3 py-1 text-xs uppercase tracking-widest text-yellow-300">
-                Bot Trading Engine
+                Controlled Learning Tools
               </div>
               <h2 className="mt-4 text-3xl md:text-4xl font-bold leading-tight">
-                Automated entries, disciplined risk, and live signal delivery.
+                Guided analysis, disciplined risk, and practical mentorship.
               </h2>
               <p className="mt-4 text-gray-300">
-                Our bot blends ICT structure with tiered signal quality,
-                protecting your capital while hunting high‑probability setups.
-                Premium and VIP unlock stronger filters, higher trade limits,
-                and priority execution logic.
+                Learn ICT structure through guided lessons and practical reviews,
+                Build disciplined analysis and risk habits through guided practice,
+                while Academy and VIP unlock deeper mentorship, live classes,
+                and private learning room access.
               </p>
 
               <div className="mt-6 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-xl border border-white/10 bg-black/40 p-4">
-                  <div className="text-xs text-gray-400">Signal Quality</div>
+                  <div className="text-xs text-gray-400">Learning Path</div>
                   <div className="mt-1 text-lg font-semibold text-white">
-                    Tiered AI Scoring
+                    Structured Lessons
                   </div>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-black/40 p-4">
-                  <div className="text-xs text-gray-400">Trade Limits</div>
+                  <div className="text-xs text-gray-400">Risk Discipline</div>
                   <div className="mt-1 text-lg font-semibold text-white">
-                    Smart Risk Caps
+                    Guided Reviews
                   </div>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-black/40 p-4">
-                  <div className="text-xs text-gray-400">Execution</div>
+                  <div className="text-xs text-gray-400">Mentorship</div>
                   <div className="mt-1 text-lg font-semibold text-white">
                     Real‑time Alerts
                   </div>
@@ -525,7 +523,7 @@ export default function Home({
               <div className="mt-6 flex flex-wrap gap-3">
                 <Link href="/pricing">
                   <a className="px-5 py-3 rounded-lg text-white font-semibold btn-primary">
-                    Explore Bot Plans
+                    Explore Academy Plans
                   </a>
                 </Link>
                 <Link href="/register">
@@ -540,9 +538,9 @@ export default function Home({
               <div className="rounded-2xl border border-indigo-500/20 bg-black/40 p-6">
                 <div className="text-sm text-indigo-200">What you get</div>
                 <ul className="mt-4 space-y-2 text-sm text-gray-300">
-                  <li>Live bot signals with clear SL/TP targets</li>
-                  <li>Risk-protected entries based on liquidity sweeps</li>
-                  <li>Weekly performance summaries and market breakdowns</li>
+                  <li>Structured lessons and practical market breakdowns</li>
+                  <li>Risk-management guidance and disciplined review</li>
+                  <li>Weekly live classes and mentorship feedback</li>
                 </ul>
               </div>
               <div className="rounded-2xl border border-yellow-400/20 bg-gradient-to-br from-yellow-500/10 to-transparent p-6">

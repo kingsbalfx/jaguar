@@ -87,7 +87,7 @@ export default function MyApp({ Component, pageProps }) {
         <meta property="og:title" content="KINGSBALFX - Trade Smart, Live Smart" />
         <meta
           property="og:description"
-          content="Join KINGSBALFX today - access VIP and premium trading insights to grow your portfolio."
+          content="Join KINGSBALFX Academy for structured forex education, mentorship, and risk-management guidance."
         />
         <meta property="og:image" content="https://kingsbalfx.name.ng/jaguar.png" />
 
@@ -95,7 +95,7 @@ export default function MyApp({ Component, pageProps }) {
         <meta name="twitter:title" content="KINGSBALFX - Trade Smart, Live Smart" />
         <meta
           name="twitter:description"
-          content="Join KINGSBALFX today - access VIP and premium trading insights to grow your portfolio."
+          content="Join KINGSBALFX Academy for structured forex education, mentorship, and risk-management guidance."
         />
         <meta name="twitter:image" content="https://kingsbalfx.name.ng/jaguar.png" />
       </Head>

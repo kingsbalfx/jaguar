@@ -6,17 +6,17 @@ export default function About() {
     <main className="container mx-auto px-6 py-12 text-gray-800 bg-white">
       <h1 className="text-3xl font-bold mb-6">About KINGSBALFX</h1>
       <p className="mb-4">
-        KINGSBALFX is a leading Forex mentorship platform. We provide curated trading signals, real-time analysis, deep market insights, personalized mentorship, and a community of committed traders.
+        KINGSBALFX is a forex education and mentorship platform focused on structured learning, market analysis, trading discipline, and risk management.
       </p>
 
       <h2 className="text-2xl font-semibold mt-6 mb-2">Our Mission</h2>
       <p className="mb-4">
-        Our mission is to empower aspiring and experienced forex traders by providing verified, actionable signals, rigorous training, continuous support, and community accountability.
+        Our mission is to help aspiring and experienced traders develop repeatable analysis, disciplined execution, responsible risk habits, and community accountability.
       </p>
 
       <h2 className="text-2xl font-semibold mt-6 mb-2">What We Offer</h2>
       <ul className="list-disc list-inside">
-        <li>Daily & premium forex signals with entry, stop loss, and take profit levels.</li>
+        <li>Structured lessons, practical assignments, and guided market reviews.</li>
         <li>Weekly lessons and market breakdowns.</li>
         <li>1-on-1 mentorship and VIP challenges.</li>
         <li>Access to archives of trades and performance reports.</li>

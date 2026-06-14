@@ -6,7 +6,7 @@ import { getBrowserSupabaseClient } from "../lib/supabaseClient";
 const ROLE_DASHBOARD = {
   user: { label: "Dashboard", href: "/dashboard", group: "Account" },
   premium: {
-    label: "Premium Desk",
+    label: "Academy",
     href: "/dashboard/premium",
     group: "Account",
   },

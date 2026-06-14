@@ -59,13 +59,14 @@ export default async function handler(req, res) {
       }
       const activeByEmail = new Map();
       for (const subscription of subscriptions || []) {
-        if (isSubscriptionActive(subscription) && !activeByEmail.has(subscription.email)) {
-          activeByEmail.set(subscription.email, subscription.plan);
+        const email = String(subscription.email || "").toLowerCase();
+        if (isSubscriptionActive(subscription) && !activeByEmail.has(email)) {
+          activeByEmail.set(email, subscription.plan);
         }
       }
       const activeUsers = (users || [])
-        .filter((user) => activeByEmail.has(user.email))
-        .map((user) => ({ ...user, activePlan: activeByEmail.get(user.email) }));
+        .filter((user) => activeByEmail.has(String(user.email || "").toLowerCase()))
+        .map((user) => ({ ...user, activePlan: activeByEmail.get(String(user.email || "").toLowerCase()) }));
       return res.status(200).json({ session: data || null, users: activeUsers });
     }
 

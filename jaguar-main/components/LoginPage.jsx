@@ -159,9 +159,9 @@ export default function LoginPage() {
                 <div className="login-brand-sub">Trade Lab Access</div>
               </div>
             </div>
-            <h1 className="login-hero-title">Sign in to your trading command center.</h1>
+            <h1 className="login-hero-title">Sign in to your mentorship dashboard.</h1>
             <p className="login-hero-text">
-              Private signals, live mentorship rooms, and tiered bot intelligence—built for precision.
+              Structured mentorship, live learning rooms, and disciplined trading tools built for progress.
             </p>
             <div className="login-bullets">
               <div>• Real‑time market setups and entry alerts</div>

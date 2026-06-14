@@ -27,7 +27,7 @@ class MyDocument extends NextDocument {
           <title>KINGSBALFX — Forex Mentorship & VIP Signals</title>
           <meta
             name="description"
-            content="KINGSBALFX — professional forex mentorship, VIP signals, weekly lessons and 1:1 mentorship."
+            content="KINGSBALFX — structured forex education, weekly lessons, risk guidance, and mentorship."
           />
           <meta name="robots" content="index, follow" />
 
@@ -35,7 +35,7 @@ class MyDocument extends NextDocument {
           <meta property="og:title" content="KINGSBALFX — Forex Mentorship & VIP Signals" />
           <meta
             property="og:description"
-            content="Weekly trading signals, VIP-only challenges, live lessons and 1:1 mentorship."
+            content="Structured lessons, practical reviews, live classes, and private mentorship."
           />
           <meta property="og:type" content="website" />
           <meta property="og:url" content={canonicalUrl} />

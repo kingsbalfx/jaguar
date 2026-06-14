@@ -67,7 +67,7 @@ export default function Footer() {
         <div>
           <h3 className="text-white font-bold text-2xl">KINGSBALFX</h3>
           <p className="text-sm text-gray-400">
-            Forex Mentorship • VIP Signals • Premium Trading
+            Forex Education • Structured Mentorship • Risk Management
           </p>
         </div>
 

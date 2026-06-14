@@ -1,21 +1,77 @@
-export default function Subs() {
-  const tiers = ["free", "premium", "vip", "pro", "lifetime"];
+import { useEffect, useState } from "react";
+import { PRICING_TIERS } from "../../lib/pricing-config";
+
+const planLabel = (plan) => PRICING_TIERS[String(plan || "").toUpperCase()]?.displayName || plan || "Unknown";
+
+export default function Subscriptions() {
+  const [subscriptions, setSubscriptions] = useState([]);
+  const [repairable, setRepairable] = useState([]);
+  const [smtpConfigured, setSmtpConfigured] = useState(false);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    const response = await fetch("/api/admin/subscriptions");
+    const data = await response.json();
+    setSubscriptions(data.subscriptions || []);
+    setRepairable(data.repairable || []);
+    setSmtpConfigured(Boolean(data.smtpConfigured));
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const repair = async (reference) => {
+    setMessage("Repairing subscription...");
+    const response = await fetch("/api/admin/subscriptions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reference }),
+    });
+    const data = await response.json();
+    setMessage(response.ok ? "Subscription repaired and activated." : data.error || "Repair failed.");
+    if (response.ok) await load();
+  };
+
   return (
-    <div className="p-6 space-y-4">
-      <h2 className="text-2xl font-bold">Subscription Management</h2>
-      <p className="text-gray-300 text-sm">
-        Manage all tiers (free, premium, vip, pro, lifetime). This is a placeholder until
-        automated billing actions are wired in.
-      </p>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {tiers.map((tier) => (
-          <div key={tier} className="rounded-lg bg-white/5 p-3">
-            <div className="text-xs text-gray-400 uppercase">Tier</div>
-            <div className="text-lg font-semibold">{tier.toUpperCase()}</div>
-            <div className="text-xs text-gray-400 mt-1">Active subscribers: —</div>
-          </div>
-        ))}
+    <main className="container mx-auto space-y-6 p-6 text-white">
+      <div>
+        <h1 className="text-2xl font-bold">Subscription Management</h1>
+        <p className="mt-1 text-sm text-gray-300">Review active, expired, and repairable verified subscriptions.</p>
+        <span className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${smtpConfigured ? "bg-emerald-500/20 text-emerald-200" : "bg-amber-500/20 text-amber-200"}`}>
+          SMTP lifecycle email: {smtpConfigured ? "Configured" : "Not configured"}
+        </span>
       </div>
-    </div>
+      {message && <div className="rounded bg-indigo-500/15 p-3 text-sm text-indigo-100">{message}</div>}
+      {loading ? <p className="text-gray-400">Loading subscriptions...</p> : (
+        <>
+          <section className="glass-panel rounded-2xl p-5">
+            <h2 className="text-lg font-semibold">Verified payments needing repair</h2>
+            <div className="mt-3 space-y-2">
+              {repairable.map((payment) => (
+                <div key={payment.id || payment.reference} className="flex flex-wrap items-center justify-between gap-3 rounded bg-black/30 p-3 text-sm">
+                  <div><strong>{payment.customer_email}</strong> · {planLabel(payment.plan)} · {payment.reference}</div>
+                  <button onClick={() => repair(payment.reference)} className="rounded bg-emerald-600 px-3 py-2">Activate verified payment</button>
+                </div>
+              ))}
+              {repairable.length === 0 && <p className="text-sm text-gray-400">No verified payments require repair.</p>}
+            </div>
+          </section>
+          <section className="glass-panel overflow-x-auto rounded-2xl p-5">
+            <table className="min-w-full text-left text-sm">
+              <thead><tr><th className="p-2">Email</th><th className="p-2">Plan</th><th className="p-2">Status</th><th className="p-2">Started</th><th className="p-2">Expires</th></tr></thead>
+              <tbody>{subscriptions.map((item, index) => (
+                <tr key={`${item.email}-${item.plan}-${item.started_at || index}`} className="border-t border-white/10">
+                  <td className="p-2">{item.email}</td><td className="p-2">{planLabel(item.plan)}</td><td className="p-2">{item.status}</td>
+                  <td className="p-2">{item.started_at ? new Date(item.started_at).toLocaleDateString() : "-"}</td>
+                  <td className="p-2">{item.ended_at ? new Date(item.ended_at).toLocaleDateString() : "No expiry"}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </section>
+        </>
+      )}
+    </main>
   );
 }
