@@ -32,8 +32,8 @@ export default async function handler(req, res) {
   if (!roomKey || !(await allowed(ctx, roomKey))) return res.status(403).json({ error: "You do not have access to this mentorship chat." });
 
   if (req.method === "GET") {
-    const { data, error } = await ctx.admin.from("mentorship_messages").select("*").eq("room_key", roomKey).is("deleted_at", null).order("created_at").limit(300);
-    return error ? res.status(500).json({ error: error.message }) : res.status(200).json({ messages: data || [] });
+    const { data, error } = await ctx.admin.from("mentorship_messages").select("*").eq("room_key", roomKey).is("deleted_at", null).order("created_at", { ascending: false }).limit(300);
+    return error ? res.status(500).json({ error: error.message }) : res.status(200).json({ messages: (data || []).reverse() });
   }
   if (req.method === "POST") {
     const content = String(req.body?.content || "").trim();
@@ -48,13 +48,21 @@ export default async function handler(req, res) {
     return error ? res.status(500).json({ error: error.message }) : res.status(200).json({ message: data });
   }
   if (req.method === "PUT" || req.method === "DELETE") {
+    const id = String(req.body?.id || "").trim();
+    if (!id) return res.status(400).json({ error: "Message id is required." });
+    const content = String(req.body?.content || "").trim();
+    if (req.method === "PUT" && (!content || content.length > 10000)) {
+      return res.status(400).json({ error: "Message must be between 1 and 10,000 characters." });
+    }
     const updates = req.method === "DELETE"
       ? { deleted_at: new Date().toISOString() }
-      : { content: String(req.body?.content || "").trim(), edited_at: new Date().toISOString() };
-    let query = ctx.admin.from("mentorship_messages").update(updates).eq("id", req.body?.id).eq("room_key", roomKey);
+      : { content, edited_at: new Date().toISOString() };
+    let query = ctx.admin.from("mentorship_messages").update(updates).eq("id", id).eq("room_key", roomKey);
     if (String(ctx.profile.role || "").toLowerCase() !== "admin") query = query.eq("sender_id", ctx.session.user.id);
-    const { error } = await query;
-    return error ? res.status(500).json({ error: error.message }) : res.status(200).json({ ok: true });
+    const { data, error } = await query.select("*").maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: "Message not found or cannot be changed." });
+    return res.status(200).json({ message: data });
   }
   return res.status(405).json({ error: "Method not allowed" });
 }

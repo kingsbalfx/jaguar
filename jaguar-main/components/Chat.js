@@ -17,29 +17,67 @@ export default function Chat({ channel = "public", roomId = null }) {
   const channelRef = useRef(null);
   const stickToBottomRef = useRef(true);
   const previousMessageCountRef = useRef(0);
+  const loadingRef = useRef(false);
+  const typingTimerRef = useRef(null);
+  const typingExpiryRef = useRef(new Map());
+  const lastTypingBroadcastRef = useRef(0);
 
   const loadMessages = async () => {
-    const response = await fetch(`/api/chat/messages?roomKey=${encodeURIComponent(roomKey)}`);
-    const data = await response.json();
-    if (!response.ok) return setError(data.error || "Unable to load messages.");
-    setMessages(data.messages || []);
-    setError("");
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    try {
+      const response = await fetch(`/api/chat/messages?roomKey=${encodeURIComponent(roomKey)}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) return setError(data.error || "Unable to load messages.");
+      setMessages(data.messages || []);
+      setError("");
+    } finally {
+      loadingRef.current = false;
+    }
   };
 
   useEffect(() => {
     if (!supabase) return undefined;
     supabase.auth.getUser().then(({ data }) => setUser(data?.user || null));
     loadMessages();
-    const timer = window.setInterval(loadMessages, 3000);
+    const timer = window.setInterval(loadMessages, 30000);
     const realtime = supabase.channel(`mentorship-chat:${roomKey}`, { config: { private: true } })
       .on("broadcast", { event: "chat-refresh" }, loadMessages)
       .on("broadcast", { event: "typing" }, ({ payload }) => {
-        setTyping((current) => payload.active ? [...new Set([...current, payload.name])] : current.filter((name) => name !== payload.name));
+        const name = payload?.name;
+        if (!name) return;
+        window.clearTimeout(typingExpiryRef.current.get(name));
+        if (!payload.active) {
+          typingExpiryRef.current.delete(name);
+          setTyping((current) => current.filter((item) => item !== name));
+          return;
+        }
+        setTyping((current) => [...new Set([...current, name])]);
+        typingExpiryRef.current.set(name, window.setTimeout(() => {
+          typingExpiryRef.current.delete(name);
+          setTyping((current) => current.filter((item) => item !== name));
+        }, 3500));
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "mentorship_messages", filter: `room_key=eq.${roomKey}` }, ({ eventType, new: next }) => {
+        if (!next?.id) return;
+        setMessages((current) => {
+          if (eventType === "UPDATE" && next.deleted_at) return current.filter((item) => item.id !== next.id);
+          const withoutCurrent = current.filter((item) => item.id !== next.id);
+          return [...withoutCurrent, next].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        });
       })
       .subscribe();
     channelRef.current = realtime;
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") loadMessages();
+    };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       window.clearInterval(timer);
+      window.clearTimeout(typingTimerRef.current);
+      typingExpiryRef.current.forEach((timeout) => window.clearTimeout(timeout));
+      typingExpiryRef.current.clear();
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
       channelRef.current = null;
       supabase.removeChannel(realtime);
     };
@@ -58,7 +96,20 @@ export default function Chat({ channel = "public", roomId = null }) {
     }
   }, [messages]);
 
-  const notifyTyping = (active) => channelRef.current?.send({ type: "broadcast", event: "typing", payload: { name: user?.user_metadata?.full_name || user?.email || "Someone", active } });
+  const notifyTyping = (active) => {
+    const name = user?.user_metadata?.full_name || user?.email || "Someone";
+    window.clearTimeout(typingTimerRef.current);
+    const now = Date.now();
+    if (!active || now - lastTypingBroadcastRef.current > 1500) {
+      lastTypingBroadcastRef.current = now;
+      channelRef.current?.send({ type: "broadcast", event: "typing", payload: { name, active } });
+    }
+    if (active) {
+      typingTimerRef.current = window.setTimeout(() => {
+        channelRef.current?.send({ type: "broadcast", event: "typing", payload: { name, active: false } });
+      }, 2500);
+    }
+  };
 
   const scrollChatToBottom = () => {
     const container = messagesRef.current;
@@ -81,32 +132,47 @@ export default function Chat({ channel = "public", roomId = null }) {
     if (!content || sending) return;
     setSending(true);
     setError("");
-    const method = editing ? "PUT" : "POST";
-    const response = await fetch("/api/chat/messages", {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roomKey, id: editing?.id, content, replyTo: replyTo?.id || null }),
-    });
-    const data = await response.json();
-    if (!response.ok) setError(data.error || "Unable to send message.");
-    else {
+    try {
+      const method = editing ? "PUT" : "POST";
+      const response = await fetch("/api/chat/messages", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomKey, id: editing?.id, content, replyTo: replyTo?.id || null }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "Unable to send message.");
+        return;
+      }
       stickToBottomRef.current = true;
-      if (data.message) setMessages((current) => [...current.filter((item) => item.id !== data.message.id), data.message]);
+      if (data.message) {
+        setMessages((current) => [...current.filter((item) => item.id !== data.message.id), data.message].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)));
+      }
       setText("");
       setReplyTo(null);
       setEditing(null);
       notifyTyping(false);
-      await channelRef.current?.send({ type: "broadcast", event: "chat-refresh", payload: { roomKey } });
-      await loadMessages();
+      channelRef.current?.send({ type: "broadcast", event: "chat-refresh", payload: { roomKey } });
+    } catch {
+      setError("Unable to send message. Check your connection and try again.");
+    } finally {
+      setSending(false);
     }
-    setSending(false);
   };
 
   const remove = async (message) => {
-    const response = await fetch("/api/chat/messages", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ roomKey, id: message.id }) });
-    if (response.ok) {
-      await channelRef.current?.send({ type: "broadcast", event: "chat-refresh", payload: { roomKey } });
-      loadMessages();
+    setError("");
+    try {
+      const response = await fetch("/api/chat/messages", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ roomKey, id: message.id }) });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "Unable to delete message.");
+        return;
+      }
+      setMessages((current) => current.filter((item) => item.id !== message.id));
+      channelRef.current?.send({ type: "broadcast", event: "chat-refresh", payload: { roomKey } });
+    } catch {
+      setError("Unable to delete message. Check your connection and try again.");
     }
   };
 
