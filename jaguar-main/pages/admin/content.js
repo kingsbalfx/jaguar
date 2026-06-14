@@ -2,11 +2,11 @@ import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { getBrowserSupabaseClient } from "../../lib/supabaseClient";
 import FeedbackMessage from "../../components/FeedbackMessage";
+import { MENTORSHIP_GROUPS, getMentorshipGroup, getMentorshipGroupLabel } from "../../lib/mentorship-groups";
 
 const Uploader = dynamic(() => import("../../components/Uploader"), { ssr: false });
 const AdminVideoPlayer = dynamic(() => import("../../components/AdminVideoPlayer"), { ssr: false });
 
-const SEGMENTS = ["all", "free", "premium", "vip", "pro", "lifetime"];
 const MEDIA_TYPES = [
   { value: "video", label: "Video" },
   { value: "audio", label: "Audio" },
@@ -87,10 +87,13 @@ export default function Content() {
       let publicUrl = null;
 
       if (["video", "audio", "pdf"].includes(mediaType)) {
-        if (!file) throw new Error("Please select a file to upload.");
-        const uploadResult = await uploadFileToStorage(file);
-        storagePath = uploadResult.storagePath;
-        publicUrl = uploadResult.publicUrl;
+        if (file) {
+          const uploadResult = await uploadFileToStorage(file);
+          storagePath = uploadResult.storagePath;
+          publicUrl = uploadResult.publicUrl;
+        } else if (!editingId) {
+          throw new Error("Please select a file to upload.");
+        }
       }
 
       if (mediaType === "link" && !mediaUrl) {
@@ -166,14 +169,28 @@ export default function Content() {
 
   return (
     <div className="min-h-[calc(100vh-160px)] p-4 sm:p-6">
-      <h2 className="text-2xl font-bold">Content Manager</h2>
-      <p className="mt-2 text-gray-300">
-        Upload videos, audio, PDFs, or text content and assign them to subscriber segments.
-      </p>
+      <div className="overflow-hidden rounded-3xl border border-indigo-300/15 bg-gradient-to-br from-indigo-600/20 via-slate-950/80 to-purple-600/15 p-5 shadow-2xl sm:p-7">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-[0.25em] text-indigo-200">Mentorship Publishing Studio</div>
+            <h2 className="mt-2 text-3xl font-bold">Create a beautiful learning experience</h2>
+            <p className="mt-2 max-w-2xl text-sm text-gray-300">Publish videos, audio lessons, workbooks, mentor notes, and external resources to the right learning audience.</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center text-xs">
+            <div className="rounded-xl bg-white/5 px-3 py-3"><div className="text-xl font-bold text-white">{items.length}</div><div className="text-gray-400">Resources</div></div>
+            <div className="rounded-xl bg-white/5 px-3 py-3"><div className="text-xl font-bold text-emerald-300">{items.filter((item) => item.is_published).length}</div><div className="text-gray-400">Published</div></div>
+            <div className="rounded-xl bg-white/5 px-3 py-3"><div className="text-xl font-bold text-purple-300">{new Set(items.map((item) => item.segment)).size}</div><div className="text-gray-400">Audiences</div></div>
+          </div>
+        </div>
+      </div>
 
-      <div className="mt-4 grid lg:grid-cols-[1.1fr_0.9fr] gap-6">
-        <div className="card p-4">
-          <h3 className="font-semibold mb-4">Add Content</h3>
+      <div className="mt-6 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="card overflow-hidden p-0">
+          <div className={`bg-gradient-to-r ${getMentorshipGroup(segment).accent} p-5`}>
+            <div className="text-xs uppercase tracking-widest text-indigo-100">Publishing to {getMentorshipGroupLabel(segment)}</div>
+            <h3 className="mt-1 text-xl font-semibold">{editingId ? "Polish resource" : "Create new resource"}</h3>
+          </div>
+          <div className="p-4 sm:p-5">
           <form onSubmit={saveItem} className="space-y-3">
             <input
               className="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-white"
@@ -191,15 +208,15 @@ export default function Content() {
             />
             <div className="grid md:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Segment</label>
+                <label className="block text-xs text-gray-400 mb-1">Mentorship audience</label>
                 <select
                   className="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-white"
                   value={segment}
                   onChange={(e) => setSegment(e.target.value)}
                 >
-                  {SEGMENTS.map((seg) => (
-                    <option key={seg} value={seg}>
-                      {seg.toUpperCase()}
+                  {MENTORSHIP_GROUPS.map((group) => (
+                    <option key={group.value} value={group.value}>
+                      {group.label}
                     </option>
                   ))}
                 </select>
@@ -272,18 +289,19 @@ export default function Content() {
             </div>
             <FeedbackMessage message={status} type={/saved|updated|deleted/i.test(status) ? "success" : "error"} />
           </form>
+          </div>
         </div>
 
         <div className="card p-4">
-          <h3 className="font-semibold mb-4">Existing Content</h3>
+          <h3 className="text-lg font-semibold mb-4">Published Resource Gallery</h3>
           <div className="space-y-3 max-h-[520px] overflow-auto pr-2">
             {items.map((item) => (
-              <div key={item.id} className="border border-white/10 rounded p-3">
+              <div key={item.id} className={`rounded-xl border border-white/10 bg-gradient-to-br ${getMentorshipGroup(item.segment).accent} p-3`}>
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="font-semibold text-white">{item.title}</div>
                     <div className="text-xs text-gray-400">
-                      {item.segment?.toUpperCase()} â€¢ {item.media_type}
+                      {getMentorshipGroupLabel(item.segment)} / {item.media_type}
                     </div>
                   </div>
                   <div className="flex gap-2">
