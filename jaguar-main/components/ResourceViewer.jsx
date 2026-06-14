@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import FeedbackMessage from "./FeedbackMessage";
 
 const ACTION_LABELS = {
   video: "Play video",
@@ -12,20 +13,24 @@ const ACTION_LABELS = {
 export default function ResourceViewer({ item, compact = false }) {
   const [open, setOpen] = useState(false);
   const [playbackError, setPlaybackError] = useState("");
+  const [downloadStatus, setDownloadStatus] = useState("");
   const mediaRef = useRef(null);
   const source = item.playback_url || item.public_url || item.media_url || "";
   const downloadSource = item.download_url || source;
   const canOpen = item.media_type === "text" ? Boolean(item.body) : Boolean(source);
 
   const downloadTextLesson = () => {
-    const brandedText = `KINGSBALFX\n${item.title || "Mentorship Lesson"}\n\n${item.description || ""}\n\n${item.body || ""}\n\n© ${new Date().getFullYear()} KINGSBALFX. All rights reserved.`;
+    const brandedText = `KINGSBALFX\n${item.title || "Mentorship Lesson"}\n\n${item.description || ""}\n\n${item.body || ""}\n\nCopyright ${new Date().getFullYear()} KINGSBALFX. All rights reserved.`;
     const url = URL.createObjectURL(new Blob([brandedText], { type: "text/plain;charset=utf-8" }));
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = `KINGSBALFX_${String(item.title || "lesson").replace(/[^a-zA-Z0-9_-]+/g, "_")}.txt`;
     anchor.click();
     URL.revokeObjectURL(url);
+    setDownloadStatus("Your branded KINGSBALFX lesson download has started.");
   };
+
+  const announceDownload = () => setDownloadStatus("Your protected KINGSBALFX resource download has started.");
 
   useEffect(() => {
     if (!open || item.media_type !== "video") return;
@@ -61,20 +66,32 @@ export default function ResourceViewer({ item, compact = false }) {
               <button type="button" onClick={() => setOpen(false)} className="shrink-0 rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold text-white">Close</button>
             </div>
             <div className="overflow-auto p-3 sm:p-5">
+              <BrandOwnershipNotice />
               {item.media_type === "video" && <div className="relative overflow-hidden rounded-2xl bg-black"><video ref={mediaRef} src={source} controls playsInline preload="auto" onError={() => setPlaybackError("This video could not be played. The uploaded format may be unsupported or the storage file is missing.")} className="mx-auto aspect-video max-h-[72vh] w-full bg-black" /><BrandWatermark /></div>}
               {item.media_type === "audio" && <div className="relative mt-8 rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 to-emerald-950 p-8"><BrandWatermark /><audio ref={mediaRef} src={source} controls preload="auto" onError={() => setPlaybackError("This audio file could not be played.")} className="relative z-10 w-full" /></div>}
               {item.media_type === "pdf" && <div className="relative"><iframe src={source} title={item.title} className="h-[72vh] w-full rounded-2xl bg-white" /><BrandWatermark /></div>}
-              {item.media_type === "document" && <div className="rounded-2xl border border-white/10 bg-white/5 p-8 text-center"><img src="/jaguar.png" alt="" className="mx-auto h-20 w-20 object-contain opacity-70" /><div className="mt-3 text-xl font-semibold">KINGSBALFX Document</div><p className="mt-2 text-sm text-gray-300">Download this branded resource to open it in the appropriate document application.</p></div>}
-              {item.media_type === "text" && <div className="whitespace-pre-wrap rounded-2xl bg-white/5 p-5 text-sm leading-7 text-gray-100">{item.body}</div>}
-              {playbackError && <div className="mt-4 rounded-xl border border-red-300/20 bg-red-500/10 p-3 text-sm text-red-200">{playbackError}</div>}
-              {source && item.media_type !== "text" && <a href={source} target="_blank" rel="noreferrer" className="mt-4 inline-flex rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white">Open in new tab</a>}
-              {downloadSource && <a href={downloadSource} download className="ml-2 mt-4 inline-flex rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white">Download KINGSBALFX copy</a>}
-              {item.media_type === "text" && <button type="button" onClick={downloadTextLesson} className="ml-2 mt-4 inline-flex rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white">Download KINGSBALFX copy</button>}
+              {item.media_type === "document" && <div className="rounded-2xl border border-white/10 bg-white/5 p-8 text-center"><img src="/jaguar.png" alt="" className="mx-auto h-20 w-20 object-contain opacity-70" /><div className="mt-3 text-xl font-semibold">KINGSBALFX Document</div><p className="mt-2 text-sm text-gray-300">Download this protected resource to open it in the appropriate document application.</p></div>}
+              {item.media_type === "text" && <div className="relative whitespace-pre-wrap rounded-2xl bg-white/5 p-5 pt-16 text-sm leading-7 text-gray-100"><BrandWatermark />{item.body}</div>}
+              {downloadSource && <a href={downloadSource} download onClick={announceDownload} className="mt-4 inline-flex rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white">Download protected copy</a>}
+              {item.media_type === "text" && <button type="button" onClick={downloadTextLesson} className="mt-4 inline-flex rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white">Download KINGSBALFX copy</button>}
             </div>
           </div>
         </div>
       )}
+      <FeedbackMessage message={playbackError || downloadStatus} type={playbackError ? "error" : "success"} />
     </>
+  );
+}
+
+function BrandOwnershipNotice() {
+  return (
+    <div className="mb-4 flex items-center gap-3 rounded-2xl border border-indigo-300/15 bg-indigo-500/10 p-3 text-sm text-indigo-100">
+      <img src="/jaguar.png" alt="" className="h-10 w-10 shrink-0 object-contain" />
+      <div>
+        <div className="font-semibold text-white">Protected KINGSBALFX learning resource</div>
+        <div className="text-xs text-gray-300">For authorized subscribers only. Redistribution or removal of branding is prohibited.</div>
+      </div>
+    </div>
   );
 }
 

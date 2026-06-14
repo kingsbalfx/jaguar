@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import FeedbackMessage from "./FeedbackMessage";
 
 function ResultTable({ title, rows, competition = false }) {
   return (
@@ -50,7 +51,7 @@ export default function PlanPerformancePanel({ plan }) {
       <div className="text-xs uppercase tracking-widest text-amber-200">{plan} group performance</div>
       <h2 className="mt-1 text-xl font-semibold">Quizzes & Competitions</h2>
       <p className="mt-1 text-sm text-gray-300">Results and rankings are visible only to members of this plan group.</p>
-      {error && <div className="mt-3 text-sm text-red-300">{error}</div>}
+      <FeedbackMessage message={error} type="error" />
       {data.setupRequired && <div className="mt-3 text-sm text-amber-200">Run the group performance SQL migration to begin recording results.</div>}
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <ResultTable title="Quiz Results" rows={data.quizzes || []} />

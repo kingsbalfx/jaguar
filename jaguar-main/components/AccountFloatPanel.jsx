@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import FeedbackMessage from "./FeedbackMessage";
 
 function money(value, currency = "USD") {
   const numeric = Number(value || 0);
@@ -66,7 +67,7 @@ export default function AccountFloatPanel({ admin = false }) {
         </button>
       </div>
 
-      {state.error && <div className="mt-3 text-sm text-red-300">{state.error}</div>}
+      <FeedbackMessage message={state.error} type="error" />
       {state.loading && <div className="mt-3 text-sm text-gray-400">Loading account float...</div>}
 
       {!state.loading && !state.error && (

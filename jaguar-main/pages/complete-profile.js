@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import { getBrowserSupabaseClient, isSupabaseConfigured } from "../lib/supabaseClient";
+import FeedbackMessage from "../components/FeedbackMessage";
 
 const COUNTRIES = [
   "Nigeria",
@@ -194,11 +195,7 @@ export default function CompleteProfile() {
           Please fill in your details to finish setting up your account.
         </p>
 
-        {err && (
-          <div className="bg-red-600/40 text-red-200 p-3 rounded text-center">
-            {err}
-          </div>
-        )}
+        <FeedbackMessage message={err} type="error" />
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>

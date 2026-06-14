@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 import AccountFloatPanel from "../../components/AccountFloatPanel";
+import FeedbackMessage from "../../components/FeedbackMessage";
 
 export const getServerSideProps = async (ctx) => {
   try {
@@ -293,16 +294,6 @@ export default function Settings() {
             </div>
           )}
 
-          {status?.message && (
-            <div
-              className={`text-sm ${
-                status.type === "success" ? "text-green-400" : "text-red-400"
-              }`}
-            >
-              {status.message}
-            </div>
-          )}
-
           <button
             type="submit"
             disabled={loading}
@@ -328,15 +319,6 @@ export default function Settings() {
             </span>
           </div>
 
-          {restartStatus?.message && (
-            <div
-              className={`mt-2 text-sm ${
-                restartStatus.type === "success" ? "text-green-400" : "text-red-400"
-              }`}
-            >
-              {restartStatus.message}
-            </div>
-          )}
         </div>
       </div>
 
@@ -356,10 +338,6 @@ export default function Settings() {
             Refresh
           </button>
         </div>
-
-        {botStatusError && (
-          <div className="mb-3 text-sm text-red-400">{botStatusError}</div>
-        )}
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="rounded border border-white/10 p-3">
@@ -447,15 +425,6 @@ export default function Settings() {
 
       <div className="mt-8 bg-black/30 rounded-lg p-5 border border-white/5">
         <h3 className="text-lg font-semibold mb-4">User MT5 Submissions</h3>
-        {submissionsStatus?.message && (
-          <div
-            className={`text-sm mb-3 ${
-              submissionsStatus.type === "success" ? "text-green-400" : "text-red-400"
-            }`}
-          >
-            {submissionsStatus.message}
-          </div>
-        )}
         {submissions.length === 0 ? (
           <div className="text-sm text-gray-400">No submissions yet.</div>
         ) : (
@@ -490,6 +459,15 @@ export default function Settings() {
           </div>
         )}
       </div>
+      <FeedbackMessage
+        message={status.message || restartStatus.message || botStatusError || submissionsStatus.message}
+        type={
+          status.message ? status.type :
+          restartStatus.message ? restartStatus.type :
+          botStatusError ? "error" :
+          submissionsStatus.type || "info"
+        }
+      />
     </div>
   );
 }

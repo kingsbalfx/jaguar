@@ -1,5 +1,6 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
+import FeedbackMessage from "./FeedbackMessage";
 
 const WebRTCRoom = dynamic(() => import("./WebRTCRoom"), { ssr: false });
 const Chat = dynamic(() => import("./Chat"), { ssr: false });
@@ -25,7 +26,7 @@ export default function LiveSessionPanel({ heading = "Live Mentorship" }) {
   }, []);
 
   if (loading) return <div className="glass-panel rounded-2xl p-5 text-sm text-gray-300">Loading mentorship room...</div>;
-  if (error) return <div className="glass-panel rounded-2xl p-5 text-sm text-red-300">{error}</div>;
+  if (error) return <><div className="glass-panel rounded-2xl p-5 text-sm text-gray-300">The mentorship room is temporarily unavailable. Please refresh shortly.</div><FeedbackMessage message={error} type="error" /></>;
   if (!session) return <div className="glass-panel rounded-2xl p-5 text-sm text-gray-300">No mentorship room is active for your account.</div>;
 
   return (
