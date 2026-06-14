@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errMsg, setErrMsg] = useState("");
+  const [recoverySent, setRecoverySent] = useState(false);
 
   const base = getURL();
 
@@ -79,6 +80,25 @@ export default function LoginPage() {
       if (error) throw error;
     } catch (err) {
       setErrMsg(err.message || "Google login failed");
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setErrMsg("");
+    if (!email) return setErrMsg("Enter your email address first.");
+    setLoading(true);
+    try {
+      const response = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (!response.ok) throw new Error("Unable to send password reset email.");
+      setRecoverySent(true);
+    } catch (error) {
+      setErrMsg(error.message || "Unable to send password reset email.");
+    } finally {
       setLoading(false);
     }
   };
@@ -183,6 +203,10 @@ export default function LoginPage() {
               <button type="submit" disabled={loading} className="login-primary">
                 {loading ? "Signing in..." : "Sign in"}
               </button>
+              <button type="button" onClick={handleForgotPassword} disabled={loading} className="text-sm text-indigo-300 underline">
+                Forgot password?
+              </button>
+              {recoverySent && <div className="login-success">If the account exists, a password reset email has been sent.</div>}
             </form>
 
             <div className="login-divider">

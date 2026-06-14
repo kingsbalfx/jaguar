@@ -1,6 +1,7 @@
 import { getURL } from "../../../lib/getURL";
 import { PRICING_TIERS } from "../../../lib/pricing-config";
 import { initKorapayCharge } from "../../../lib/korapay";
+import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 
 function getTierById(plan) {
   if (!plan) return null;
@@ -19,12 +20,15 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { plan, email, userId, termsAccepted } = req.body || {};
+  const { plan, termsAccepted } = req.body || {};
+  const supabase = createPagesServerClient({ req, res });
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) return res.status(401).json({ error: "Sign in before starting payment" });
+  const email = session.user.email;
+  const userId = session.user.id;
   const tier = getTierById(plan);
   if (!tier) return res.status(400).json({ error: "Invalid plan" });
-  if (!email) {
-    return res.status(400).json({ error: "Buyer email required" });
-  }
+  if (!email) return res.status(400).json({ error: "Your account has no email address" });
   if (termsAccepted !== true) {
     return res
       .status(400)

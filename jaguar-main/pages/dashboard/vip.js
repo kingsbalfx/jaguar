@@ -5,7 +5,7 @@ import BotAccessPanel from "../../components/BotAccessPanel";
 import { PRICING_TIERS } from "../../lib/pricing-config";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
-import { getPlanStatus } from "../../lib/subscription-status";
+import { getPaidAccess, getPlanStatus } from "../../lib/subscription-status";
 import PlanInactivePanel from "../../components/PlanInactivePanel";
 import MentorshipCards from "../../components/MentorshipCards";
 import RiskDisclaimer from "../../components/RiskDisclaimer";
@@ -38,16 +38,12 @@ export async function getServerSideProps(ctx) {
   }
 
   const role = (profile?.role || "user").toLowerCase();
-  const redirectMap = {
-    admin: "/admin",
-    premium: "/dashboard/premium",
-    pro: "/dashboard/pro",
-    lifetime: "/dashboard/lifetime",
-  };
-  if (role !== planId) {
-    const dest = redirectMap[role] || "/dashboard";
-    return { redirect: { destination: dest, permanent: false } };
+  if (role === "admin") return { redirect: { destination: "/admin", permanent: false } };
+  const access = await getPaidAccess({ supabaseAdmin, email: session.user.email, role });
+  if (access.active && access.plan !== planId) {
+    return { redirect: { destination: `/dashboard/${access.plan}`, permanent: false } };
   }
+  if (role !== planId && !access.active) return { redirect: { destination: "/dashboard", permanent: false } };
 
   const planStatus = await getPlanStatus({
     supabaseAdmin,
@@ -80,6 +76,7 @@ export default function VipDashboard({ planStatus }) {
             <div className={`text-lg font-semibold ${isActive ? "text-emerald-300" : "text-yellow-300"}`}>
               {statusLabel}
             </div>
+            {isActive && planStatus?.endedAt && <div className="text-xs text-gray-300">Expires {new Date(planStatus.endedAt).toLocaleDateString()}</div>}
             {!isActive && (
               <div className="mt-2">
                 <a href={`/checkout?plan=vip`} className="inline-flex px-3 py-2 bg-indigo-600 rounded">

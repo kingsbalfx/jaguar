@@ -1,5 +1,6 @@
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 import { getBotTierDefaults } from "../../../lib/pricing-config";
+import { emailLayout, sendLifecycleEmail } from "../../../lib/mailer";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -107,6 +108,16 @@ export default async function handler(req, res) {
         });
       }
     }
+
+    await sendLifecycleEmail({
+      supabaseAdmin,
+      email,
+      type: "account_created",
+      dedupeKey: `account_created:${userId || email}`,
+      subject: "Your KINGSBALFX Academy account is ready",
+      text: "Your KINGSBALFX Academy account has been created.",
+      html: emailLayout("Welcome to KINGSBALFX Academy", "<p>Your account is ready. Sign in to begin with the free lessons and risk guidance.</p>", "Sign in", "/login"),
+    });
 
     return res.status(200).json({ ok: true, userId: userId || null });
   } catch (err) {

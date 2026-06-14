@@ -1,5 +1,6 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
+import { isSubscriptionActive } from "../../../lib/subscription-status";
 
 function parseIso(value) {
   if (!value) return null;
@@ -41,7 +42,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "GET") {
-      const [{ data, error }, { data: users }] = await Promise.all([
+      const [{ data, error }, { data: users }, { data: subscriptions }] = await Promise.all([
         supabaseAdmin
         .from("live_sessions")
         .select("*")
@@ -50,12 +51,22 @@ export default async function handler(req, res) {
         .limit(1)
         .maybeSingle(),
         supabaseAdmin.from("profiles").select("id,email,role").order("email"),
+        supabaseAdmin.from("subscriptions").select("email,plan,status,ended_at,started_at").order("started_at", { ascending: false }),
       ]);
 
       if (error && error.code !== "42P01") {
         return res.status(500).json({ error: "failed to load live session" });
       }
-      return res.status(200).json({ session: data || null, users: users || [] });
+      const activeByEmail = new Map();
+      for (const subscription of subscriptions || []) {
+        if (isSubscriptionActive(subscription) && !activeByEmail.has(subscription.email)) {
+          activeByEmail.set(subscription.email, subscription.plan);
+        }
+      }
+      const activeUsers = (users || [])
+        .filter((user) => activeByEmail.has(user.email))
+        .map((user) => ({ ...user, activePlan: activeByEmail.get(user.email) }));
+      return res.status(200).json({ session: data || null, users: activeUsers });
     }
 
     const {
@@ -102,7 +113,7 @@ export default async function handler(req, res) {
         audio_only: Boolean(audioOnly),
         room_mode: roomMode === "one_to_one" ? "one_to_one" : "group",
         target_user_ids: Array.isArray(targetUserIds) ? targetUserIds : [],
-        active: true,
+        active: status !== "completed",
         updated_at: new Date().toISOString(),
       })
       .select("*")

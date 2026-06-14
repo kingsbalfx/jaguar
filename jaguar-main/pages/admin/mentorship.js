@@ -5,6 +5,12 @@ import { getSupabaseClient } from "../../lib/supabaseClient";
 
 const WebRTCRoom = dynamic(() => import("../../components/WebRTCRoom"), { ssr: false });
 const Chat = dynamic(() => import("../../components/Chat"), { ssr: false });
+const MENTORSHIP_GROUPS = [
+  { value: "all", label: "All active mentorship students" },
+  { value: "premium", label: "Academy group" },
+  { value: "vip", label: "VIP review group" },
+  { value: "pro", label: "Pro private mentorship" },
+];
 
 export const getServerSideProps = async (ctx) => {
   const supabase = createPagesServerClient(ctx);
@@ -47,7 +53,10 @@ export default function Mentorship({ adminName }) {
     });
   }, []);
 
-  const filteredUsers = useMemo(() => users.filter((user) => segment === "all" || user.role === segment), [segment, users]);
+  const filteredUsers = useMemo(
+    () => users.filter((user) => segment === "all" || user.activePlan === segment),
+    [segment, users],
+  );
 
   const save = async (event) => {
     event.preventDefault();
@@ -64,7 +73,9 @@ export default function Mentorship({ adminName }) {
         segment,
         roomName,
         roomMode,
-        targetUserIds: selectedUsers,
+        targetUserIds: roomMode === "group" && selectedUsers.length === 0
+          ? filteredUsers.map((user) => user.id)
+          : selectedUsers,
         mediaType: "webrtc",
       }),
     });
@@ -87,8 +98,8 @@ export default function Mentorship({ adminName }) {
             <option value="group">Selected group</option>
             <option value="one_to_one">Private one-to-one</option>
           </select>
-          <select value={segment} onChange={(e) => setSegment(e.target.value)} className="w-full rounded bg-black/30 p-2">
-            {["all", "free", "premium", "vip", "pro", "lifetime"].map((value) => <option key={value} value={value}>{value}</option>)}
+          <select value={segment} onChange={(e) => { setSegment(e.target.value); setSelectedUsers([]); }} className="w-full rounded bg-black/30 p-2">
+            {MENTORSHIP_GROUPS.map((group) => <option key={group.value} value={group.value}>{group.label}</option>)}
           </select>
           <input value={roomName} onChange={(e) => setRoomName(e.target.value.replace(/[^a-zA-Z0-9_-]/g, ""))} className="w-full rounded bg-black/30 p-2" placeholder="Room name" required />
           <select value={status} onChange={(e) => setStatus(e.target.value)} className="w-full rounded bg-black/30 p-2">
@@ -100,9 +111,10 @@ export default function Mentorship({ adminName }) {
               {filteredUsers.map((user) => (
                 <label key={user.id} className="flex gap-2 text-xs">
                   <input type="checkbox" checked={selectedUsers.includes(user.id)} onChange={(e) => setSelectedUsers((current) => e.target.checked ? roomMode === "one_to_one" ? [user.id] : [...new Set([...current, user.id])] : current.filter((id) => id !== user.id))} />
-                  <span>{user.email || user.id} ({user.role})</span>
+                  <span>{user.email || user.id} ({MENTORSHIP_GROUPS.find((group) => group.value === user.activePlan)?.label || user.activePlan})</span>
                 </label>
               ))}
+              {filteredUsers.length === 0 && <div className="text-xs text-gray-400">No active subscribers in this mentorship group.</div>}
             </div>
           </div>
           <button className="w-full rounded bg-emerald-600 py-2">Save room</button>

@@ -1,7 +1,8 @@
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 import { verifyKorapayCharge } from "../../../lib/korapay";
-import { PRICING_TIERS, getBotTierDefaults } from "../../../lib/pricing-config";
+import { getBotTierDefaults } from "../../../lib/pricing-config";
 import { validatePlanPayment } from "../../../lib/payment-amount";
+import { activateSubscription } from "../../../lib/subscription-lifecycle";
 
 function buildProfilePlanUpdate(plan) {
   const defaults = getBotTierDefaults(plan);
@@ -45,15 +46,6 @@ function getReference(req) {
 function extractPlan(metadata) {
   if (!metadata) return null;
   return metadata.plan || metadata.product || metadata.tier || null;
-}
-
-function getPlanEndDate(planId) {
-  const tier = PRICING_TIERS[String(planId || "").toUpperCase()];
-  if (!tier) return null;
-  if (tier.billingCycle === "monthly") {
-    return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  }
-  return null;
 }
 
 export default async function handler(req, res) {
@@ -129,18 +121,7 @@ export default async function handler(req, res) {
 
       try {
         if (buyerEmail && plan) {
-          const endedAt = getPlanEndDate(plan);
-          await supabaseAdmin.from("subscriptions").upsert(
-            {
-              email: buyerEmail,
-              plan,
-              status: "active",
-              amount: result.amount || 0,
-              started_at: new Date().toISOString(),
-              ended_at: endedAt,
-            },
-            { onConflict: "email,plan" }
-          );
+          await activateSubscription({ supabaseAdmin, email: buyerEmail, plan, amount: result.amount, userId, reference: result.reference || reference });
         }
       } catch (e) {
         console.warn("Subscription upsert failed:", e?.message || e);

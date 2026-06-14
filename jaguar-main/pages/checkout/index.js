@@ -151,9 +151,10 @@ export default function Checkout() {
             type="email"
             placeholder="you@example.com"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            readOnly
             className="w-full p-3 rounded bg-black/30 border border-gray-700"
           />
+          <p className="mt-1 text-xs text-gray-400">Access will be activated for this signed-in account.</p>
         </div>
 
         {message && <div className="mb-4 text-red-400">{message}</div>}

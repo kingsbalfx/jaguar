@@ -2,8 +2,9 @@
 import React from "react";
 import Link from "next/link";
 import { verifyKorapayCharge } from "../../lib/korapay";
-import { PRICING_TIERS, getBotTierDefaults } from "../../lib/pricing-config";
+import { getBotTierDefaults } from "../../lib/pricing-config";
 import { validatePlanPayment } from "../../lib/payment-amount";
+import { activateSubscription } from "../../lib/subscription-lifecycle";
 
 function buildProfilePlanUpdate(plan) {
   const defaults = getBotTierDefaults(plan);
@@ -124,11 +125,6 @@ export async function getServerSideProps(context) {
     if (!paymentValidation.valid) {
       return { props: { success: false, message: paymentValidation.error, reference, plan: null } };
     }
-    const tier = PRICING_TIERS[String(plan || "").toUpperCase()];
-    const endedAt =
-      tier?.billingCycle === "monthly"
-        ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-        : null;
 
     const { createClient } = await import("@supabase/supabase-js");
     const supabaseAdmin = createClient(
@@ -163,17 +159,7 @@ export async function getServerSideProps(context) {
         }
       }
       if (buyerEmail && plan) {
-        await supabaseAdmin.from("subscriptions").upsert(
-          {
-            email: buyerEmail,
-            plan,
-            status: "active",
-            amount: result.amount || 0,
-            started_at: new Date().toISOString(),
-            ended_at: endedAt,
-          },
-          { onConflict: "email,plan" }
-        );
+        await activateSubscription({ supabaseAdmin, email: buyerEmail, plan, amount: result.amount, userId, reference: result.reference || reference });
       }
     } catch (upErr) {
       console.error("Failed updating role after payment:", upErr);

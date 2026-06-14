@@ -21,9 +21,8 @@ export async function getPlanStatus({ supabaseAdmin, email, plan, role }) {
       .select("plan, status, ended_at, started_at")
       .eq("email", email)
       .eq("plan", normalizedPlan)
-      .order("started_at", { ascending: false })
-      .limit(1);
-    const subscription = data?.[0];
+      .order("started_at", { ascending: false });
+    const subscription = (data || []).find(isSubscriptionActive) || data?.[0];
     if (error || !subscription) return base;
     const active = isSubscriptionActive(subscription);
     return {

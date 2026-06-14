@@ -1,8 +1,9 @@
 import crypto from "crypto";
 import fetch from "node-fetch";
 import { getSupabaseClient } from "./supabaseClient.js";
-import { getBotTierDefaults, PRICING_TIERS } from "./pricing-config.js";
+import { getBotTierDefaults } from "./pricing-config.js";
 import { validatePlanPayment } from "./payment-amount.js";
+import { activateSubscription } from "./subscription-lifecycle.js";
 
 const DEFAULT_API_BASE = "https://api.korapay.com/merchant/api/v1";
 
@@ -236,21 +237,7 @@ export async function handleKorapayEvent(rawBody, eventJson) {
         console.warn("Failed updating profile role from webhook:", e?.message || e);
       }
       if (customerEmail) {
-        const tier = PRICING_TIERS[String(plan).toUpperCase()];
-        const endedAt = tier?.billingCycle === "monthly"
-          ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-          : null;
-        await supabase.from("subscriptions").upsert(
-          {
-            email: customerEmail,
-            plan,
-            status: "active",
-            amount: amount || 0,
-            started_at: new Date().toISOString(),
-            ended_at: endedAt,
-          },
-          { onConflict: "email,plan" }
-        );
+        await activateSubscription({ supabaseAdmin: supabase, email: customerEmail, plan, amount, userId, reference });
       }
     } else if (isSuccess) {
       console.warn("Korapay event did not activate access:", paymentValidation.error);

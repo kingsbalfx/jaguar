@@ -2,6 +2,7 @@ import React from "react";
 import Link from "next/link";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
+import { getPaidAccess } from "../../lib/subscription-status";
 
 export async function getServerSideProps(ctx) {
   const supabase = createPagesServerClient(ctx);
@@ -29,21 +30,17 @@ export async function getServerSideProps(ctx) {
     role = (data?.role || "user").toLowerCase();
   }
 
-  const redirectMap = {
-    admin: "/admin",
-    premium: "/dashboard/premium",
-    vip: "/dashboard/vip",
-    pro: "/dashboard/pro",
-    lifetime: "/dashboard/lifetime",
-  };
-
-  if (redirectMap[role]) {
+  if (role === "admin") {
     return {
       redirect: {
-        destination: redirectMap[role],
+        destination: "/admin",
         permanent: false,
       },
     };
+  }
+  const access = await getPaidAccess({ supabaseAdmin, email: session.user.email, role });
+  if (access.active && access.plan) {
+    return { redirect: { destination: `/dashboard/${access.plan}`, permanent: false } };
   }
 
   return {

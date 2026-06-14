@@ -12,14 +12,15 @@ function iceServers() {
   }
 }
 
-function VideoTile({ stream, label, muted = false }) {
+function VideoTile({ stream, label, muted = false, cameraEnabled = true }) {
   const ref = useRef(null);
   useEffect(() => {
     if (ref.current) ref.current.srcObject = stream || null;
   }, [stream]);
   return (
     <div className="relative overflow-hidden rounded-xl bg-black/60 min-h-[180px]">
-      <video ref={ref} autoPlay playsInline muted={muted} className="h-full w-full object-contain" />
+      <video ref={ref} autoPlay playsInline muted={muted} className="h-full w-full object-cover" />
+      {!cameraEnabled && <div className="absolute inset-0 grid place-items-center bg-slate-900 text-3xl font-bold">{String(label || "?").slice(0, 1).toUpperCase()}</div>}
       <div className="absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 text-xs text-white">{label}</div>
     </div>
   );
@@ -41,6 +42,19 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [sharingScreen, setSharingScreen] = useState(false);
   const [error, setError] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [devices, setDevices] = useState({ audio: [], video: [] });
+  const [audioDeviceId, setAudioDeviceId] = useState("");
+  const [videoDeviceId, setVideoDeviceId] = useState("");
+
+  const loadDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    const available = await navigator.mediaDevices.enumerateDevices();
+    setDevices({
+      audio: available.filter((device) => device.kind === "audioinput"),
+      video: available.filter((device) => device.kind === "videoinput"),
+    });
+  }, []);
 
   const sendSignal = useCallback(async (target, type, data) => {
     if (!channelRef.current) return;
@@ -119,8 +133,13 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   const join = useCallback(async () => {
     if (!supabase || joined || !roomName) return;
     setError("");
+    setJoining(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera and microphone access is not supported by this browser.");
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: audioDeviceId ? { deviceId: { exact: audioDeviceId }, echoCancellation: true, noiseSuppression: true } : { echoCancellation: true, noiseSuppression: true },
+        video: videoDeviceId ? { deviceId: { exact: videoDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } : { width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
       localStreamRef.current = stream;
       setLocalStream(stream);
       const channel = supabase.channel(`mentorship-room:${roomName}`, {
@@ -151,10 +170,13 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
         }
       });
       setJoined(true);
+      await loadDevices();
     } catch (err) {
       setError(err.message || "Unable to join the WebRTC room.");
+    } finally {
+      setJoining(false);
     }
-  }, [createPeer, displayName, handleSignal, isHost, joined, roomName, supabase]);
+  }, [audioDeviceId, createPeer, displayName, handleSignal, isHost, joined, loadDevices, roomName, supabase, videoDeviceId]);
 
   const leave = useCallback(async () => {
     screenStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -170,6 +192,8 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
     setRemoteStreams({});
     setParticipants({});
     setSharingScreen(false);
+    setMicEnabled(true);
+    setCameraEnabled(true);
     setJoined(false);
   }, [supabase]);
 
@@ -218,34 +242,71 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
     await channelRef.current?.send({ type: "broadcast", event: "moderation", payload: { target, action } });
   };
 
+  const toggleMic = () => {
+    const track = localStreamRef.current?.getAudioTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setMicEnabled(track.enabled);
+  };
+
+  const toggleCamera = () => {
+    const track = localStreamRef.current?.getVideoTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setCameraEnabled(track.enabled);
+  };
+
   useEffect(() => {
+    loadDevices().catch(() => {});
     if (autoJoin) join();
     return () => {
       leave();
     };
   }, []);
 
+  const participantCount = Object.keys(participants).length || (joined ? 1 : 0);
+
   return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-white">
+    <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 to-slate-950 p-4 text-white shadow-2xl">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-widest text-emerald-300">WebRTC Mentorship Room</div>
           <div className="font-semibold">{roomName}</div>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            <span className={`rounded-full px-2 py-1 ${joined ? "bg-emerald-500/20 text-emerald-200" : "bg-white/10 text-gray-300"}`}>{joined ? "Connected" : "Ready to join"}</span>
+            <span className="rounded-full bg-white/10 px-2 py-1 text-gray-300">{participantCount} participant{participantCount === 1 ? "" : "s"}</span>
+          </div>
         </div>
         {!joined ? (
-          <button onClick={join} className="rounded bg-emerald-600 px-4 py-2">Join room</button>
+          <button onClick={join} disabled={joining} className="rounded-xl bg-emerald-600 px-5 py-3 font-semibold shadow-lg disabled:opacity-60">{joining ? "Joining..." : "Join room"}</button>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => { localStreamRef.current?.getAudioTracks().forEach((t) => { t.enabled = !t.enabled; setMicEnabled(t.enabled); }); }} className="rounded bg-white/10 px-3 py-2">{micEnabled ? "Mute" : "Unmute"}</button>
-            <button onClick={() => { localStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = !t.enabled; setCameraEnabled(t.enabled); }); }} className="rounded bg-white/10 px-3 py-2">{cameraEnabled ? "Camera off" : "Camera on"}</button>
-            <button onClick={sharingScreen ? stopScreenShare : shareScreen} className="rounded bg-indigo-600 px-3 py-2">{sharingScreen ? "Stop sharing" : "Share entire screen"}</button>
-            <button onClick={leave} className="rounded bg-red-600 px-3 py-2">Leave</button>
+          <div className="flex flex-wrap gap-2 rounded-xl bg-black/30 p-2">
+            <button onClick={toggleMic} className={`rounded-lg px-4 py-2 ${micEnabled ? "bg-white/10" : "bg-amber-600"}`}>{micEnabled ? "Mute microphone" : "Unmute microphone"}</button>
+            <button onClick={toggleCamera} className={`rounded-lg px-4 py-2 ${cameraEnabled ? "bg-white/10" : "bg-amber-600"}`}>{cameraEnabled ? "Turn camera off" : "Turn camera on"}</button>
+            <button onClick={sharingScreen ? stopScreenShare : shareScreen} className="rounded-lg bg-indigo-600 px-4 py-2">{sharingScreen ? "Stop sharing" : "Share screen"}</button>
+            <button onClick={leave} className="rounded-lg bg-red-600 px-4 py-2">Leave room</button>
           </div>
         )}
       </div>
+      {!joined && (
+        <div className="mt-4 grid gap-3 rounded-xl border border-white/10 bg-black/20 p-3 md:grid-cols-2">
+          <label className="text-xs text-gray-300">Microphone
+            <select value={audioDeviceId} onChange={(e) => setAudioDeviceId(e.target.value)} className="mt-1 w-full rounded bg-slate-900 p-2 text-white">
+              <option value="">Default microphone</option>
+              {devices.audio.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}
+            </select>
+          </label>
+          <label className="text-xs text-gray-300">Camera
+            <select value={videoDeviceId} onChange={(e) => setVideoDeviceId(e.target.value)} className="mt-1 w-full rounded bg-slate-900 p-2 text-white">
+              <option value="">Default camera</option>
+              {devices.video.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
       {error && <div className="mt-3 rounded bg-red-950/60 p-2 text-sm text-red-200">{error}</div>}
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {localStream && <VideoTile stream={sharingScreen ? screenStreamRef.current : localStream} label={`${displayName || "You"} (you)`} muted />}
+        {localStream && <VideoTile stream={sharingScreen ? screenStreamRef.current : localStream} label={`${displayName || "You"} (you)`} muted cameraEnabled={sharingScreen || cameraEnabled} />}
         {Object.entries(remoteStreams).map(([peerId, stream]) => {
           const presence = participants[peerId]?.[0] || {};
           return <VideoTile key={peerId} stream={stream} label={presence.name || "Participant"} />;

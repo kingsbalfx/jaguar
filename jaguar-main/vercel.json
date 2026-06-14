@@ -28,6 +28,10 @@
     { "source": "/premium", "destination": "/dashboard/premium", "permanent": false }
   ],
 
+  "crons": [
+    { "path": "/api/cron/subscription-notifications", "schedule": "0 8 * * *" }
+  ],
+
   "headers": [
     {
       "source": "/(.*)",

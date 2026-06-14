@@ -2,6 +2,7 @@
 import React from "react";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
+import { emailLayout, sendLifecycleEmail } from "../../lib/mailer";
 
 /**
  * Validate `next` param (avoid open redirect)
@@ -169,6 +170,15 @@ export const getServerSideProps = async (ctx) => {
         return { redirect: { destination: "/complete-profile", permanent: false } };
       }
       profile = { id: user.id, email: user.email, role };
+      await sendLifecycleEmail({
+        supabaseAdmin,
+        email: user.email,
+        type: "account_created",
+        dedupeKey: `account_created:${user.id}`,
+        subject: "Your KINGSBALFX Academy account is ready",
+        text: "Your KINGSBALFX Academy account has been created.",
+        html: emailLayout("Welcome to KINGSBALFX Academy", "<p>Your account is ready. Sign in to begin with the free lessons and risk guidance.</p>", "Open dashboard", "/dashboard"),
+      });
     } else {
       // If profile missing or metadata incomplete, send user to complete-profile
       if (skipProfileCompletion) {
