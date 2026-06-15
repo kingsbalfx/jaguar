@@ -29,7 +29,10 @@ function iceServers() {
 function VideoTile({ stream, label, muted = false, cameraEnabled = true }) {
   const ref = useRef(null);
   useEffect(() => {
-    if (ref.current) ref.current.srcObject = stream || null;
+    if (ref.current && ref.current.srcObject !== stream) {
+      ref.current.srcObject = stream || null;
+      ref.current.play().catch(() => {});
+    }
   }, [stream]);
   return (
     <div className="relative aspect-video min-h-[150px] overflow-hidden rounded-xl bg-black/60 sm:min-h-[180px]">
@@ -41,11 +44,14 @@ function VideoTile({ stream, label, muted = false, cameraEnabled = true }) {
   );
 }
 
-export default function WebRTCRoom({ roomName, displayName, isHost = false, autoJoin = false, recordingTitle = "", recordingSegment = "all" }) {
+export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHost = false, autoJoin = false, autoRecord = false, recordingTitle = "", recordingSegment = "all" }) {
   const supabase = getBrowserSupabaseClient();
   const clientId = useRef(typeof crypto !== "undefined" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
   const channelRef = useRef(null);
   const peersRef = useRef(new Map());
+  const pendingCandidatesRef = useRef(new Map());
+  const autoRecordingStartedRef = useRef(false);
+  const intentionalLeaveRef = useRef(false);
   const screenAudioSendersRef = useRef(new Map());
   const localStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
@@ -75,6 +81,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [publishingRecording, setPublishingRecording] = useState(false);
   const [recordingStatus, setRecordingStatus] = useState("");
+  const [connectionStatus, setConnectionStatus] = useState("ready");
 
   const setLiveRoomActivity = useCallback((active) => {
     if (typeof window === "undefined") return;
@@ -88,6 +95,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   const removePeer = useCallback((peerId) => {
     peersRef.current.get(peerId)?.close();
     peersRef.current.delete(peerId);
+    pendingCandidatesRef.current.delete(peerId);
     screenAudioSendersRef.current.delete(peerId);
     setRemoteStreams((current) => {
       const next = { ...current };
@@ -121,7 +129,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   const createPeer = useCallback(
     (peerId, initiator) => {
       if (peersRef.current.has(peerId)) return peersRef.current.get(peerId);
-      const peer = new RTCPeerConnection({ iceServers: iceServers() });
+      const peer = new RTCPeerConnection({ iceServers: iceServers(), bundlePolicy: "max-bundle", iceCandidatePoolSize: 4 });
       peersRef.current.set(peerId, peer);
       const stream = localStreamRef.current;
       if (stream && (isHost || presentingRef.current)) {
@@ -142,21 +150,28 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
       };
       peer.ontrack = (event) => attachRemoteStream(peerId, event.streams[0]);
       peer.onconnectionstatechange = () => {
-        if (["closed", "failed"].includes(peer.connectionState)) {
-          removePeer(peerId);
+        if (peer.connectionState === "connected") {
+          setConnectionStatus("connected");
+          setError("");
         }
-        if (peer.connectionState === "disconnected") {
+        if (["failed", "disconnected"].includes(peer.connectionState)) {
+          setConnectionStatus("reconnecting");
           window.setTimeout(async () => {
-            if (peer.connectionState !== "disconnected") return;
-            removePeer(peerId);
-            if (!isHost) {
+            if (!["failed", "disconnected"].includes(peer.connectionState)) return;
+            try {
+              peer.restartIce?.();
+              const offer = await peer.createOffer({ iceRestart: true });
+              await peer.setLocalDescription(offer);
+              await sendSignal(peerId, "offer", offer);
+            } catch {
+              removePeer(peerId);
               await channelRef.current?.send({
                 type: "broadcast",
                 event: "reconnect-request",
                 payload: { source: clientId.current },
               });
             }
-          }, 2000);
+          }, 1500);
         }
       };
       if (initiator) {
@@ -180,13 +195,23 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
       peer = peer || createPeer(payload.source, false);
       if (payload.type === "offer") {
         await peer.setRemoteDescription(new RTCSessionDescription(payload.data));
+        for (const candidate of pendingCandidatesRef.current.get(payload.source) || []) {
+          await peer.addIceCandidate(candidate).catch(() => {});
+        }
+        pendingCandidatesRef.current.delete(payload.source);
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
         await sendSignal(payload.source, "answer", answer);
       } else if (payload.type === "answer") {
         await peer.setRemoteDescription(new RTCSessionDescription(payload.data));
+        for (const candidate of pendingCandidatesRef.current.get(payload.source) || []) {
+          await peer.addIceCandidate(candidate).catch(() => {});
+        }
+        pendingCandidatesRef.current.delete(payload.source);
       } else if (payload.type === "candidate") {
-        await peer.addIceCandidate(new RTCIceCandidate(payload.data));
+        const candidate = new RTCIceCandidate(payload.data);
+        if (peer.remoteDescription) await peer.addIceCandidate(candidate);
+        else pendingCandidatesRef.current.set(payload.source, [...(pendingCandidatesRef.current.get(payload.source) || []), candidate]);
       }
     },
     [createPeer, removePeer, sendSignal],
@@ -196,13 +221,27 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
     if (!supabase || joined || !roomName) return;
     setError("");
     setJoining(true);
+    setConnectionStatus("connecting");
+    intentionalLeaveRef.current = false;
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera and microphone access is not supported by this browser.");
-      if (isHost) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: audioDeviceId ? { deviceId: { exact: audioDeviceId }, echoCancellation: true, noiseSuppression: true } : { echoCancellation: true, noiseSuppression: true },
-          video: videoDeviceId ? { deviceId: { exact: videoDeviceId }, ...CAMERA_VIDEO } : CAMERA_VIDEO,
-        });
+      if (isHost && !localStreamRef.current?.active) {
+        let stream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: audioDeviceId ? { deviceId: { exact: audioDeviceId }, echoCancellation: true, noiseSuppression: true } : { echoCancellation: true, noiseSuppression: true },
+            video: videoDeviceId ? { deviceId: { exact: videoDeviceId }, ...CAMERA_VIDEO } : CAMERA_VIDEO,
+          });
+        } catch {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+            setCameraEnabled(false);
+          } catch {
+            stream = new MediaStream();
+            setCameraEnabled(false);
+            setMicEnabled(false);
+          }
+        }
         localStreamRef.current = stream;
         setLocalStream(stream);
       }
@@ -260,9 +299,18 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
           if (!presentIds.has(peerId)) removePeer(peerId);
         });
       });
-      await channel.subscribe(async (status) => {
+      channel.subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
           await channel.track({ name: displayName || "Participant", host: isHost, joinedAt: new Date().toISOString() });
+          setConnectionStatus("connected");
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          setConnectionStatus("reconnecting");
+        } else if (status === "CLOSED") {
+          if (intentionalLeaveRef.current) return;
+          setConnectionStatus("disconnected");
+          channelRef.current = null;
+          setJoined(false);
+          setLiveRoomActivity(false);
         }
       });
       setJoined(true);
@@ -280,6 +328,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
       setRecordingStatus("Stop the recording and wait for publishing to finish before leaving the room.");
       return;
     }
+    intentionalLeaveRef.current = true;
     screenStreamRef.current?.getTracks().forEach((track) => track.stop());
     screenAudioSendersRef.current.clear();
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -300,6 +349,7 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
     setRequestSent("");
     setApprovedKind("");
     setJoined(false);
+    setConnectionStatus("ready");
     setLiveRoomActivity(false);
   }, [isHost, publishingRecording, setLiveRoomActivity, supabase]);
 
@@ -328,10 +378,11 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
   const shareScreen = useCallback(async () => {
     try {
       setError("");
-      if (!navigator.mediaDevices?.getDisplayMedia) throw new Error("Screen sharing is not supported by this browser.");
+      if (!window.isSecureContext) throw new Error("Screen sharing requires a secure HTTPS connection.");
+      if (!navigator.mediaDevices?.getDisplayMedia) throw new Error("This mobile browser does not provide screen sharing. Use its latest Chrome/Edge version or share your camera instead.");
       let screen;
       try {
-        screen = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 24 } }, audio: false });
       } catch (firstError) {
         if (firstError?.name === "NotAllowedError") throw firstError;
         screen = await navigator.mediaDevices.getDisplayMedia({ video: true });
@@ -556,10 +607,40 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
     if (autoJoin) join();
     return () => {
       window.clearInterval(recordingTimerRef.current);
-      recordingRenderCleanupRef.current?.();
+      if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+      else recordingRenderCleanupRef.current?.();
       leave();
     };
   }, []);
+
+  useEffect(() => {
+    if (!joined) return undefined;
+    const healthTimer = window.setInterval(async () => {
+      window.dispatchEvent(new CustomEvent("kingsbal:live-room-activity", { detail: { active: true } }));
+      const state = channelRef.current?.presenceState?.() || {};
+      if (isHost) {
+        Object.keys(state).forEach((peerId) => {
+          if (peerId !== clientId.current && !peersRef.current.has(peerId)) createPeer(peerId, true);
+        });
+      } else if (Object.keys(remoteStreams).length === 0) {
+        setConnectionStatus("reconnecting");
+        await channelRef.current?.send({ type: "broadcast", event: "reconnect-request", payload: { source: clientId.current } });
+      }
+    }, 8000);
+    return () => window.clearInterval(healthTimer);
+  }, [createPeer, isHost, joined, remoteStreams]);
+
+  useEffect(() => {
+    if (connectionStatus !== "disconnected" || joined || joining) return undefined;
+    const reconnectTimer = window.setTimeout(() => void join(), 1500);
+    return () => window.clearTimeout(reconnectTimer);
+  }, [connectionStatus, join, joined, joining]);
+
+  useEffect(() => {
+    if (!autoRecord || !isHost || !joined || !localStream || recording || publishingRecording || autoRecordingStartedRef.current) return;
+    autoRecordingStartedRef.current = true;
+    void startRecording();
+  }, [autoRecord, isHost, joined, localStream, publishingRecording, recording, startRecording]);
 
   const participantCount = Object.keys(participants).length || (joined ? 1 : 0);
 
@@ -568,9 +649,11 @@ export default function WebRTCRoom({ roomName, displayName, isHost = false, auto
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-widest text-emerald-300">WebRTC Mentorship Room</div>
-          <div className="font-semibold">{roomName}</div>
+          <div className="font-semibold">{roomTitle || roomName}</div>
+          {roomTitle && <div className="text-xs text-gray-400">{roomName}</div>}
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
             <span className={`rounded-full px-2 py-1 ${joined ? "bg-emerald-500/20 text-emerald-200" : "bg-white/10 text-gray-300"}`}>{joined ? "Connected" : "Ready to join"}</span>
+            <span className="rounded-full bg-sky-500/15 px-2 py-1 text-sky-200">{connectionStatus}</span>
             <span className="rounded-full bg-white/10 px-2 py-1 text-gray-300">{participantCount} participant{participantCount === 1 ? "" : "s"}</span>
           </div>
         </div>

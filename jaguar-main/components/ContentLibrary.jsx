@@ -12,13 +12,11 @@ export default function ContentLibrary() {
 
   useEffect(() => {
     loadItems();
-    const interval = window.setInterval(loadItems, 60000);
     const refreshWhenVisible = () => {
       if (document.visibilityState === "visible") loadItems();
     };
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
-      window.clearInterval(interval);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, []);
@@ -29,7 +27,18 @@ export default function ContentLibrary() {
       const res = await fetch("/api/content/items", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data?.items) throw new Error(data?.error || "Unable to load content.");
-      setItems(data.items);
+      setItems((current) => {
+        const existingById = new Map(current.map((item) => [item.id, item]));
+        return data.items.map((item) => {
+          const existing = existingById.get(item.id);
+          if (!existing || existing.storage_path !== item.storage_path) return item;
+          return {
+            ...item,
+            playback_url: existing.playback_url || item.playback_url,
+            download_url: existing.download_url || item.download_url,
+          };
+        });
+      });
       setError("");
     } catch (err) {
       setError(err.message || "Unable to load content.");
@@ -84,7 +93,10 @@ export default function ContentLibrary() {
               </div>
               <h4 className="mt-4 text-lg font-semibold text-white">{item.title}</h4>
               {item.description && <p className="mt-2 text-sm text-gray-300">{item.description}</p>}
-              <ResourceViewer item={item} />
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <ResourceViewer item={item} compact />
+                {item.download_url && <a href={item.download_url} download className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-black/25 px-3 py-2.5 text-center text-sm font-semibold text-gray-100 transition hover:bg-white/10">Download</a>}
+              </div>
             </article>
           );
         })}

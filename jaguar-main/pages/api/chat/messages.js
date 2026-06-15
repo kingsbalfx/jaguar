@@ -41,7 +41,7 @@ export default async function handler(req, res) {
     const { data, error } = await ctx.admin.from("mentorship_messages").insert({
       room_key: roomKey,
       sender_id: ctx.session.user.id,
-      sender_name: ctx.profile.name || ctx.profile.username || ctx.profile.email || ctx.session.user.email,
+      sender_name: String(ctx.profile.role || "").toLowerCase() === "admin" ? "Admin" : ctx.profile.username || ctx.profile.name || "Subscriber",
       content,
       reply_to: req.body?.replyTo || null,
     }).select("*").single();

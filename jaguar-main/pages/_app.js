@@ -41,12 +41,14 @@ export default function MyApp({ Component, pageProps }) {
     let timeoutId = null;
     let sessionRefreshId = null;
 
-    const liveRoomActive = () => Number(window.__kingsbalActiveLiveRooms || 0) > 0;
+    const protectedActivityActive = () =>
+      Number(window.__kingsbalActiveLiveRooms || 0) > 0 ||
+      Number(window.__kingsbalActiveUploads || 0) > 0;
 
     const resetTimer = () => {
       if (timeoutId) clearTimeout(timeoutId);
       timeoutId = setTimeout(async () => {
-        if (liveRoomActive()) {
+        if (protectedActivityActive()) {
           resetTimer();
           return;
         }
@@ -63,7 +65,7 @@ export default function MyApp({ Component, pageProps }) {
     };
 
     const refreshLiveSession = async () => {
-      if (!liveRoomActive()) return;
+      if (!protectedActivityActive()) return;
       try {
         await client.auth.refreshSession();
       } catch {}
@@ -73,6 +75,7 @@ export default function MyApp({ Component, pageProps }) {
     const events = ["mousemove", "keydown", "click", "scroll", "touchstart"];
     events.forEach((evt) => window.addEventListener(evt, resetTimer));
     window.addEventListener("kingsbal:live-room-activity", resetTimer);
+    window.addEventListener("kingsbal:protected-activity", resetTimer);
     sessionRefreshId = window.setInterval(refreshLiveSession, 20 * 60 * 1000);
     resetTimer();
 
@@ -81,6 +84,7 @@ export default function MyApp({ Component, pageProps }) {
       if (sessionRefreshId) window.clearInterval(sessionRefreshId);
       events.forEach((evt) => window.removeEventListener(evt, resetTimer));
       window.removeEventListener("kingsbal:live-room-activity", resetTimer);
+      window.removeEventListener("kingsbal:protected-activity", resetTimer);
     };
   }, []);
 

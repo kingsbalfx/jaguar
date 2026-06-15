@@ -50,7 +50,7 @@ export default async function handler(req, res) {
         .order("starts_at", { ascending: true })
         .limit(1)
         .maybeSingle(),
-        supabaseAdmin.from("profiles").select("id,email,role").order("email"),
+        supabaseAdmin.from("profiles").select("id,email,role,name,username").order("email"),
         supabaseAdmin.from("subscriptions").select("email,plan,status,ended_at,started_at").order("started_at", { ascending: false }),
       ]);
 
@@ -79,6 +79,7 @@ export default async function handler(req, res) {
 
     const {
       title,
+      sessionId,
       startsAt,
       endsAt,
       timezone,
@@ -101,14 +102,14 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "one-to-one rooms require exactly one selected subscriber" });
     }
 
-    await supabaseAdmin.from("live_sessions").update({ active: false }).eq("active", true);
+    let deactivateQuery = supabaseAdmin.from("live_sessions").update({ active: false }).eq("active", true);
+    if (sessionId) deactivateQuery = deactivateQuery.neq("id", sessionId);
+    await deactivateQuery;
 
     let inserted = null;
     let insertError = null;
 
-    const fullInsert = await supabaseAdmin
-      .from("live_sessions")
-      .insert({
+    const payload = {
         title: String(title).trim(),
         starts_at,
         ends_at,
@@ -123,7 +124,11 @@ export default async function handler(req, res) {
         target_user_ids: Array.isArray(targetUserIds) ? targetUserIds : [],
         active: status !== "completed",
         updated_at: new Date().toISOString(),
-      })
+      };
+    const writeQuery = sessionId
+      ? supabaseAdmin.from("live_sessions").update(payload).eq("id", sessionId)
+      : supabaseAdmin.from("live_sessions").insert(payload);
+    const fullInsert = await writeQuery
       .select("*")
       .maybeSingle();
 

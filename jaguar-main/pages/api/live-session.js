@@ -16,7 +16,7 @@ export default async function handler(req, res) {
   const { data, error } = await supabaseAdmin
     .from("live_sessions").select("*").eq("active", true).order("starts_at", { ascending: true }).limit(1).maybeSingle();
   if (error && error.code !== "42P01") return res.status(500).json({ error: "failed to load live session" });
-  const displayName = profile?.name || profile?.username || profile?.email || session.user.email || "Subscriber";
+  const displayName = role === "admin" ? "Admin" : profile?.username || profile?.name || "Subscriber";
   if (!data) return res.status(200).json({ session: null, role, displayName, accessStatus: access.status });
 
   const segment = String(data.segment || "all").toLowerCase();

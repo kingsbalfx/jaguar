@@ -5,6 +5,7 @@ import FeedbackMessage from "../../components/FeedbackMessage";
 import ResourceViewer from "../../components/ResourceViewer";
 import { MENTORSHIP_GROUPS, getMentorshipGroup, getMentorshipGroupLabel } from "../../lib/mentorship-groups";
 import { brandVideoFile } from "../../lib/client-video-branding";
+import { setUploadActivity } from "../../lib/activity-guard";
 
 const Uploader = dynamic(() => import("../../components/Uploader"), { ssr: false });
 const AdminVideoPlayer = dynamic(() => import("../../components/AdminVideoPlayer"), { ssr: false });
@@ -69,6 +70,8 @@ export default function Content() {
     const client = getBrowserSupabaseClient();
     if (!client) throw new Error("Supabase client not available");
     let uploadFile = fileToUpload;
+    setUploadActivity(true);
+    try {
     const maxSize = mediaType === "video" ? 120 * 1024 * 1024 : 30 * 1024 * 1024;
     if (fileToUpload.size > maxSize) {
       throw new Error(mediaType === "video" ? "Video must be 120 MB or less. Export as MP4 H.264 at 720p before uploading." : "File must be 30 MB or less.");
@@ -101,6 +104,9 @@ export default function Content() {
     }
 
     return { storagePath: path, publicUrl };
+    } finally {
+      setUploadActivity(false);
+    }
   }
 
   async function saveItem(e) {

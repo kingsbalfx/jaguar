@@ -13,16 +13,25 @@ export default function LiveSessionPanel({ heading = "Live Mentorship" }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/live-session")
+    let active = true;
+    const load = () => fetch("/api/live-session")
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok) throw new Error(data?.error || "Unable to load live session.");
+        if (!active) return;
         setSession(data.session || null);
         setRole(data.role || "");
         setDisplayName(data.displayName || data.role || "Subscriber");
+        setError("");
       })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .catch((err) => active && setError(err.message))
+      .finally(() => active && setLoading(false));
+    load();
+    const timer = window.setInterval(load, 30000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, []);
 
   if (loading) return <div className="glass-panel rounded-2xl p-5 text-sm text-gray-300">Loading mentorship room...</div>;
@@ -39,8 +48,8 @@ export default function LiveSessionPanel({ heading = "Live Mentorship" }) {
           {session.room_mode ? ` · ${session.room_mode === "one_to_one" ? "Private 1:1" : "Group room"}` : ""}
         </div>
       </div>
-      <WebRTCRoom roomName={session.room_name || session.id} displayName={displayName || role || "Subscriber"} />
-      <Chat channel={session.segment || role || "mentorship"} roomId={session.room_name || session.id} />
+      <WebRTCRoom key={session.room_name || session.id} roomName={session.room_name || session.id} roomTitle={session.title} displayName={displayName || role || "Subscriber"} />
+      <Chat key={`chat-${session.room_name || session.id}`} channel={session.segment || role || "mentorship"} roomId={session.room_name || session.id} />
     </div>
   );
 }

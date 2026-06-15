@@ -3,6 +3,7 @@ import { getBrowserSupabaseClient } from "../lib/supabaseClient";
 import { MENTORSHIP_GROUPS, getMentorshipGroup } from "../lib/mentorship-groups";
 import FeedbackMessage from "./FeedbackMessage";
 import { brandVideoFile } from "../lib/client-video-branding";
+import { setUploadActivity } from "../lib/activity-guard";
 
 const DEFAULT_BUCKET = process.env.NEXT_PUBLIC_STORAGE_BUCKET || "public";
 const SEGMENT_BUCKETS = {
@@ -29,6 +30,7 @@ export default function Uploader({ bucket = DEFAULT_BUCKET, folder = "", allowSe
     if (!selectedFile || !client) return;
     setStatus({ type: "info", message: "Preparing secure upload..." });
     setLastUploaded(null);
+    setUploadActivity(true);
     try {
       const file = selectedFile.type?.startsWith("video/")
         ? await brandVideoFile(selectedFile, (progress) => setStatus({ type: "info", message: `Applying permanent KINGSBALFX watermark: ${progress}%` }))
@@ -47,6 +49,7 @@ export default function Uploader({ bucket = DEFAULT_BUCKET, folder = "", allowSe
     } catch (error) {
       setStatus({ type: "error", message: error.message || "Upload failed." });
     } finally {
+      setUploadActivity(false);
       event.target.value = "";
     }
   }
