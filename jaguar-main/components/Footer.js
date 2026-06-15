@@ -2,7 +2,7 @@ import React from "react";
 import Link from "next/link";
 import {
   FaFacebook, FaTwitter, FaInstagram, FaLinkedin, FaYoutube,
-  FaTelegram, FaTiktok, FaGlobe, FaWhatsapp,
+  FaTelegram, FaTiktok, FaGlobe, FaWhatsapp, FaSnapchatGhost,
 } from "react-icons/fa";
 
 const ICON_MAP = {
@@ -14,6 +14,7 @@ const ICON_MAP = {
   youtube: FaYoutube,
   telegram: FaTelegram,
   whatsapp: FaWhatsapp,
+  snapchat: FaSnapchatGhost,
   tiktok: FaTiktok,
   website: FaGlobe,
 };
@@ -28,6 +29,7 @@ function normalizeSocialUrl(value, label = "") {
     if (platform.includes("telegram")) return `https://t.me/${handle}`;
     if (platform.includes("twitter") || platform === "x") return `https://x.com/${handle}`;
     if (platform.includes("instagram")) return `https://instagram.com/${handle}`;
+    if (platform.includes("snapchat")) return `https://snapchat.com/add/${handle}`;
     if (platform.includes("tiktok")) return `https://tiktok.com/@${handle}`;
   }
   return `https://${raw.replace(/^\/+/, "")}`;
@@ -63,6 +65,7 @@ function buildSocials() {
     { label: "LinkedIn", value: process.env.NEXT_PUBLIC_SOCIAL_LINKEDIN || process.env.NEXT_PUBLIC_LINKEDIN_URL },
     { label: "Telegram", value: process.env.NEXT_PUBLIC_SOCIAL_TELEGRAM || process.env.NEXT_PUBLIC_TELEGRAM_URL },
     { label: "WhatsApp", value: process.env.NEXT_PUBLIC_SOCIAL_WHATSAPP || process.env.NEXT_PUBLIC_WHATSAPP_URL },
+    { label: "Snapchat", value: process.env.NEXT_PUBLIC_SOCIAL_SNAPCHAT || process.env.NEXT_PUBLIC_SNAPCHAT_URL },
     { label: "TikTok", value: process.env.NEXT_PUBLIC_SOCIAL_TIKTOK || process.env.NEXT_PUBLIC_TIKTOK_URL },
     { label: "Website", value: process.env.NEXT_PUBLIC_SOCIAL_WEBSITE || process.env.NEXT_PUBLIC_WEBSITE_URL },
   ];
