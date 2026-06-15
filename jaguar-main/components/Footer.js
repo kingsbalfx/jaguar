@@ -57,25 +57,28 @@ function parseSocials(raw = "") {
 
 function buildSocials() {
   const parsed = parseSocials(process.env.NEXT_PUBLIC_SOCIALS || "");
-  const mapping = parsed.length ? parsed : [
-    { label: "Twitter", value: process.env.NEXT_PUBLIC_SOCIAL_TWITTER || process.env.NEXT_PUBLIC_TWITTER_URL },
+  const mapping = [
     { label: "Instagram", value: process.env.NEXT_PUBLIC_SOCIAL_INSTAGRAM || process.env.NEXT_PUBLIC_INSTAGRAM_URL },
-    { label: "YouTube", value: process.env.NEXT_PUBLIC_SOCIAL_YOUTUBE || process.env.NEXT_PUBLIC_YOUTUBE_URL },
-    { label: "Facebook", value: process.env.NEXT_PUBLIC_SOCIAL_FACEBOOK || process.env.NEXT_PUBLIC_FACEBOOK_URL },
+    { label: "X", value: process.env.NEXT_PUBLIC_SOCIAL_X || process.env.NEXT_PUBLIC_SOCIAL_TWITTER || process.env.NEXT_PUBLIC_X_URL || process.env.NEXT_PUBLIC_TWITTER_URL },
     { label: "LinkedIn", value: process.env.NEXT_PUBLIC_SOCIAL_LINKEDIN || process.env.NEXT_PUBLIC_LINKEDIN_URL },
+    { label: "YouTube", value: process.env.NEXT_PUBLIC_SOCIAL_YOUTUBE || process.env.NEXT_PUBLIC_YOUTUBE_URL },
     { label: "Telegram", value: process.env.NEXT_PUBLIC_SOCIAL_TELEGRAM || process.env.NEXT_PUBLIC_TELEGRAM_URL },
-    { label: "WhatsApp", value: process.env.NEXT_PUBLIC_SOCIAL_WHATSAPP || process.env.NEXT_PUBLIC_WHATSAPP_URL },
     { label: "Snapchat", value: process.env.NEXT_PUBLIC_SOCIAL_SNAPCHAT || process.env.NEXT_PUBLIC_SNAPCHAT_URL },
     { label: "TikTok", value: process.env.NEXT_PUBLIC_SOCIAL_TIKTOK || process.env.NEXT_PUBLIC_TIKTOK_URL },
+    { label: "WhatsApp", value: process.env.NEXT_PUBLIC_SOCIAL_WHATSAPP || process.env.NEXT_PUBLIC_WHATSAPP_URL },
+    { label: "Facebook", value: process.env.NEXT_PUBLIC_SOCIAL_FACEBOOK || process.env.NEXT_PUBLIC_FACEBOOK_URL },
     { label: "Website", value: process.env.NEXT_PUBLIC_SOCIAL_WEBSITE || process.env.NEXT_PUBLIC_WEBSITE_URL },
   ];
-  const seen = new Set();
-  return mapping.map((item) => ({ label: item.label, url: normalizeSocialUrl(item.url || item.value, item.label) })).filter((item) => {
-    const key = `${item.label}:${item.url}`.toLowerCase();
-    if (!item.url || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const parsedByLabel = new Map(parsed.map((item) => [String(item.label || "").toLowerCase(), item.url || item.value]));
+  return mapping.map((item) => ({
+    label: item.label,
+    url: normalizeSocialUrl(
+      parsedByLabel.get(item.label.toLowerCase()) ||
+      (item.label === "X" ? parsedByLabel.get("twitter") : "") ||
+      item.value,
+      item.label,
+    ),
+  }));
 }
 
 export default function Footer() {
@@ -91,12 +94,19 @@ export default function Footer() {
         <nav className="flex flex-wrap justify-center gap-4 text-sm">
           {["About", "Privacy", "Contact", "Terms", "Policy"].map((item) => <Link key={item} href={`/${item.toLowerCase()}`} className="transition hover:text-white">{item}</Link>)}
         </nav>
-        <div className="flex min-h-[36px] flex-wrap justify-center gap-3">
-          {socials.map((social) => {
-            const key = String(social.label || "").toLowerCase().replace(/\s+/g, "");
-            const Icon = ICON_MAP[key] || FaGlobe;
-            return <a key={`${social.label}-${social.url}`} href={social.url} target="_blank" rel="noopener noreferrer" title={social.label} aria-label={social.label} className="grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-white/5 text-gray-300 transition hover:-translate-y-0.5 hover:border-indigo-300/40 hover:text-white"><Icon size={18} /></a>;
-          })}
+        <div className="flex flex-col items-center gap-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-200">Connect with us</p>
+          <div className="flex min-h-[44px] max-w-sm flex-wrap justify-center gap-2">
+            {socials.map((social) => {
+              const key = String(social.label || "").toLowerCase().replace(/\s+/g, "");
+              const Icon = ICON_MAP[key] || FaGlobe;
+              const classes = "grid h-10 w-10 place-items-center rounded-full border transition";
+              if (!social.url) {
+                return <span key={social.label} title={`${social.label} link is not configured`} aria-label={`${social.label} link is not configured`} className={`${classes} cursor-not-allowed border-white/20 bg-white/10 text-gray-400`}><Icon size={19} /></span>;
+              }
+              return <a key={social.label} href={social.url} target="_blank" rel="noopener noreferrer" title={social.label} aria-label={social.label} className={`${classes} border-indigo-300/30 bg-indigo-500/15 text-indigo-100 shadow-sm shadow-indigo-950 hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-500/30 hover:text-white`}><Icon size={19} /></a>;
+            })}
+          </div>
         </div>
       </div>
       <div className="border-t border-gray-800 py-3 text-center text-xs">Copyright {new Date().getFullYear()} KINGSBALFX. All rights reserved.</div>
