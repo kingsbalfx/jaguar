@@ -1249,6 +1249,71 @@ footer {
   line-height: 1.6;
 }
 
+.landing-promotions {
+  position: relative;
+  isolation: isolate;
+  margin-top: 2rem;
+  overflow: hidden;
+  border: 1px solid rgba(129, 140, 248, 0.3);
+  border-radius: 28px;
+  padding: clamp(1.25rem, 3vw, 2.25rem);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 27, 75, 0.88) 55%, rgba(3, 7, 18, 0.98));
+  box-shadow: 0 30px 90px rgba(2, 6, 23, 0.65);
+}
+
+.landing-promotions__halo {
+  position: absolute;
+  z-index: -1;
+  width: 280px;
+  height: 280px;
+  border-radius: 999px;
+  filter: blur(70px);
+  opacity: 0.3;
+}
+
+.landing-promotions__halo--one { top: -150px; right: -80px; background: #ec4899; }
+.landing-promotions__halo--two { bottom: -180px; left: 15%; background: #4f46e5; }
+.landing-promotions__header { display: flex; align-items: end; justify-content: space-between; gap: 1.25rem; margin-bottom: 1.5rem; }
+.landing-promotions__eyebrow { display: flex; align-items: center; gap: 8px; color: #c7d2fe; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; }
+.landing-promotions__eyebrow span { width: 32px; height: 2px; background: linear-gradient(90deg, #f472b6, #818cf8); }
+.landing-promotions__header h2 { max-width: 680px; margin-top: 0.6rem; color: #fff; font-size: clamp(1.8rem, 4vw, 3.35rem); font-weight: 900; line-height: 1.02; letter-spacing: -0.04em; }
+.landing-promotions__header p { max-width: 680px; margin-top: 0.75rem; color: #cbd5e1; font-size: 0.95rem; }
+.landing-promotions__header-cta { flex: none; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 999px; padding: 0.8rem 1.15rem; background: linear-gradient(135deg, #6366f1, #db2777); color: #fff; font-size: 0.8rem; font-weight: 800; box-shadow: 0 12px 30px rgba(99, 102, 241, 0.3); transition: transform 180ms ease, box-shadow 180ms ease; }
+.landing-promotions__header-cta:hover { transform: translateY(-2px); box-shadow: 0 16px 36px rgba(219, 39, 119, 0.35); }
+.landing-promotions__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+
+.landing-promotion-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 210px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 22px;
+  padding: 1.15rem;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.1), rgba(15, 23, 42, 0.5));
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.08);
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.landing-promotion-card::after { content: ""; position: absolute; right: -35px; bottom: -55px; width: 145px; height: 145px; border: 24px solid rgba(129, 140, 248, 0.08); border-radius: 999px; }
+.landing-promotion-card:hover { transform: translateY(-4px); border-color: rgba(244, 114, 182, 0.45); background: linear-gradient(150deg, rgba(99, 102, 241, 0.2), rgba(15, 23, 42, 0.58)); }
+.landing-promotion-card--featured { grid-column: span 2; min-height: 250px; background: linear-gradient(120deg, rgba(79, 70, 229, 0.38), rgba(190, 24, 93, 0.22), rgba(15, 23, 42, 0.68)); }
+.landing-promotion-card__top, .landing-promotion-card__footer { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.landing-promotion-card__icon { display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 14px; background: rgba(255, 255, 255, 0.08); color: #fff; font-size: 0.75rem; font-weight: 900; }
+.landing-promotion-card__badge { border-radius: 999px; padding: 0.35rem 0.65rem; background: rgba(244, 114, 182, 0.12); color: #fbcfe8; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.landing-promotion-card__copy { position: relative; z-index: 1; max-width: 850px; margin-top: 1.35rem; color: #fff; font-size: clamp(1.15rem, 2.3vw, 2rem); font-weight: 850; line-height: 1.2; letter-spacing: -0.025em; }
+.landing-promotion-card--featured .landing-promotion-card__copy { font-size: clamp(1.7rem, 4vw, 3.15rem); line-height: 1.04; }
+.landing-promotion-card__footer { margin-top: 1.4rem; color: #94a3b8; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+.landing-promotion-card__footer button { color: #c7d2fe; font-weight: 800; transition: color 160ms ease; }
+.landing-promotion-card__footer button:hover { color: #fff; }
+
+@media (max-width: 700px) {
+  .landing-promotions__header { align-items: start; flex-direction: column; }
+  .landing-promotions__header-cta { width: 100%; }
+  .landing-promotions__grid { grid-template-columns: 1fr; }
+  .landing-promotion-card--featured { grid-column: span 1; min-height: 230px; }
+  .landing-promotion-card__footer { align-items: start; flex-direction: column; }
+}
+
 .with-quicknav > section,
 .with-quicknav > .app-bg {
   min-height: calc(100vh - 72px);

@@ -241,6 +241,7 @@ export default function Home({
   const visibleMessages = normalizedMessages.filter(
     (m) => m.segments.includes("all") || m.segments.includes(mode),
   );
+  const promotionLabel = toggleStyles[mode]?.label || "KINGSBALFX";
 
   const tierKey = mode.toUpperCase();
   const tier = PRICING_TIERS[tierKey];
@@ -453,16 +454,37 @@ export default function Home({
             </div>
           )}
 
-          <div className="message-grid grid gap-4 md:grid-cols-2">
-            {visibleMessages.map((m) => (
-              <div
-                key={m.id}
-                className="glass-panel rounded-2xl p-4 moving-italic"
-              >
-                <span>{m.text}</span>
+          {visibleMessages.length > 0 && (
+            <section className="landing-promotions" aria-label={`${promotionLabel} announcements`}>
+              <div className="landing-promotions__halo landing-promotions__halo--one" aria-hidden="true" />
+              <div className="landing-promotions__halo landing-promotions__halo--two" aria-hidden="true" />
+              <div className="landing-promotions__header">
+                <div>
+                  <div className="landing-promotions__eyebrow"><span /> KINGSBALFX Desk Bulletin</div>
+                  <h2>Opportunities built for your next move.</h2>
+                  <p>Fresh mentorship updates, learning releases, and access announcements selected for the {promotionLabel} experience.</p>
+                </div>
+                <button onClick={() => router.push(accessUrl)} className="landing-promotions__header-cta">
+                  {isAuthenticated ? "Open my access" : "Join KINGSBALFX"}
+                </button>
               </div>
-            ))}
-          </div>
+              <div className="landing-promotions__grid">
+                {visibleMessages.map((message, index) => (
+                  <article key={message.id} className={`landing-promotion-card ${index === 0 ? "landing-promotion-card--featured" : ""}`}>
+                    <div className="landing-promotion-card__top">
+                      <div className="landing-promotion-card__icon" aria-hidden="true">{String(index + 1).padStart(2, "0")}</div>
+                      <div className="landing-promotion-card__badge">{promotionLabel} Update</div>
+                    </div>
+                    <div className="landing-promotion-card__copy">{message.text}</div>
+                    <div className="landing-promotion-card__footer">
+                      <span>Official announcement</span>
+                      <button onClick={() => router.push(accessUrl)}>Explore access <span aria-hidden="true">-&gt;</span></button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
 
           {mode === "free" && (
             <div className="mt-8 rounded-2xl border border-yellow-400/30 bg-yellow-500/5 p-4">
