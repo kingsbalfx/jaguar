@@ -53,7 +53,7 @@ export default async function handler(req, res) {
 
     if (error) {
       if (error.code === "42703") {
-        return res.status(500).json({ error: "tradingview_webhook_token column missing; run migration 006" });
+        return res.status(503).json({ error: "TradingView webhook setup is not available yet." });
       }
       return res.status(500).json({ error: error.message || "failed to resolve token" });
     }
@@ -84,4 +84,3 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: err.message || "server error" });
   }
 }
-

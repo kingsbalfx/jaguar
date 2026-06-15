@@ -42,13 +42,14 @@ export default async function handler(req, res) {
           return res.status(200).json({
             tradingProfile: "balanced",
             token: null,
-            columnsMissing: true,
+            featureAvailable: false,
           });
         }
         return res.status(500).json({ error: error.message || "failed to load profile" });
       }
 
       return res.status(200).json({
+        featureAvailable: true,
         tradingProfile: normalizeProfile(data?.trading_profile),
         token: data?.tradingview_webhook_token || null,
       });
@@ -83,11 +84,9 @@ export default async function handler(req, res) {
 
       if (error) {
         if (error.code === "42703") {
-          return res.status(200).json({
-            ok: false,
-            tradingProfile: "balanced",
-            token: null,
-            columnsMissing: true,
+          return res.status(503).json({
+            error: "Trading profile setup is not available yet.",
+            featureAvailable: false,
           });
         }
         return res.status(500).json({ error: error.message || "failed to update profile" });
@@ -95,6 +94,7 @@ export default async function handler(req, res) {
 
       return res.status(200).json({
         ok: true,
+        featureAvailable: true,
         tradingProfile: normalizeProfile(data?.trading_profile),
         token: data?.tradingview_webhook_token || null,
       });
@@ -105,4 +105,3 @@ export default async function handler(req, res) {
 
   return res.status(405).json({ error: "Method not allowed" });
 }
-

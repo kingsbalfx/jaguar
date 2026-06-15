@@ -20,6 +20,7 @@ export default function TradingProfilePanel() {
   const [status, setStatus] = useState({ type: "", message: "" });
   const [profile, setProfile] = useState("balanced");
   const [token, setToken] = useState(null);
+  const [featureAvailable, setFeatureAvailable] = useState(true);
 
   const webhookUrl = useMemo(() => buildWebhookUrl(token), [token]);
 
@@ -32,12 +33,7 @@ export default function TradingProfilePanel() {
       if (!res.ok) throw new Error(data?.error || "Failed to load trading profile");
       setProfile(data?.tradingProfile || "balanced");
       setToken(data?.token || null);
-      if (data?.columnsMissing) {
-        setStatus({
-          type: "warning",
-          message: "Trading profile columns are missing in Supabase. Run migration 006 to enable this feature.",
-        });
-      }
+      setFeatureAvailable(data?.featureAvailable !== false);
     } catch (err) {
       setStatus({ type: "error", message: err.message || "Failed to load profile" });
     } finally {
@@ -59,7 +55,7 @@ export default function TradingProfilePanel() {
         body: JSON.stringify({ tradingProfile: profile }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed to save trading profile");
+      if (!res.ok || data?.featureAvailable === false) throw new Error(data?.error || "Trading profile setup is not available yet.");
       setProfile(data?.tradingProfile || profile);
       setToken(data?.token || token);
       setStatus({ type: "success", message: "Trading profile saved." });
@@ -80,7 +76,7 @@ export default function TradingProfilePanel() {
         body: JSON.stringify({ generateToken: true }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed to generate token");
+      if (!res.ok || data?.featureAvailable === false) throw new Error(data?.error || "Trading profile setup is not available yet.");
       setProfile(data?.tradingProfile || profile);
       setToken(data?.token || null);
       setStatus({ type: "success", message: "Webhook token generated." });
@@ -103,12 +99,18 @@ export default function TradingProfilePanel() {
         </div>
         <button
           onClick={saveProfile}
-          disabled={saving || loading}
+          disabled={saving || loading || !featureAvailable}
           className="px-4 py-2 rounded-md bg-emerald-600 text-sm text-white disabled:opacity-60"
         >
           {saving ? "Saving..." : "Save"}
         </button>
       </div>
+
+      {!featureAvailable && (
+        <div className="mt-4 rounded-xl border border-amber-300/20 bg-amber-500/10 p-3 text-sm text-amber-100">
+          Trading profile setup is currently unavailable. Your account will continue using the balanced profile.
+        </div>
+      )}
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         <label className="text-xs text-gray-400">
@@ -117,7 +119,7 @@ export default function TradingProfilePanel() {
             className="mt-1 w-full rounded-md bg-black/40 border border-white/10 px-3 py-2 text-sm text-white"
             value={profile}
             onChange={(e) => setProfile(e.target.value)}
-            disabled={loading}
+            disabled={loading || !featureAvailable}
           >
             {PROFILE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -136,7 +138,7 @@ export default function TradingProfilePanel() {
             />
             <button
               onClick={generateToken}
-              disabled={generating || loading}
+              disabled={generating || loading || !featureAvailable}
               className="px-3 py-2 rounded-md bg-white/10 text-sm text-white disabled:opacity-60"
             >
               {generating ? "..." : token ? "Regenerate" : "Generate"}
