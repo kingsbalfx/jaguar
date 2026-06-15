@@ -44,13 +44,12 @@ function VideoTile({ stream, label, muted = false, cameraEnabled = true }) {
   );
 }
 
-export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHost = false, autoJoin = false, autoRecord = false, recordingTitle = "", recordingSegment = "all" }) {
+export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHost = false, autoJoin = false, recordingTitle = "", recordingSegment = "all" }) {
   const supabase = getBrowserSupabaseClient();
   const clientId = useRef(typeof crypto !== "undefined" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
   const channelRef = useRef(null);
   const peersRef = useRef(new Map());
   const pendingCandidatesRef = useRef(new Map());
-  const autoRecordingStartedRef = useRef(false);
   const intentionalLeaveRef = useRef(false);
   const screenAudioSendersRef = useRef(new Map());
   const localStreamRef = useRef(null);
@@ -635,12 +634,6 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     const reconnectTimer = window.setTimeout(() => void join(), 1500);
     return () => window.clearTimeout(reconnectTimer);
   }, [connectionStatus, join, joined, joining]);
-
-  useEffect(() => {
-    if (!autoRecord || !isHost || !joined || !localStream || recording || publishingRecording || autoRecordingStartedRef.current) return;
-    autoRecordingStartedRef.current = true;
-    void startRecording();
-  }, [autoRecord, isHost, joined, localStream, publishingRecording, recording, startRecording]);
 
   const participantCount = Object.keys(participants).length || (joined ? 1 : 0);
 
