@@ -516,7 +516,8 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       });
       const signed = await signedResponse.json();
       if (!signedResponse.ok) throw new Error(signed.error || "Unable to prepare recording upload.");
-      const { error: uploadError } = await supabase.storage.from(bucket).uploadToSignedUrl(signed.path, signed.token, blob, {
+      const uploadBucket = signed.bucket || bucket;
+      const { error: uploadError } = await supabase.storage.from(uploadBucket).uploadToSignedUrl(signed.path, signed.token, blob, {
         cacheControl: "3600",
         contentType: blob.type || "video/webm",
         upsert: false,

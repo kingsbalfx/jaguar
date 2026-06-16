@@ -1,5 +1,5 @@
 // pages/index.js
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import AdSense from "../components/AdSense";
 import { getSupabaseClient } from "../lib/supabaseClient";
@@ -152,6 +152,38 @@ export default function Home({
 }) {
   const router = useRouter();
   const [mode, setMode] = useState("free"); // free | premium | vip | pro | lifetime
+  const [currentMessages, setCurrentMessages] = useState(initialMessages);
+  const [currentLiveSession, setCurrentLiveSession] = useState(liveSession);
+  const [currentCanViewLive, setCurrentCanViewLive] = useState(canViewLive);
+  const [currentIsAuthenticated, setCurrentIsAuthenticated] = useState(isAuthenticated);
+  const [liveDisplayName, setLiveDisplayName] = useState("Subscriber");
+
+  useEffect(() => {
+    let active = true;
+    const refreshLandingUpdates = async () => {
+      try {
+        const response = await fetch("/api/landing-updates", { cache: "no-store" });
+        const data = await response.json();
+        if (!active || !response.ok) return;
+        setCurrentMessages(Array.isArray(data.messages) ? data.messages : []);
+        setCurrentLiveSession(data.liveSession || null);
+        setCurrentCanViewLive(Boolean(data.canViewLive));
+        setCurrentIsAuthenticated(Boolean(data.isAuthenticated));
+        setLiveDisplayName(data.displayName || "Subscriber");
+      } catch {
+        // Keep server-rendered content when a refresh is unavailable.
+      }
+    };
+    refreshLandingUpdates();
+    const timer = window.setInterval(refreshLandingUpdates, 30000);
+    window.addEventListener("focus", refreshLandingUpdates);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshLandingUpdates);
+    };
+  }, []);
+
   const defaultMessages = [
     {
       id: 1,
@@ -160,7 +192,7 @@ export default function Home({
     },
     {
       id: 2,
-      text: "VIP weekly signals are live with full trade walkthroughs.",
+      text: "VIP weekly trade reviews are live with full market walkthroughs.",
       segments: ["vip"],
     },
     {
@@ -170,7 +202,7 @@ export default function Home({
     },
     {
       id: 4,
-      text: "Premium & VIP challenge starts this week - join the desk.",
+      text: "Academy and VIP challenge sessions start this week - join the desk.",
       segments: ["premium", "vip"],
     },
     {
@@ -195,7 +227,7 @@ export default function Home({
     },
   ];
   const normalizedMessages = (
-    initialMessages.length ? initialMessages : defaultMessages
+    currentMessages.length ? currentMessages : defaultMessages
   ).map((m, i) => {
     const segments = Array.isArray(m.segments)
       ? m.segments
@@ -263,7 +295,7 @@ export default function Home({
 
   const nextTarget = mode === "free" ? "/register" : `/checkout?plan=${mode}`;
   const loginUrl = `/login?next=${encodeURIComponent(nextTarget)}`;
-  const accessUrl = isAuthenticated ? nextTarget : loginUrl;
+  const accessUrl = currentIsAuthenticated ? nextTarget : loginUrl;
 
   return (
     <main className="flex-grow app-bg text-white relative overflow-hidden">
@@ -317,7 +349,7 @@ export default function Home({
               <div className="rounded-2xl border border-white/10 bg-black/50 p-4">
                 <div className="text-xs text-gray-400">Signal Quality</div>
                 <div className="mt-1 text-xl font-semibold">
-                  Premium Confidence
+                  Academy Confidence
                 </div>
                 <p className="mt-2 text-sm text-gray-300">
                   Filters tuned to liquidity sweeps, structure shifts, and HTF
@@ -349,40 +381,42 @@ export default function Home({
         </div>
 
         <section className="landing-section mt-12">
-          {liveSession && (
+          {currentLiveSession && (
             <div className="mb-6 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-4">
               <div className="text-xs uppercase tracking-widest text-emerald-200 mb-2">
                 Live Session
               </div>
               <div className="text-lg font-semibold text-white">
-                {liveSession.title || "Next Live Session"}
+                {currentLiveSession.title || "Next Live Session"}
               </div>
               <div className="mt-1 text-sm text-emerald-100/80">
-                {liveSession.starts_at
-                  ? new Date(liveSession.starts_at).toLocaleString()
+                {currentLiveSession.starts_at
+                  ? new Date(currentLiveSession.starts_at).toLocaleString()
                   : "Time not set"}
-                {liveSession.ends_at
-                  ? ` — ${new Date(liveSession.ends_at).toLocaleTimeString()}`
+                {currentLiveSession.ends_at
+                  ? ` - ${new Date(currentLiveSession.ends_at).toLocaleTimeString()}`
                   : ""}
-                {liveSession.timezone ? ` (${liveSession.timezone})` : ""}
+                {currentLiveSession.timezone ? ` (${currentLiveSession.timezone})` : ""}
               </div>
-              {canViewLive ? (
+              {currentCanViewLive ? (
                 <div className="mt-4">
                   {["youtube", "videosdk", "embed"].includes(
-                    liveSession.media_type,
+                    currentLiveSession.media_type,
                   ) &&
-                    liveSession.media_url && (
+                    currentLiveSession.media_url && (
                       <EmbeddedLivePlayer
-                        mediaType={liveSession.media_type}
-                        mediaUrl={liveSession.media_url}
-                        title={liveSession.title || "Live Session"}
+                        mediaType={currentLiveSession.media_type}
+                        mediaUrl={currentLiveSession.media_url}
+                        title={currentLiveSession.title || "Live Session"}
                       />
                     )}
-                  {liveSession.media_type === "webrtc" && (
+                  {currentLiveSession.media_type === "webrtc" && (
                     <div className="mt-3">
                       <WebRTCRoom
-                        roomName={liveSession.room_name || liveSession.id}
-                        displayName="Subscriber"
+                        key={currentLiveSession.room_name || currentLiveSession.id}
+                        roomName={currentLiveSession.room_name || currentLiveSession.id}
+                        roomTitle={currentLiveSession.title || "Live Session"}
+                        displayName={liveDisplayName}
                       />
                     </div>
                   )}
@@ -438,7 +472,7 @@ export default function Home({
                     onClick={() => router.push(accessUrl)}
                     className="tier-spotlight__cta"
                   >
-                    {isAuthenticated ? "Upgrade / Access" : "Sign in to access"}
+                    {currentIsAuthenticated ? "Upgrade / Access" : "Sign in to access"}
                   </button>
                   <button
                     onClick={() => router.push("/pricing")}
@@ -465,7 +499,7 @@ export default function Home({
                   <p>Fresh mentorship updates, learning releases, and access announcements selected for the {promotionLabel} experience.</p>
                 </div>
                 <button onClick={() => router.push(accessUrl)} className="landing-promotions__header-cta">
-                  {isAuthenticated ? "Open my access" : "Join KINGSBALFX"}
+                  {currentIsAuthenticated ? "Open my access" : "Join KINGSBALFX"}
                 </button>
               </div>
               <div className="landing-promotions__grid">

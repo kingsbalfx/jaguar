@@ -1,6 +1,7 @@
 // pages/admin/messages.js
 import React, { useEffect, useState } from "react";
 import FeedbackMessage from "../../components/FeedbackMessage";
+import { MENTORSHIP_GROUPS, getMentorshipGroupLabel } from "../../lib/mentorship-groups";
 
 export default function Messages() {
   const [msg, setMsg] = useState("");
@@ -43,7 +44,7 @@ export default function Messages() {
       setMsg("");
       setSegment("all");
       await fetchMessages();
-      setFeedback({ type: "success", message: "Landing-page message saved." });
+      setFeedback({ type: "success", message: "Landing announcement published." });
     } catch (err) {
       setFeedback({ type: "error", message: err.message || "Unable to save message" });
     } finally {
@@ -67,7 +68,7 @@ export default function Messages() {
       setMsg("");
       setSegment("all");
       await fetchMessages();
-      setFeedback({ type: "success", message: "Landing-page message updated." });
+      setFeedback({ type: "success", message: "Landing announcement updated." });
     } catch (err) {
       setFeedback({ type: "error", message: err.message || "Unable to update message" });
     } finally {
@@ -82,7 +83,7 @@ export default function Messages() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Unable to delete message");
       await fetchMessages();
-      setFeedback({ type: "success", message: "Landing-page message deleted." });
+      setFeedback({ type: "success", message: "Landing announcement deleted." });
     } catch (err) {
       setFeedback({ type: "error", message: err.message || "Unable to delete message" });
     }
@@ -96,15 +97,19 @@ export default function Messages() {
 
   return (
     <main className="container mx-auto px-4 py-6 sm:px-6 sm:py-8">
-      <h2 className="text-2xl font-bold mb-4">Landing Page Messages</h2>
+      <div className="mb-5 rounded-3xl border border-indigo-300/15 bg-gradient-to-br from-indigo-600/20 via-slate-950 to-emerald-500/10 p-5 shadow-2xl">
+        <div className="text-xs uppercase tracking-[0.25em] text-indigo-200">Audience Bulletin Studio</div>
+        <h2 className="mt-2 text-2xl font-bold">Landing Page Announcements</h2>
+        <p className="mt-2 max-w-2xl text-sm text-gray-300">Publish polished promotional updates to the landing page and route each message to the right mentorship audience.</p>
+      </div>
 
-      <div className="mb-4 space-y-3">
+      <div className="mb-4 space-y-3 rounded-2xl border border-white/10 bg-slate-950/70 p-4 shadow-xl">
         <textarea
           value={msg}
           onChange={(e) => setMsg(e.target.value)}
-          className="w-full p-3 bg-gray-900 rounded"
+          className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-white outline-none placeholder:text-gray-400 focus:border-indigo-300/40"
           rows={4}
-          placeholder="Write a message for the landing page..."
+          placeholder="Write a clear, professional announcement for the landing page..."
         />
         <div className="flex flex-wrap gap-3">
           <select
@@ -112,12 +117,9 @@ export default function Messages() {
             value={segment}
             onChange={(e) => setSegment(e.target.value)}
           >
-            <option value="all">All</option>
-            <option value="free">Free</option>
-            <option value="premium">Premium</option>
-            <option value="vip">VIP</option>
-            <option value="pro">Pro</option>
-            <option value="lifetime">Lifetime</option>
+            {MENTORSHIP_GROUPS.map((group) => (
+              <option key={group.value} value={group.value}>{group.label}</option>
+            ))}
           </select>
           {editingId ? (
             <>
@@ -126,7 +128,7 @@ export default function Messages() {
                 className="px-4 py-2 bg-indigo-600 rounded"
                 disabled={loading}
               >
-                {loading ? "Saving..." : "Update Message"}
+              {loading ? "Saving..." : "Update Announcement"}
               </button>
               <button
                 onClick={() => {
@@ -145,7 +147,7 @@ export default function Messages() {
               className="px-4 py-2 bg-green-600 rounded"
               disabled={loading}
             >
-              {loading ? "Saving..." : "Save Message"}
+              {loading ? "Saving..." : "Publish Announcement"}
             </button>
           )}
         </div>
@@ -153,7 +155,7 @@ export default function Messages() {
       </div>
 
       <div>
-        <h3 className="font-semibold mb-2">Recent messages</h3>
+        <h3 className="font-semibold mb-2">Recent announcements</h3>
         <ul>
           {items.map((it) => (
             <li key={it.id} className="mb-3 rounded border border-white/10 bg-black/30 p-3 text-gray-300">
@@ -161,7 +163,7 @@ export default function Messages() {
                 <span>{it.content}</span>
               </div>
               <div className="mt-1 text-xs text-gray-500 flex flex-wrap gap-3">
-                <span>Segment: {it.segment || "all"}</span>
+                <span>Audience: {getMentorshipGroupLabel(it.segment || "all")}</span>
                 {it.author && (
                   <span>
                     By {it.author.name || it.author.username || it.author.email || "Admin"}

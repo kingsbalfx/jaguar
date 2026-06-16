@@ -93,7 +93,8 @@ export default function Content() {
     }
 
     const { path, token, publicUrl } = signedJson;
-    const { error: uploadError } = await client.storage.from(bucket).uploadToSignedUrl(path, token, uploadFile, {
+    const uploadBucket = signedJson.bucket || bucket;
+    const { error: uploadError } = await client.storage.from(uploadBucket).uploadToSignedUrl(path, token, uploadFile, {
       cacheControl: "3600",
       contentType: uploadFile.type || undefined,
       upsert: false,

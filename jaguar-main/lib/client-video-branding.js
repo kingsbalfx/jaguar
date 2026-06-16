@@ -11,6 +11,8 @@ export async function brandVideoFile(file, onProgress = () => {}) {
   video.playsInline = true;
   video.preload = "auto";
   await once(video, "loadedmetadata");
+  const sourceDuration = Number.isFinite(video.duration) ? video.duration : 0;
+  video.currentTime = 0;
 
   const canvas = document.createElement("canvas");
   canvas.width = video.videoWidth || 1280;
@@ -55,6 +57,8 @@ export async function brandVideoFile(file, onProgress = () => {}) {
   await video.play();
   draw();
   await once(video, "ended");
+  await new Promise((resolve) => window.setTimeout(resolve, 350));
+  try { recorder.requestData(); } catch {}
   recorder.stop();
   await finished;
   window.cancelAnimationFrame(frameId);
@@ -63,7 +67,14 @@ export async function brandVideoFile(file, onProgress = () => {}) {
   onProgress(100);
 
   const baseName = String(file.name || "video").replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9_-]+/g, "_");
-  return new File([new Blob(chunks, { type: recorder.mimeType || "video/webm" })], `KINGSBALFX_${baseName}.webm`, { type: recorder.mimeType || "video/webm" });
+  const brandedBlob = new Blob(chunks, { type: recorder.mimeType || "video/webm" });
+  if (sourceDuration > 5) {
+    const brandedDuration = await readVideoDuration(brandedBlob);
+    if (brandedDuration && brandedDuration + 2 < sourceDuration) {
+      throw new Error("The browser produced a shortened watermarked video. Please try Chrome/Edge again or export the lesson as MP4 H.264 before uploading.");
+    }
+  }
+  return new File([brandedBlob], `KINGSBALFX_${baseName}.webm`, { type: recorder.mimeType || "video/webm" });
 }
 
 function drawWatermark(context, logo, width) {
@@ -85,5 +96,24 @@ function once(target, event) {
   return new Promise((resolve, reject) => {
     target.addEventListener(event, resolve, { once: true });
     target.addEventListener("error", () => reject(new Error("Unable to process the selected video file.")), { once: true });
+  });
+}
+
+function readVideoDuration(blob) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const probe = document.createElement("video");
+    const cleanup = () => URL.revokeObjectURL(url);
+    probe.preload = "metadata";
+    probe.onloadedmetadata = () => {
+      const duration = Number.isFinite(probe.duration) ? probe.duration : 0;
+      cleanup();
+      resolve(duration);
+    };
+    probe.onerror = () => {
+      cleanup();
+      resolve(0);
+    };
+    probe.src = url;
   });
 }

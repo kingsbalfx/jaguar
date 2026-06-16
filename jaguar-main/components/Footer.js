@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   FaFacebook, FaTwitter, FaInstagram, FaLinkedin, FaYoutube,
@@ -82,7 +82,24 @@ function buildSocials() {
 }
 
 export default function Footer() {
-  const socials = buildSocials();
+  const defaultSocials = useMemo(() => buildSocials(), []);
+  const [socials, setSocials] = useState(defaultSocials);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/site-config", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (active && Array.isArray(data?.socials) && data.socials.length) {
+          setSocials(data.socials);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
     <footer className="w-full border-t border-white/10 bg-slate-950/90 text-gray-400">
       <div className="h-px w-full bg-gradient-to-r from-transparent via-indigo-500/40 to-transparent" />

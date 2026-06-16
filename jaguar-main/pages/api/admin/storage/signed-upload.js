@@ -86,20 +86,25 @@ export default async function handler(req, res) {
   const seg = String(segment || "all").replace(/[^a-zA-Z0-9_-]/g, "");
   const path = `content/${seg}/${Date.now()}_${safeFileName}`;
 
-  const { data, error } = await supabaseAdmin.storage.from(bucket).createSignedUploadUrl(path);
-  if (error) {
-    return res.status(500).json({ error: error.message || "failed to create upload url" });
+  let uploadBucket = bucket;
+  let uploadResult = await supabaseAdmin.storage.from(uploadBucket).createSignedUploadUrl(path);
+  if (uploadResult.error && uploadBucket !== (process.env.NEXT_PUBLIC_STORAGE_BUCKET || "public")) {
+    uploadBucket = process.env.NEXT_PUBLIC_STORAGE_BUCKET || "public";
+    uploadResult = await supabaseAdmin.storage.from(uploadBucket).createSignedUploadUrl(path);
+  }
+  if (uploadResult.error) {
+    return res.status(500).json({ error: uploadResult.error.message || "failed to create upload url" });
   }
 
-  const publicUrl = supabaseAdmin.storage.from(bucket).getPublicUrl(path).data.publicUrl;
-  const playbackUrl = supabaseAdmin.storage.from(bucket).createSignedUrl(path, 60 * 60 * 6);
+  const publicUrl = supabaseAdmin.storage.from(uploadBucket).getPublicUrl(path).data.publicUrl;
+  const playbackUrl = supabaseAdmin.storage.from(uploadBucket).createSignedUrl(path, 60 * 60 * 6);
   const { data: playback } = await playbackUrl;
 
   return res.status(200).json({
-    bucket,
+    bucket: uploadBucket,
     path,
-    token: data?.token,
-    signedUrl: data?.signedUrl,
+    token: uploadResult.data?.token,
+    signedUrl: uploadResult.data?.signedUrl,
     publicUrl,
     playbackUrl: playback?.signedUrl || null,
   });

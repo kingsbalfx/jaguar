@@ -3,16 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 import FeedbackMessage from "../../components/FeedbackMessage";
+import { MENTORSHIP_GROUPS, getMentorshipGroupLabel } from "../../lib/mentorship-groups";
 
 const WebRTCRoom = dynamic(() => import("../../components/WebRTCRoom"), { ssr: false });
 const Chat = dynamic(() => import("../../components/Chat"), { ssr: false });
-const MENTORSHIP_GROUPS = [
-  { value: "all", label: "All active mentorship students" },
-  { value: "premium", label: "Academy group" },
-  { value: "vip", label: "VIP review group" },
-  { value: "pro", label: "Pro private mentorship" },
-];
-
 export const getServerSideProps = async (ctx) => {
   const supabase = createPagesServerClient(ctx);
   const { data: { session } } = await supabase.auth.getSession();
@@ -128,7 +122,7 @@ export default function Mentorship({ adminName }) {
               {filteredUsers.map((user) => (
                 <label key={user.id} className="flex gap-2 text-xs">
                   <input type="checkbox" checked={selectedUsers.includes(user.id)} onChange={(e) => setSelectedUsers((current) => e.target.checked ? roomMode === "one_to_one" ? [user.id] : [...new Set([...current, user.id])] : current.filter((id) => id !== user.id))} />
-                  <span>{user.username || user.name || "Subscriber"} ({MENTORSHIP_GROUPS.find((group) => group.value === user.activePlan)?.label || user.activePlan})</span>
+                  <span>{user.username || user.name || "Subscriber"} ({getMentorshipGroupLabel(user.activePlan)})</span>
                 </label>
               ))}
               {filteredUsers.length === 0 && <div className="text-xs text-gray-400">No active subscribers in this mentorship group.</div>}

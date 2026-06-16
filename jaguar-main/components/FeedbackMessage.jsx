@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 const TITLES = {
-  error: "Unable to complete request",
-  success: "Request completed",
-  warning: "Attention required",
-  info: "Processing update",
+  error: "Action needs attention",
+  success: "Update confirmed",
+  warning: "Please review",
+  info: "Working on it",
 };
 
 export default function FeedbackMessage({ message, type = "info", className = "" }) {
@@ -31,7 +31,7 @@ export default function FeedbackMessage({ message, type = "info", className = ""
           <div className="feedback-panel__title">{TITLES[normalizedType]}</div>
           <div className="feedback-panel__message">{message}</div>
         </div>
-        <button type="button" onClick={() => setVisible(false)} className="feedback-panel__close" aria-label="Dismiss notification">Close</button>
+        <button type="button" onClick={() => setVisible(false)} className="feedback-panel__close" aria-label="Dismiss notification">Dismiss</button>
       </div>
     </div>,
     document.body,
