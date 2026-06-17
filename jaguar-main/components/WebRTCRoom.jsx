@@ -60,6 +60,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
   const recordingChunksRef = useRef([]);
   const recordingTimerRef = useRef(null);
   const recordingRenderCleanupRef = useRef(null);
+  const lastRecordingUrlRef = useRef("");
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({});
   const [participants, setParticipants] = useState({});
@@ -80,6 +81,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [publishingRecording, setPublishingRecording] = useState(false);
   const [recordingStatus, setRecordingStatus] = useState("");
+  const [lastRecording, setLastRecording] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState("ready");
 
   const setLiveRoomActivity = useCallback((active) => {
@@ -490,12 +492,20 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     setCameraEnabled(track.enabled);
   };
 
+  const saveRecordingLocally = useCallback((recordingFile = lastRecording) => {
+    if (!recordingFile?.url) return;
+    const anchor = document.createElement("a");
+    anchor.href = recordingFile.url;
+    anchor.download = recordingFile.name || `KINGSBALFX_${String(roomName || "live-session").replace(/[^a-zA-Z0-9_-]/g, "_")}.webm`;
+    anchor.click();
+  }, [lastRecording, roomName]);
+
   const publishRecording = useCallback(async (blob) => {
     if (!supabase || !blob?.size) return;
-    const maxRecordingMb = Number(process.env.NEXT_PUBLIC_MAX_RECORDING_MB || 200);
+    const maxRecordingMb = Number(process.env.NEXT_PUBLIC_MAX_RECORDING_MB || 1500);
     const fileSizeMb = blob.size / 1024 / 1024;
     setPublishingRecording(true);
-    setRecordingStatus("Saving branded session recording...");
+    setRecordingStatus("Uploading session recording to the mentorship library. The manual copy is ready below.");
     try {
       if (fileSizeMb > maxRecordingMb) {
         throw new Error(`Recording is ${fileSizeMb.toFixed(1)} MB, above the ${maxRecordingMb} MB cloud limit.`);
@@ -538,15 +548,9 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       });
       const content = await contentResponse.json();
       if (!contentResponse.ok) throw new Error(content.error || "Recording uploaded but could not be published.");
-      setRecordingStatus("Recording saved and published to the mentorship library.");
+      setRecordingStatus("Recording saved and published to the mentorship library. Manual local copy remains available below.");
     } catch (err) {
-      const recoveryUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = recoveryUrl;
-      anchor.download = `KINGSBALFX_${String(roomName || "live-session").replace(/[^a-zA-Z0-9_-]/g, "_")}_recovery.webm`;
-      anchor.click();
-      window.setTimeout(() => URL.revokeObjectURL(recoveryUrl), 1000);
-      setRecordingStatus(`${err.message || "Unable to save recording."} A KINGSBALFX recovery copy was downloaded to this device.`);
+      setRecordingStatus(`${err.message || "Unable to save recording."} Use the manual save button below to keep the full local KINGSBALFX recording.`);
     } finally {
       setPublishingRecording(false);
     }
@@ -561,43 +565,67 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     }
     try {
       recordingChunksRef.current = [];
-      const stream = await createBrandedRecordingStream(presentationStream);
+      const stream = createReliableRecordingStream({
+        presentationStream,
+        screenStream: screenStreamRef.current,
+        localStream: localStreamRef.current,
+      });
       recordingRenderCleanupRef.current = stream.cleanup;
-      const audioTracks = [
-        ...(screenStreamRef.current?.getAudioTracks() || []),
-        ...(localStreamRef.current?.getAudioTracks() || []),
-      ];
-      [...new Set(audioTracks)].forEach((track) => stream.mediaStream.addTrack(track));
-      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") ? "video/webm;codecs=vp9,opus" : "video/webm";
-      const recorder = new MediaRecorder(stream.mediaStream, { mimeType, videoBitsPerSecond: 1800000 });
+      if (!stream.mediaStream.getTracks().length) throw new Error("No active screen, camera, or audio track is available to record.");
+      const mimeType = getSupportedRecordingMimeType();
+      const recorder = new MediaRecorder(stream.mediaStream, {
+        ...(mimeType ? { mimeType } : {}),
+        videoBitsPerSecond: screenStreamRef.current ? 900000 : 750000,
+        audioBitsPerSecond: 96000,
+      });
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
         if (event.data?.size) recordingChunksRef.current.push(event.data);
       };
+      stream.mediaStream.getVideoTracks()[0]?.addEventListener("ended", () => {
+        if (recorder.state === "recording") {
+          try { recorder.requestData(); } catch {}
+          recorder.stop();
+        }
+      }, { once: true });
       recorder.onstop = () => {
         window.clearInterval(recordingTimerRef.current);
         recordingTimerRef.current = null;
         recordingRenderCleanupRef.current?.();
         recordingRenderCleanupRef.current = null;
         const blob = new Blob(recordingChunksRef.current, { type: recorder.mimeType || "video/webm" });
+        if (!blob.size) {
+          recordingChunksRef.current = [];
+          recorderRef.current = null;
+          setRecording(false);
+          setRecordingStatus("The browser returned an empty recording. Keep the room open, start recording again, and make sure the shared screen or camera stays active.");
+          return;
+        }
+        const safeRoom = String(roomName || "live-session").replace(/[^a-zA-Z0-9_-]/g, "_");
+        const name = `KINGSBALFX_${safeRoom}_${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
+        if (lastRecordingUrlRef.current) URL.revokeObjectURL(lastRecordingUrlRef.current);
+        const url = URL.createObjectURL(blob);
+        lastRecordingUrlRef.current = url;
+        setLastRecording({ url, name, size: blob.size });
         recordingChunksRef.current = [];
         recorderRef.current = null;
         setRecording(false);
         void publishRecording(blob);
       };
-      recorder.start(1000);
+      recorder.start(10000);
       setRecording(true);
       setRecordingSeconds(0);
       recordingTimerRef.current = window.setInterval(() => setRecordingSeconds((current) => current + 1), 1000);
-      setRecordingStatus("Recording in progress. The current host camera or shared screen is being captured.");
+      setRecordingStatus("Recording in progress. Long sessions are captured directly from the live screen/camera tracks.");
     } catch (err) {
       setRecordingStatus(err.message || "Unable to start recording.");
     }
-  }, [isHost, publishRecording]);
+  }, [isHost, publishRecording, roomName]);
 
   const stopRecording = useCallback(() => {
     if (recorderRef.current?.state === "recording") {
       setRecordingStatus("Finalizing recording before publishing...");
+      try { recorderRef.current.requestData(); } catch {}
       recorderRef.current.stop();
     }
   }, []);
@@ -609,6 +637,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       window.clearInterval(recordingTimerRef.current);
       if (recorderRef.current?.state === "recording") recorderRef.current.stop();
       else recordingRenderCleanupRef.current?.();
+      if (lastRecordingUrlRef.current) URL.revokeObjectURL(lastRecordingUrlRef.current);
       leave();
     };
   }, []);
@@ -689,6 +718,17 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
         message={error || recordingStatus}
         type={error || /unable|requires|could not|above|failed|recovery/i.test(recordingStatus) ? "error" : "info"}
       />
+      {isHost && lastRecording && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-300/20 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+          <div>
+            <div className="font-semibold">Manual recording copy ready</div>
+            <div className="text-xs text-emerald-100/75">{lastRecording.name} ({(lastRecording.size / 1024 / 1024).toFixed(1)} MB)</div>
+          </div>
+          <button type="button" onClick={() => saveRecordingLocally()} className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-500">
+            Save recording copy
+          </button>
+        </div>
+      )}
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {localStream && <VideoTile stream={sharingScreen ? screenStreamRef.current : localStream} label={`${displayName || "You"} (you)`} muted cameraEnabled={sharingScreen || cameraEnabled} />}
         {Object.entries(remoteStreams).map(([peerId, stream]) => {
@@ -735,62 +775,33 @@ function formatDuration(totalSeconds) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-async function createBrandedRecordingStream(sourceStream) {
-  const videoTrack = sourceStream.getVideoTracks()[0];
-  if (!videoTrack || typeof document === "undefined") {
-    return { mediaStream: new MediaStream(sourceStream.getVideoTracks()), cleanup: () => {} };
+function getSupportedRecordingMimeType() {
+  if (typeof MediaRecorder === "undefined") return "";
+  return [
+    "video/webm;codecs=vp8,opus",
+    "video/webm;codecs=vp9,opus",
+    "video/webm",
+  ].find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function createReliableRecordingStream({ presentationStream, screenStream, localStream }) {
+  const mediaStream = new MediaStream();
+  const videoTrack = presentationStream?.getVideoTracks?.()[0] || localStream?.getVideoTracks?.()[0];
+  if (videoTrack) {
+    videoTrack.contentHint = screenStream ? "detail" : "motion";
+    mediaStream.addTrack(videoTrack);
   }
 
-  const settings = videoTrack.getSettings();
-  const width = settings.width || 1280;
-  const height = settings.height || 720;
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext("2d");
-  if (!context || typeof canvas.captureStream !== "function") {
-    return { mediaStream: new MediaStream(sourceStream.getVideoTracks()), cleanup: () => {} };
-  }
-  const video = document.createElement("video");
-  video.srcObject = new MediaStream([videoTrack]);
-  video.muted = true;
-  video.playsInline = true;
-  await video.play();
-
-  const logo = new Image();
-  logo.src = "/jaguar.png";
-  await new Promise((resolve) => {
-    logo.onload = resolve;
-    logo.onerror = resolve;
+  const audioTracks = [
+    ...(screenStream?.getAudioTracks?.() || []),
+    ...(localStream?.getAudioTracks?.() || []),
+  ];
+  [...new Set(audioTracks)].forEach((track) => {
+    if (track.readyState === "live") mediaStream.addTrack(track);
   });
 
-  let frameId = null;
-  const draw = () => {
-    context.drawImage(video, 0, 0, width, height);
-    const padding = Math.max(14, Math.round(width * 0.015));
-    const logoSize = Math.max(44, Math.round(width * 0.055));
-    const boxWidth = Math.max(190, Math.round(width * 0.2));
-    const boxHeight = logoSize + padding;
-    const x = width - boxWidth - padding;
-    const y = padding;
-    context.fillStyle = "rgba(0, 0, 0, 0.58)";
-    context.fillRect(x, y, boxWidth, boxHeight);
-    if (logo.complete) context.drawImage(logo, x + padding / 2, y + padding / 2, logoSize, logoSize);
-    context.fillStyle = "#ffffff";
-    context.font = `700 ${Math.max(18, Math.round(width * 0.022))}px sans-serif`;
-    context.fillText("KINGSBALFX", x + logoSize + padding, y + boxHeight * 0.62);
-    frameId = window.requestAnimationFrame(draw);
-  };
-  draw();
-
-  const mediaStream = canvas.captureStream(24);
   return {
     mediaStream,
-    cleanup: () => {
-      if (frameId) window.cancelAnimationFrame(frameId);
-      mediaStream.getTracks().forEach((track) => track.stop());
-      video.pause();
-      video.srcObject = null;
-    },
+    cleanup: () => {},
   };
 }
