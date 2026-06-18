@@ -39,7 +39,8 @@ function VideoTile({ stream, label, muted = false, cameraEnabled = true }) {
       <video ref={ref} autoPlay playsInline muted={muted} className="h-full w-full object-cover" />
       {!cameraEnabled && <div className="absolute inset-0 grid place-items-center bg-slate-900 text-3xl font-bold">{String(label || "?").slice(0, 1).toUpperCase()}</div>}
       <div className="absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 text-xs text-white">{label}</div>
-      <div className="pointer-events-none absolute right-2 top-2 flex items-center gap-1.5 rounded-lg border border-white/15 bg-black/55 px-2 py-1 text-[10px] font-bold tracking-wider text-white backdrop-blur-sm"><img src="/jaguar.png" alt="" className="h-5 w-5 object-contain" />KINGSBALFX</div>
+      <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-2 rounded-xl border border-white/25 bg-black/75 px-3 py-2 text-xs font-black tracking-wider text-white shadow-2xl shadow-black/50 backdrop-blur-sm"><img src="/jaguar.png" alt="" className="h-8 w-8 object-contain" />KINGSBALFX</div>
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/55 to-transparent" />
     </div>
   );
 }
@@ -588,13 +589,13 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
           recorder.stop();
         }
       }, { once: true });
-      recorder.onstop = () => {
+      recorder.onstop = async () => {
         window.clearInterval(recordingTimerRef.current);
         recordingTimerRef.current = null;
         recordingRenderCleanupRef.current?.();
         recordingRenderCleanupRef.current = null;
-        const blob = new Blob(recordingChunksRef.current, { type: recorder.mimeType || "video/webm" });
-        if (!blob.size) {
+        const rawBlob = new Blob(recordingChunksRef.current, { type: recorder.mimeType || "video/webm" });
+        if (!rawBlob.size) {
           recordingChunksRef.current = [];
           recorderRef.current = null;
           setRecording(false);
@@ -603,14 +604,29 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
         }
         const safeRoom = String(roomName || "live-session").replace(/[^a-zA-Z0-9_-]/g, "_");
         const name = `KINGSBALFX_${safeRoom}_${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
-        if (lastRecordingUrlRef.current) URL.revokeObjectURL(lastRecordingUrlRef.current);
-        const url = URL.createObjectURL(blob);
-        lastRecordingUrlRef.current = url;
-        setLastRecording({ url, name, size: blob.size });
         recordingChunksRef.current = [];
         recorderRef.current = null;
         setRecording(false);
-        void publishRecording(blob);
+        setPublishingRecording(true);
+        setRecordingStatus("Applying KINGSBALFX logo watermark before upload and download...");
+        try {
+          const watermarkedBlob = await createWatermarkedRecordingBlob(rawBlob, (progress) => {
+            setRecordingStatus(`Applying KINGSBALFX logo watermark: ${progress}%`);
+          });
+          if (lastRecordingUrlRef.current) URL.revokeObjectURL(lastRecordingUrlRef.current);
+          const url = URL.createObjectURL(watermarkedBlob);
+          lastRecordingUrlRef.current = url;
+          setLastRecording({ url, name, size: watermarkedBlob.size, watermarked: true });
+          setPublishingRecording(false);
+          void publishRecording(watermarkedBlob);
+        } catch (err) {
+          if (lastRecordingUrlRef.current) URL.revokeObjectURL(lastRecordingUrlRef.current);
+          const url = URL.createObjectURL(rawBlob);
+          lastRecordingUrlRef.current = url;
+          setLastRecording({ url, name: name.replace(".webm", "_raw_backup.webm"), size: rawBlob.size, watermarked: false });
+          setPublishingRecording(false);
+          setRecordingStatus(`${err.message || "Unable to apply KINGSBALFX watermark."} Raw backup is available below; try recording again in Chrome/Edge for a branded copy.`);
+        }
       };
       recorder.start(10000);
       setRecording(true);
@@ -721,11 +737,11 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       {isHost && lastRecording && (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-300/20 bg-emerald-500/10 p-3 text-sm text-emerald-100">
           <div>
-            <div className="font-semibold">Manual recording copy ready</div>
+            <div className="font-semibold">{lastRecording.watermarked ? "Watermarked recording copy ready" : "Raw backup recording ready"}</div>
             <div className="text-xs text-emerald-100/75">{lastRecording.name} ({(lastRecording.size / 1024 / 1024).toFixed(1)} MB)</div>
           </div>
           <button type="button" onClick={() => saveRecordingLocally()} className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-500">
-            Save recording copy
+            {lastRecording.watermarked ? "Save watermarked copy" : "Save raw backup"}
           </button>
         </div>
       )}
@@ -804,4 +820,162 @@ function createReliableRecordingStream({ presentationStream, screenStream, local
     mediaStream,
     cleanup: () => {},
   };
+}
+
+async function createWatermarkedRecordingBlob(sourceBlob, onProgress = () => {}) {
+  if (!sourceBlob?.size || typeof document === "undefined" || typeof MediaRecorder === "undefined") {
+    throw new Error("The browser cannot apply the KINGSBALFX watermark to this recording.");
+  }
+
+  const sourceUrl = URL.createObjectURL(sourceBlob);
+  const video = document.createElement("video");
+  video.src = sourceUrl;
+  video.playsInline = true;
+  video.preload = "auto";
+  video.volume = 0.001;
+  await waitForMediaEvent(video, "loadedmetadata");
+
+  const sourceDuration = Number.isFinite(video.duration) ? video.duration : 0;
+  const width = video.videoWidth || 1280;
+  const height = video.videoHeight || 720;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context || typeof canvas.captureStream !== "function") {
+    URL.revokeObjectURL(sourceUrl);
+    throw new Error("This browser cannot prepare the KINGSBALFX branded recording.");
+  }
+
+  const logo = new Image();
+  logo.src = "/jaguar.png";
+  await Promise.race([
+    waitForImage(logo),
+    new Promise((resolve) => window.setTimeout(resolve, 1500)),
+  ]);
+
+  const outputStream = canvas.captureStream(24);
+  const sourceStream = video.captureStream?.() || video.mozCaptureStream?.();
+  sourceStream?.getAudioTracks?.().forEach((track) => outputStream.addTrack(track));
+  const mimeType = getSupportedRecordingMimeType();
+  const recorder = new MediaRecorder(outputStream, {
+    ...(mimeType ? { mimeType } : {}),
+    videoBitsPerSecond: 900000,
+    audioBitsPerSecond: 96000,
+  });
+  const chunks = [];
+  let frameId = null;
+  let lastProgress = -1;
+
+  recorder.ondataavailable = (event) => {
+    if (event.data?.size) chunks.push(event.data);
+  };
+  const finished = new Promise((resolve, reject) => {
+    recorder.onerror = () => reject(new Error("Unable to finish the KINGSBALFX watermarked recording."));
+    recorder.onstop = resolve;
+  });
+
+  const draw = () => {
+    context.drawImage(video, 0, 0, width, height);
+    drawRecordingWatermark(context, logo, width, height);
+    if (sourceDuration) {
+      const progress = Math.min(99, Math.round((video.currentTime / sourceDuration) * 100));
+      if (progress !== lastProgress) {
+        lastProgress = progress;
+        onProgress(progress);
+      }
+    }
+    frameId = window.requestAnimationFrame(draw);
+  };
+
+  recorder.start(10000);
+  try {
+    await video.play();
+  } catch {
+    video.muted = true;
+    await video.play();
+  }
+  draw();
+  await waitForMediaEvent(video, "ended");
+  await new Promise((resolve) => window.setTimeout(resolve, 350));
+  try { recorder.requestData(); } catch {}
+  recorder.stop();
+  await finished;
+  if (frameId) window.cancelAnimationFrame(frameId);
+  outputStream.getTracks().forEach((track) => track.stop());
+  video.pause();
+  video.src = "";
+  URL.revokeObjectURL(sourceUrl);
+  onProgress(100);
+
+  const watermarkedBlob = new Blob(chunks, { type: recorder.mimeType || "video/webm" });
+  if (!watermarkedBlob.size) throw new Error("The browser returned an empty branded recording.");
+  if (sourceDuration > 60) {
+    const brandedDuration = await readRecordingDuration(watermarkedBlob);
+    if (brandedDuration && brandedDuration + 5 < sourceDuration) {
+      throw new Error("The browser shortened the branded copy, so it was not uploaded.");
+    }
+  }
+  return watermarkedBlob;
+}
+
+function drawRecordingWatermark(context, logo, width, height) {
+  const padding = Math.max(18, Math.round(width * 0.018));
+  const logoSize = Math.max(56, Math.round(width * 0.065));
+  const boxWidth = Math.max(250, Math.round(width * 0.24));
+  const boxHeight = logoSize + padding;
+  const x = width - boxWidth - padding;
+  const y = padding;
+  context.fillStyle = "rgba(0, 0, 0, 0.72)";
+  context.fillRect(x, y, boxWidth, boxHeight);
+  context.strokeStyle = "rgba(255, 255, 255, 0.28)";
+  context.lineWidth = Math.max(1, Math.round(width * 0.0015));
+  context.strokeRect(x, y, boxWidth, boxHeight);
+  if (logo.complete) context.drawImage(logo, x + padding / 2, y + padding / 2, logoSize, logoSize);
+  context.fillStyle = "#ffffff";
+  context.font = `800 ${Math.max(22, Math.round(width * 0.025))}px sans-serif`;
+  context.fillText("KINGSBALFX", x + logoSize + padding, y + boxHeight * 0.62);
+
+  context.save();
+  context.globalAlpha = 0.13;
+  context.translate(width / 2, height / 2);
+  context.rotate(-Math.PI / 8);
+  context.fillStyle = "#ffffff";
+  context.font = `800 ${Math.max(44, Math.round(width * 0.055))}px sans-serif`;
+  context.textAlign = "center";
+  context.fillText("KINGSBALFX", 0, 0);
+  context.restore();
+}
+
+function waitForMediaEvent(target, event) {
+  return new Promise((resolve, reject) => {
+    target.addEventListener(event, resolve, { once: true });
+    target.addEventListener("error", () => reject(new Error("Unable to process the recording media.")), { once: true });
+  });
+}
+
+function waitForImage(image) {
+  return new Promise((resolve) => {
+    if (image.complete) return resolve();
+    image.onload = resolve;
+    image.onerror = resolve;
+  });
+}
+
+function readRecordingDuration(blob) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      const duration = Number.isFinite(video.duration) ? video.duration : 0;
+      URL.revokeObjectURL(url);
+      resolve(duration);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(0);
+    };
+    video.src = url;
+  });
 }
