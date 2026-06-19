@@ -563,7 +563,7 @@ def _kingsbalfx_setup(result: dict) -> dict:
     }
 
 
-def _evaluate_kingsbalfx_fallback(symbol: str, direction: str, analysis: dict, tick: dict, account: dict, positions: list):
+def _evaluate_kingsbalfx_fallback(symbol: str, direction: str, analysis: dict, tick: dict, account: dict, positions: list, ict_setup: dict = None):
     result = evaluate_kingsbalfx(
         symbol,
         direction,
@@ -575,6 +575,14 @@ def _evaluate_kingsbalfx_fallback(symbol: str, direction: str, analysis: dict, t
         minimum_rr=1.5,
     )
     fallback_setup = _kingsbalfx_setup(result)
+    fallback_setup["primary_ict_skip"] = {
+        "failed_step": (ict_setup or {}).get("failed_step"),
+        "reason": (ict_setup or {}).get("reason"),
+        "direction": (ict_setup or {}).get("direction"),
+        "passed_steps": sum(1 for state in (ict_setup or {}).get("states", []) if state.get("confirmed")),
+        "total_steps": len(SEQUENCE),
+    }
+    fallback_setup.setdefault("evidence", {})["primary_ict_skip"] = fallback_setup["primary_ict_skip"]
     request = result.get("request")
     if not request:
         return None, fallback_setup, {"reason": result.get("reason") or "kingsbalfx_rejected"}
@@ -640,12 +648,11 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
             tick,
             account,
             positions,
+            setup,
         )
         if fallback_request:
             return fallback_request, fallback_setup, fallback_safety
-        if fallback_setup.get("executable"):
-            return None, fallback_setup, fallback_safety
-        return None, setup, {"reason": setup["reason"]}
+        return None, fallback_setup, fallback_safety
 
     plan = setup["plan"]
     direction = setup["direction"]
