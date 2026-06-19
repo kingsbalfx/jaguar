@@ -67,7 +67,7 @@ export default async function handler(req, res) {
       const segmentedUsers = (users || []).map((user) => {
         const email = String(user.email || "").toLowerCase();
         const profilePlan = String(user.role || "user").toLowerCase();
-        const activePlan = activeByEmail.get(email) || profilePlan;
+        const activePlan = activeByEmail.get(email) || (profilePlan === "user" ? "free" : profilePlan);
         return {
           ...user,
           activePlan,

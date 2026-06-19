@@ -29,18 +29,47 @@ function iceServers() {
 
 function VideoTile({ stream, label, muted = false, cameraEnabled = true }) {
   const ref = useRef(null);
+  const containerRef = useRef(null);
+  const [zoom, setZoom] = useState(1);
+  const [fitMode, setFitMode] = useState("contain");
   useEffect(() => {
     if (ref.current && ref.current.srcObject !== stream) {
       ref.current.srcObject = stream || null;
       ref.current.play().catch(() => {});
     }
   }, [stream]);
+  const zoomBy = (amount) => setZoom((current) => Math.max(1, Math.min(4, Number((current + amount).toFixed(1)))));
+  const resetView = () => {
+    setZoom(1);
+    setFitMode("contain");
+  };
+  const openFullscreen = async () => {
+    try {
+      if (containerRef.current?.requestFullscreen) await containerRef.current.requestFullscreen();
+      else if (ref.current?.webkitEnterFullscreen) ref.current.webkitEnterFullscreen();
+    } catch {}
+  };
   return (
-    <div className="relative aspect-video min-h-[150px] overflow-hidden rounded-xl bg-black/60 sm:min-h-[180px]">
-      <video ref={ref} autoPlay playsInline muted={muted} className="h-full w-full object-cover" />
+    <div ref={containerRef} className="group relative aspect-video min-h-[150px] overflow-hidden rounded-xl bg-black/60 sm:min-h-[180px]">
+      <video
+        ref={ref}
+        autoPlay
+        playsInline
+        muted={muted}
+        className={`h-full w-full ${fitMode === "fill" ? "object-cover" : "object-contain"}`}
+        style={{ transform: `scale(${zoom})`, transformOrigin: "center center" }}
+      />
       {!cameraEnabled && <div className="absolute inset-0 grid place-items-center bg-slate-900 text-3xl font-bold">{String(label || "?").slice(0, 1).toUpperCase()}</div>}
       <div className="absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 text-xs text-white">{label}</div>
       <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-2 rounded-xl border border-white/25 bg-black/75 px-3 py-2 text-xs font-black tracking-wider text-white shadow-2xl shadow-black/50 backdrop-blur-sm"><img src="/jaguar.png" alt="" className="h-8 w-8 object-contain" />KINGSBALFX</div>
+      <div className="absolute right-2 bottom-2 z-10 flex flex-wrap justify-end gap-1 rounded-xl border border-white/10 bg-black/70 p-1 text-xs text-white opacity-100 backdrop-blur sm:opacity-0 sm:transition sm:group-hover:opacity-100">
+        <button type="button" onClick={() => zoomBy(-0.25)} className="rounded bg-white/10 px-2 py-1 hover:bg-white/20" aria-label="Zoom out">-</button>
+        <span className="rounded bg-white/10 px-2 py-1">{Math.round(zoom * 100)}%</span>
+        <button type="button" onClick={() => zoomBy(0.25)} className="rounded bg-white/10 px-2 py-1 hover:bg-white/20" aria-label="Zoom in">+</button>
+        <button type="button" onClick={() => setFitMode((current) => current === "fill" ? "contain" : "fill")} className="rounded bg-white/10 px-2 py-1 hover:bg-white/20">{fitMode === "fill" ? "Fit" : "Fill"}</button>
+        <button type="button" onClick={resetView} className="rounded bg-white/10 px-2 py-1 hover:bg-white/20">Reset</button>
+        <button type="button" onClick={openFullscreen} className="rounded bg-emerald-600 px-2 py-1 hover:bg-emerald-500">Full</button>
+      </div>
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/55 to-transparent" />
     </div>
   );

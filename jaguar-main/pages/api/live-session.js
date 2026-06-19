@@ -1,6 +1,7 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 import { getPaidAccess, ROLE_RANK } from "../../lib/subscription-status";
+import { parseMentorshipSegments } from "../../lib/mentorship-groups";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
@@ -20,9 +21,11 @@ export default async function handler(req, res) {
   if (!data?.length) return res.status(200).json({ session: null, role, displayName, accessStatus: access.status });
 
   const allowedSession = (data || []).find((item) => {
-    const segment = String(item.segment || "all").toLowerCase();
+    const segments = parseMentorshipSegments(item.segment || "all");
     const targets = Array.isArray(item.target_user_ids) ? item.target_user_ids : [];
-    const segmentAllowed = segment === "all" || segment === "free" || (access.active && access.rank >= (ROLE_RANK[segment] ?? 99));
+    const segmentAllowed = segments.includes("all") ||
+      segments.includes("free") ||
+      segments.some((segment) => access.active && access.rank >= (ROLE_RANK[segment] ?? 99));
     const targetAllowed = targets.length === 0 || targets.includes(session.user.id);
     return role === "admin" || (segmentAllowed && targetAllowed);
   });

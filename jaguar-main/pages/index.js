@@ -8,6 +8,7 @@ import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { PRICING_TIERS, formatPrice } from "../lib/pricing-config";
 import { useRouter } from "next/router";
 import EmbeddedLivePlayer from "../components/EmbeddedLivePlayer";
+import { parseMentorshipSegments } from "../lib/mentorship-groups";
 
 const WebRTCRoom = dynamic(() => import("../components/WebRTCRoom"), {
   ssr: false,
@@ -24,10 +25,10 @@ const ROLE_RANK = {
   all: 0,
 };
 
-function canAccess(role, segment) {
+function canAccess(role, segmentValue) {
   const r = ROLE_RANK[role] ?? 0;
-  const s = ROLE_RANK[segment] ?? 0;
-  return r >= s;
+  const segments = parseMentorshipSegments(segmentValue);
+  return segments.includes("all") || segments.includes("free") || segments.some((segment) => r >= (ROLE_RANK[segment] ?? 99));
 }
 
 async function fetchMessagesWithFallback(client) {
@@ -86,8 +87,7 @@ export async function getServerSideProps(ctx) {
         .select("*")
         .eq("active", true)
         .order("starts_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
+        .limit(25);
       if (!sessionErr) liveSession = sessionData || null;
       if (sessionErr && sessionErr.code !== "42P01") {
         console.error("Live session fetch error:", sessionErr);
@@ -105,28 +105,22 @@ export async function getServerSideProps(ctx) {
         .maybeSingle();
       viewerRole = (profile?.role || "user").toLowerCase();
     }
-    const subscriberRoles = new Set([
-      "premium",
-      "vip",
-      "pro",
-      "lifetime",
-      "admin",
-    ]);
-    const canViewLive =
+    const allowedLiveSession = (liveSession || []).find((item) =>
       Boolean(session?.user) &&
-      subscriberRoles.has(viewerRole) &&
-      (liveSession
-        ? Array.isArray(liveSession.target_user_ids) &&
-          liveSession.target_user_ids.length
-          ? liveSession.target_user_ids.includes(session.user.id) ||
+      (item
+        ? Array.isArray(item.target_user_ids) &&
+          item.target_user_ids.length
+          ? item.target_user_ids.includes(session.user.id) ||
             viewerRole === "admin"
-          : canAccess(viewerRole, liveSession.segment || "all")
-        : false);
+          : canAccess(viewerRole, item.segment || "all")
+        : false)
+    );
+    const canViewLive = Boolean(allowedLiveSession);
 
     return {
       props: {
         initialMessages: data || [],
-        liveSession,
+        liveSession: allowedLiveSession || null,
         canViewLive,
         isAuthenticated: Boolean(session?.user),
       },

@@ -1,6 +1,7 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 import { getPaidAccess, ROLE_RANK } from "../../../lib/subscription-status";
+import { parseMentorshipSegments } from "../../../lib/mentorship-groups";
 
 async function context(req, res) {
   const supabase = createPagesServerClient({ req, res });
@@ -19,10 +20,10 @@ async function allowed(ctx, roomKey) {
   const targets = Array.isArray(room.target_user_ids) ? room.target_user_ids : [];
   if (targets.includes(ctx.session.user.id)) return true;
   if (targets.length) return false;
-  const segment = String(room.segment || "all").toLowerCase();
-  if (["all", "free"].includes(segment)) return true;
+  const segments = parseMentorshipSegments(room.segment || "all");
+  if (segments.includes("all") || segments.includes("free")) return true;
   const access = await getPaidAccess({ supabaseAdmin: ctx.admin, email: ctx.session.user.email, role });
-  return access.active && access.rank >= (ROLE_RANK[segment] ?? 99);
+  return segments.some((segment) => access.active && access.rank >= (ROLE_RANK[segment] ?? 99));
 }
 
 export default async function handler(req, res) {

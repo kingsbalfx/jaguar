@@ -14,3 +14,17 @@ export function getMentorshipGroup(value) {
 export function getMentorshipGroupLabel(value) {
   return getMentorshipGroup(value).label;
 }
+
+export function parseMentorshipSegments(value) {
+  const segments = String(value || "all")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return segments.length ? [...new Set(segments)] : ["all"];
+}
+
+export function formatMentorshipSegmentList(value) {
+  const segments = parseMentorshipSegments(value);
+  if (segments.includes("all")) return getMentorshipGroupLabel("all");
+  return segments.map(getMentorshipGroupLabel).join(", ");
+}

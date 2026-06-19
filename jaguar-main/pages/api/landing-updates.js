@@ -1,6 +1,7 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 import { getPaidAccess, ROLE_RANK } from "../../lib/subscription-status";
+import { parseMentorshipSegments } from "../../lib/mentorship-groups";
 
 async function fetchMessagesWithFallback(client) {
   let { data, error } = await client
@@ -35,8 +36,7 @@ export default async function handler(req, res) {
       .select("*")
       .eq("active", true)
       .order("starts_at", { ascending: true })
-      .limit(1)
-      .maybeSingle(),
+      .limit(25),
   ]);
 
   if (messageError) return res.status(500).json({ error: "failed to load landing messages" });
@@ -47,7 +47,7 @@ export default async function handler(req, res) {
   let role = "user";
   let canViewLive = false;
   let displayName = "Subscriber";
-  const liveSession = liveResult.data || null;
+  let liveSession = null;
 
   if (session?.user) {
     const { data: profile } = await supabaseAdmin
@@ -58,11 +58,16 @@ export default async function handler(req, res) {
     role = String(profile?.role || "user").toLowerCase();
     displayName = role === "admin" ? "Admin" : profile?.username || profile?.name || "Subscriber";
     const access = await getPaidAccess({ supabaseAdmin, email: session.user.email, role });
-    const segment = String(liveSession?.segment || "all").toLowerCase();
-    const targets = Array.isArray(liveSession?.target_user_ids) ? liveSession.target_user_ids : [];
-    const segmentAllowed = segment === "all" || segment === "free" || (access.active && access.rank >= (ROLE_RANK[segment] ?? 99));
-    const targetAllowed = targets.length === 0 || targets.includes(session.user.id);
-    canViewLive = Boolean(liveSession) && (role === "admin" || (segmentAllowed && targetAllowed));
+    liveSession = (liveResult.data || []).find((item) => {
+      const segments = parseMentorshipSegments(item.segment || "all");
+      const targets = Array.isArray(item.target_user_ids) ? item.target_user_ids : [];
+      const segmentAllowed = segments.includes("all") ||
+        segments.includes("free") ||
+        segments.some((segment) => access.active && access.rank >= (ROLE_RANK[segment] ?? 99));
+      const targetAllowed = targets.length === 0 || targets.includes(session.user.id);
+      return role === "admin" || (segmentAllowed && targetAllowed);
+    }) || null;
+    canViewLive = Boolean(liveSession);
   }
 
   res.setHeader("Cache-Control", "no-store");

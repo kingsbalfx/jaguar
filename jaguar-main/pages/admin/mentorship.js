@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 import FeedbackMessage from "../../components/FeedbackMessage";
-import { MENTORSHIP_GROUPS, getMentorshipGroupLabel } from "../../lib/mentorship-groups";
+import { MENTORSHIP_GROUPS, formatMentorshipSegmentList, getMentorshipGroupLabel, parseMentorshipSegments } from "../../lib/mentorship-groups";
 
 const WebRTCRoom = dynamic(() => import("../../components/WebRTCRoom"), { ssr: false });
 const Chat = dynamic(() => import("../../components/Chat"), { ssr: false });
@@ -30,6 +30,7 @@ export default function Mentorship({ adminName }) {
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
   const [segment, setSegment] = useState("vip");
+  const [selectedSegments, setSelectedSegments] = useState(["vip"]);
   const [roomMode, setRoomMode] = useState("group");
   const [roomName, setRoomName] = useState(`mentorship-${Date.now()}`);
   const [status, setStatus] = useState("scheduled");
@@ -44,7 +45,9 @@ export default function Mentorship({ adminName }) {
         setTitle(data.session.title || title);
         setStartsAt(data.session.starts_at?.slice(0, 16) || "");
         setEndsAt(data.session.ends_at?.slice(0, 16) || "");
-        setSegment(data.session.segment || "vip");
+        const savedSegments = parseMentorshipSegments(data.session.segment || "vip");
+        setSegment(savedSegments[0] || "vip");
+        setSelectedSegments(savedSegments);
         setRoomMode(data.session.room_mode || "group");
         setRoomName(data.session.room_name || roomName);
         setStatus(data.session.status || "scheduled");
@@ -54,9 +57,26 @@ export default function Mentorship({ adminName }) {
   }, []);
 
   const filteredUsers = useMemo(
-    () => users.filter((user) => segment === "all" || user.activePlan === segment),
-    [segment, users],
+    () => users.filter((user) => selectedSegments.includes("all") || selectedSegments.includes(user.activePlan)),
+    [selectedSegments, users],
   );
+
+  const toggleSegment = (value) => {
+    setSelectedUsers([]);
+    setSelectedSegments((current) => {
+      if (value === "all") {
+        setSegment("all");
+        return ["all"];
+      }
+      const withoutAll = current.filter((item) => item !== "all");
+      const next = withoutAll.includes(value)
+        ? withoutAll.filter((item) => item !== value)
+        : [...withoutAll, value];
+      const safeNext = next.length ? next : [value];
+      setSegment(safeNext[0]);
+      return safeNext;
+    });
+  };
 
   const save = async (event) => {
     event.preventDefault();
@@ -72,7 +92,7 @@ export default function Mentorship({ adminName }) {
         endsAt,
         timezone: "Africa/Lagos",
         status,
-        segment,
+        segment: selectedSegments.includes("all") ? "all" : selectedSegments.join(","),
         roomName: nextRoomName,
         roomMode,
         targetUserIds: roomMode === "one_to_one" ? selectedUsers : [],
@@ -105,9 +125,22 @@ export default function Mentorship({ adminName }) {
             <option value="group">Selected group</option>
             <option value="one_to_one">Private one-to-one</option>
           </select>
-          <select value={segment} onChange={(e) => { setSegment(e.target.value); setSelectedUsers([]); }} className="w-full rounded bg-black/30 p-2">
-            {MENTORSHIP_GROUPS.map((group) => <option key={group.value} value={group.value}>{group.label}</option>)}
-          </select>
+          <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-gray-300">Classes allowed to join</div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {MENTORSHIP_GROUPS.map((group) => (
+                <label key={group.value} className="flex items-center gap-2 rounded-lg bg-white/5 p-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={selectedSegments.includes(group.value)}
+                    onChange={() => toggleSegment(group.value)}
+                  />
+                  <span>{group.label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="mt-2 text-xs text-emerald-200">Selected: {formatMentorshipSegmentList(selectedSegments.join(","))}</div>
+          </div>
           <label className="text-xs text-gray-300">Room identifier (updates with title when saved)
             <input value={roomNameFromTitle(title)} readOnly className="mt-1 w-full rounded bg-black/20 p-2 text-gray-300" />
           </label>
@@ -118,7 +151,7 @@ export default function Mentorship({ adminName }) {
             <div className="mb-2 text-sm font-semibold">Allowed subscribers</div>
             {roomMode === "group" && (
               <div className="mb-2 rounded-lg border border-emerald-300/20 bg-emerald-500/10 p-2 text-xs text-emerald-100">
-                Group rooms now follow the selected mentorship audience automatically. Any active {getMentorshipGroupLabel(segment)} subscriber can see and join this room.
+                Group rooms now follow the selected mentorship audience automatically. Any signed-in learner in {formatMentorshipSegmentList(selectedSegments.join(","))} can see and join this room.
               </div>
             )}
             <div className="max-h-56 space-y-1 overflow-auto rounded bg-black/20 p-2">
