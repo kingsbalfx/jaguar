@@ -23,8 +23,10 @@ export default function Checkout() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [registrationGate, setRegistrationGate] = useState({ active: false, gate: null });
   const isConfigured = Boolean(isSupabaseConfigured);
   const showSimulation = process.env.NODE_ENV !== "production";
+  const paidApplicationsClosed = registrationGate.active && !isFree;
 
   // Prefill email if logged in
   useEffect(() => {
@@ -43,6 +45,20 @@ export default function Checkout() {
     })();
   }, [isConfigured]);
 
+  useEffect(() => {
+    let active = true;
+    fetch("/api/registration-gate", { cache: "no-store" })
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (!active || !data) return;
+        setRegistrationGate({ active: Boolean(data.active), gate: data.gate || null });
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
   // If no plan query, default to vip
   useEffect(() => {
     if (!router.isReady) return;
@@ -59,6 +75,10 @@ export default function Checkout() {
     setMessage("");
     if (isFree) {
       setMessage("This plan is free and does not require checkout.");
+      return;
+    }
+    if (paidApplicationsClosed) {
+      setMessage(registrationGate.gate?.message || "Application has been closed. Free tier registration is still open.");
       return;
     }
     if (!termsAccepted) {
@@ -146,6 +166,19 @@ export default function Checkout() {
         </div>
       </div>
 
+        {paidApplicationsClosed && (
+          <div className="mb-5 max-w-2xl rounded-2xl border border-amber-300/30 bg-amber-500/10 p-4 text-amber-100">
+            <div className="text-xs uppercase tracking-[0.22em] text-amber-200">Paid applications closed</div>
+            <div className="mt-2 text-sm leading-6">{registrationGate.gate?.message || "Application has been closed. A class is already going on. Free tier registration is still open."}</div>
+            {registrationGate.gate?.reopen_at && (
+              <div className="mt-2 text-xs text-amber-100/80">Reopens: {new Date(registrationGate.gate.reopen_at).toLocaleString()}</div>
+            )}
+            <button type="button" onClick={() => router.push("/register")} className="mt-3 rounded bg-amber-400 px-4 py-2 text-sm font-semibold text-black">
+              Register Free Tier
+            </button>
+          </div>
+        )}
+
         <div className="mb-4 max-w-md">
           <label className="block text-sm mb-1">Buyer email</label>
           <input
@@ -187,19 +220,21 @@ export default function Checkout() {
         <div className="flex gap-3">
           {showSimulation && <button
             onClick={simulate}
-            disabled={loading}
-            className="px-4 py-2 bg-gray-600 rounded"
+            disabled={loading || paidApplicationsClosed}
+            className="px-4 py-2 bg-gray-600 rounded disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? "Processing..." : "Simulate payment"}
           </button>}
 
           <button
             onClick={startPayment}
-            disabled={loading}
-            className="px-4 py-2 bg-yellow-500 text-black rounded"
+            disabled={loading || paidApplicationsClosed}
+            className="px-4 py-2 bg-yellow-500 text-black rounded disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading
               ? "Redirecting..."
+              : paidApplicationsClosed
+              ? "Paid applications closed"
               : isFree
               ? "No payment required"
               : `Pay ${priceLabel} (Korapay)`}

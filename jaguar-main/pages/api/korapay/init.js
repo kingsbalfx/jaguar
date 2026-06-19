@@ -2,6 +2,8 @@ import { getURL } from "../../../lib/getURL";
 import { PRICING_TIERS } from "../../../lib/pricing-config";
 import { initKorapayCharge } from "../../../lib/korapay";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
+import { getSupabaseClient } from "../../../lib/supabaseClient";
+import { getRegistrationGate, isRegistrationGateActive } from "../../../lib/registration-gate";
 
 function getTierById(plan) {
   if (!plan) return null;
@@ -43,6 +45,15 @@ export default async function handler(req, res) {
   }
 
   try {
+    const supabaseAdmin = getSupabaseClient({ server: true });
+    const { gate } = await getRegistrationGate(supabaseAdmin);
+    if (isRegistrationGateActive(gate)) {
+      return res.status(423).json({
+        error: gate.message || "Application has been closed. Free tier registration is still open.",
+        gate,
+      });
+    }
+
     const baseUrl = getURL().replace(/\/$/, "");
     const reference = generateReference(tier.id);
 

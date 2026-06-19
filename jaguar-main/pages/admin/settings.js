@@ -63,6 +63,28 @@ export default function Settings() {
   const [activatingId, setActivatingId] = useState(null);
   const [botStatus, setBotStatus] = useState(null);
   const [botStatusError, setBotStatusError] = useState("");
+  const [registrationGate, setRegistrationGate] = useState({
+    paused: false,
+    reopen_at: "",
+    message: "",
+  });
+  const [registrationGateLoading, setRegistrationGateLoading] = useState(false);
+  const [registrationGateStatus, setRegistrationGateStatus] = useState({ type: "", message: "" });
+
+  const toDatetimeLocal = (value) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const offset = date.getTimezoneOffset();
+    const local = new Date(date.getTime() - offset * 60 * 1000);
+    return local.toISOString().slice(0, 16);
+  };
+
+  const fromDatetimeLocal = (value) => {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  };
 
   const loadCredentials = async () => {
     const res = await fetch("/api/admin/mt5-credentials");
@@ -96,6 +118,23 @@ export default function Settings() {
     setBotStatusError("");
   };
 
+  const loadRegistrationGate = async () => {
+    const res = await fetch("/api/admin/registration-gate", { cache: "no-store" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || "Failed to load registration gate.");
+    setRegistrationGate({
+      paused: Boolean(data.gate?.paused),
+      reopen_at: toDatetimeLocal(data.gate?.reopen_at),
+      message: data.gate?.message || "",
+    });
+    if (data.missingTable) {
+      setRegistrationGateStatus({
+        type: "error",
+        message: "Run sql/2026-06-19_registration_gate.sql in Supabase to enable paid registration pause.",
+      });
+    }
+  };
+
   useEffect(() => {
     let active = true;
     loadCredentials()
@@ -113,6 +152,49 @@ export default function Settings() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    loadRegistrationGate().catch((err) => {
+      if (!active) return;
+      setRegistrationGateStatus({ type: "error", message: err.message || "Failed to load registration pause settings." });
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const saveRegistrationGate = async (event) => {
+    event.preventDefault();
+    setRegistrationGateLoading(true);
+    setRegistrationGateStatus({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/admin/registration-gate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paused: registrationGate.paused,
+          reopenAt: fromDatetimeLocal(registrationGate.reopen_at),
+          message: registrationGate.message,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Unable to save registration pause.");
+      setRegistrationGate({
+        paused: Boolean(data.gate?.paused),
+        reopen_at: toDatetimeLocal(data.gate?.reopen_at),
+        message: data.gate?.message || "",
+      });
+      setRegistrationGateStatus({
+        type: "success",
+        message: data.active ? "Paid registration and upgrades are paused. Free tier registration remains open." : "Paid registration and upgrades are open.",
+      });
+    } catch (err) {
+      setRegistrationGateStatus({ type: "error", message: err.message || "Unable to save registration pause." });
+    } finally {
+      setRegistrationGateLoading(false);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -242,6 +324,61 @@ export default function Settings() {
         Enter MT5 login details once. The bot will fetch these from Supabase and auto-connect on
         startup. MT5 still must be running on a Windows machine with the broker account logged in.
       </p>
+
+      <div className="mb-8 rounded-2xl border border-amber-300/20 bg-amber-500/10 p-5 shadow-xl">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-xs uppercase tracking-[0.22em] text-amber-200">Paid Registration Control</div>
+            <h3 className="mt-1 text-lg font-semibold">Pause paid applications and upgrades</h3>
+            <p className="mt-1 text-sm text-gray-300">
+              Free tier account creation stays open. Paid checkout, reactivation, and upgrades are blocked while this is active.
+            </p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${registrationGate.paused ? "bg-red-500/20 text-red-200" : "bg-emerald-500/20 text-emerald-200"}`}>
+            {registrationGate.paused ? "Paused" : "Open"}
+          </span>
+        </div>
+        <form onSubmit={saveRegistrationGate} className="mt-4 grid gap-4">
+          <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-gray-200">
+            <input
+              type="checkbox"
+              checked={registrationGate.paused}
+              onChange={(event) => setRegistrationGate((current) => ({ ...current, paused: event.target.checked }))}
+              className="mt-1"
+            />
+            <span>
+              <span className="block font-semibold text-white">Close paid applications temporarily</span>
+              <span className="text-gray-300">Users may still create a free account, but cannot pay for Academy, VIP, Pro, or Lifetime until reopened.</span>
+            </span>
+          </label>
+          <label className="text-sm text-gray-300">
+            Reopening date and time
+            <input
+              type="datetime-local"
+              value={registrationGate.reopen_at}
+              onChange={(event) => setRegistrationGate((current) => ({ ...current, reopen_at: event.target.value }))}
+              className="mt-1 w-full rounded bg-black/40 border border-white/10 px-3 py-2 text-white"
+            />
+          </label>
+          <label className="text-sm text-gray-300">
+            Message shown to users
+            <textarea
+              value={registrationGate.message}
+              onChange={(event) => setRegistrationGate((current) => ({ ...current, message: event.target.value }))}
+              rows={3}
+              className="mt-1 w-full rounded bg-black/40 border border-white/10 px-3 py-2 text-white"
+              placeholder="Application has been closed. A class is already going on. Please wait until the reopening date."
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={registrationGateLoading}
+            className="w-full rounded bg-amber-500 px-4 py-2 font-semibold text-black disabled:opacity-60 sm:w-auto"
+          >
+            {registrationGateLoading ? "Saving..." : registrationGate.paused ? "Save Pause Settings" : "Open Paid Registration"}
+          </button>
+        </form>
+      </div>
 
       <div className="bg-black/30 rounded-lg p-5 border border-white/5">
         <h3 className="text-lg font-semibold mb-4">MT5 Credentials</h3>
@@ -460,8 +597,9 @@ export default function Settings() {
         )}
       </div>
       <FeedbackMessage
-        message={status.message || restartStatus.message || botStatusError || submissionsStatus.message}
+        message={registrationGateStatus.message || status.message || restartStatus.message || botStatusError || submissionsStatus.message}
         type={
+          registrationGateStatus.message ? registrationGateStatus.type :
           status.message ? status.type :
           restartStatus.message ? restartStatus.type :
           botStatusError ? "error" :
