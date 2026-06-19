@@ -167,7 +167,7 @@ export default function AdminPage({ profile, metrics, recentUsers }) {
                 onClick={() => setSelected("settings")}
                 className={`block px-3 py-2 rounded ${selected === "settings" ? "bg-indigo-600 text-white" : "text-gray-200 hover:bg-white/5"}`}
               >
-                Settings (MT5)
+                Settings / Pause Paid Registration
               </a>
             </Link>
             <Link href="/admin/messages" legacyBehavior>
@@ -248,7 +248,7 @@ export default function AdminPage({ profile, metrics, recentUsers }) {
                 <a className="px-4 py-2 bg-gray-600 text-white rounded">Messages</a>
               </Link>
               <Link href="/admin/settings" legacyBehavior>
-                <a className="px-4 py-2 bg-indigo-700 text-white rounded">MT5 Settings</a>
+                <a className="px-4 py-2 bg-indigo-700 text-white rounded">Pause Paid Registration</a>
               </Link>
             </div>
           </div>

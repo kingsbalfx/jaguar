@@ -1,6 +1,7 @@
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 import { isSubscriptionActive } from "../../../lib/subscription-status";
+import { notifyMentorshipAudience } from "../../../lib/notifications";
 
 function parseIso(value) {
   if (!value) return null;
@@ -139,7 +140,16 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "failed to save live session; run the WebRTC mentorship SQL migration", details: insertError.message });
     }
 
-    return res.status(200).json({ session: inserted });
+    let notificationResult = { emailed: 0, notified: 0 };
+    if (inserted?.active) {
+      notificationResult = await notifyMentorshipAudience({
+        supabaseAdmin,
+        session: inserted,
+        phase: inserted.status === "live" ? "live" : "scheduled",
+      });
+    }
+
+    return res.status(200).json({ session: inserted, notifications: notificationResult });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: e.message || String(e) });

@@ -115,8 +115,20 @@ export default async function handler(req, res) {
       type: "account_created",
       dedupeKey: `account_created:${userId || email}`,
       subject: "Your KINGSBALFX Academy account is ready",
-      text: "Your KINGSBALFX Academy account has been created.",
-      html: emailLayout("Welcome to KINGSBALFX Academy", "<p>Your account is ready. Sign in to begin with the free lessons and risk guidance.</p>", "Sign in", "/login"),
+      text: [
+        `Welcome ${fullName} to KINGSBALFX Academy.`,
+        "Your free account has been created. Start with patience, discipline, and proper risk management.",
+        "By using KINGSBALFX you agree to protect your login details, respect academy materials, avoid redistributing private content, and understand that all trading education carries risk and is not a promise of profit.",
+      ].join("\n\n"),
+      html: emailLayout(
+        "Welcome to KINGSBALFX Academy",
+        `<p>Hello <strong>${fullName}</strong>, your account is ready.</p>
+        <p>You are entering a focused learning space. Stay disciplined, protect your capital, ask good questions, and take every lesson step by step. Skill grows through consistency, not pressure.</p>
+        <p><strong>Terms summary:</strong> keep your login private, do not share paid or private academy materials, use mentorship content for education only, and remember that trading involves risk. KINGSBALFX does not promise profit or financial outcomes.</p>
+        <p>Free lessons are open now. Paid access can be upgraded from the pricing page whenever applications are open.</p>`,
+        "Sign in",
+        "/login",
+      ),
     });
 
     return res.status(200).json({ ok: true, userId: userId || null });

@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import { useEffect } from "react";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
+import NotificationBell from "../components/NotificationBell";
 import { getBrowserSupabaseClient, isSupabaseConfigured } from "../lib/supabaseClient";
 
 export default function MyApp({ Component, pageProps }) {
@@ -124,6 +125,7 @@ export default function MyApp({ Component, pageProps }) {
       </Head>
 
       <Header />
+      {!isAuthRoute && <NotificationBell />}
 
       <main className={`flex-grow app-bg relative overflow-x-hidden${isAuthRoute ? " auth-main" : ""}`}>
         {showCandle && <div className="candle-backdrop" aria-hidden="true" />}

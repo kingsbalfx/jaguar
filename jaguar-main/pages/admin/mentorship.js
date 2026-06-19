@@ -107,7 +107,9 @@ export default function Mentorship({ adminName }) {
     setStartsAt(data.session.starts_at?.slice(0, 16) || startsAt);
     setEndsAt(data.session.ends_at?.slice(0, 16) || endsAt);
     setLive(data.session.status === "live");
-    setMessage("WebRTC mentorship room saved.");
+    const notified = data.notifications?.notified || 0;
+    const emailed = data.notifications?.emailed || 0;
+    setMessage(`WebRTC mentorship room saved. ${notified} in-app alert${notified === 1 ? "" : "s"} created; ${emailed} email${emailed === 1 ? "" : "s"} sent.`);
   };
 
   return (
