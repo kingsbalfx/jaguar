@@ -75,9 +75,7 @@ export default function Mentorship({ adminName }) {
         segment,
         roomName: nextRoomName,
         roomMode,
-        targetUserIds: roomMode === "group" && selectedUsers.length === 0
-          ? filteredUsers.map((user) => user.id)
-          : selectedUsers,
+        targetUserIds: roomMode === "one_to_one" ? selectedUsers : [],
         mediaType: "webrtc",
       }),
     });
@@ -118,14 +116,20 @@ export default function Mentorship({ adminName }) {
           </select>
           <div>
             <div className="mb-2 text-sm font-semibold">Allowed subscribers</div>
+            {roomMode === "group" && (
+              <div className="mb-2 rounded-lg border border-emerald-300/20 bg-emerald-500/10 p-2 text-xs text-emerald-100">
+                Group rooms now follow the selected mentorship audience automatically. Any active {getMentorshipGroupLabel(segment)} subscriber can see and join this room.
+              </div>
+            )}
             <div className="max-h-56 space-y-1 overflow-auto rounded bg-black/20 p-2">
-              {filteredUsers.map((user) => (
+              {roomMode === "one_to_one" && filteredUsers.map((user) => (
                 <label key={user.id} className="flex gap-2 text-xs">
                   <input type="checkbox" checked={selectedUsers.includes(user.id)} onChange={(e) => setSelectedUsers((current) => e.target.checked ? roomMode === "one_to_one" ? [user.id] : [...new Set([...current, user.id])] : current.filter((id) => id !== user.id))} />
                   <span>{user.username || user.name || "Subscriber"} ({getMentorshipGroupLabel(user.activePlan)})</span>
                 </label>
               ))}
-              {filteredUsers.length === 0 && <div className="text-xs text-gray-400">No active subscribers in this mentorship group.</div>}
+              {roomMode === "group" && <div className="text-xs text-gray-300">{filteredUsers.length} active subscriber{filteredUsers.length === 1 ? "" : "s"} currently match this audience.</div>}
+              {roomMode === "one_to_one" && filteredUsers.length === 0 && <div className="text-xs text-gray-400">No active subscribers in this mentorship group.</div>}
             </div>
           </div>
           <button className="w-full rounded bg-emerald-600 py-2">Save room</button>

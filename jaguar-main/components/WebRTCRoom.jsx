@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getBrowserSupabaseClient } from "../lib/supabaseClient";
+import { formatUploadSize, storageLimitMessage, uploadToSignedUrlWithProgress } from "../lib/signed-upload-progress";
 import FeedbackMessage from "./FeedbackMessage";
 
 const DEFAULT_ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
@@ -503,10 +504,10 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
 
   const publishRecording = useCallback(async (blob) => {
     if (!supabase || !blob?.size) return;
-    const maxRecordingMb = Number(process.env.NEXT_PUBLIC_MAX_RECORDING_MB || 1500);
+    const maxRecordingMb = Number(process.env.NEXT_PUBLIC_MAX_RECORDING_MB || 2500);
     const fileSizeMb = blob.size / 1024 / 1024;
     setPublishingRecording(true);
-    setRecordingStatus("Uploading session recording to the mentorship library. The manual copy is ready below.");
+    setRecordingStatus(`Preparing ${formatUploadSize(blob.size)} recording upload. Keep this page open until it reaches 100%.`);
     try {
       if (fileSizeMb > maxRecordingMb) {
         throw new Error(`Recording is ${fileSizeMb.toFixed(1)} MB, above the ${maxRecordingMb} MB cloud limit.`);
@@ -528,12 +529,15 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       const signed = await signedResponse.json();
       if (!signedResponse.ok) throw new Error(signed.error || "Unable to prepare recording upload.");
       const uploadBucket = signed.bucket || bucket;
-      const { error: uploadError } = await supabase.storage.from(uploadBucket).uploadToSignedUrl(signed.path, signed.token, blob, {
+      const uploadUrl = signed.signedUrl || `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/upload/sign/${uploadBucket}/${signed.path}?token=${signed.token}`;
+      await uploadToSignedUrlWithProgress({
+        signedUrl: uploadUrl,
+        file: blob,
         cacheControl: "3600",
-        contentType: blob.type || "video/webm",
-        upsert: false,
+        onProgress: (progress, loaded, total) => {
+          setRecordingStatus(`Uploading recording: ${progress}% (${formatUploadSize(loaded)} of ${formatUploadSize(total)}). Keep this page open.`);
+        },
       });
-      if (uploadError) throw uploadError;
       const contentResponse = await fetch("/api/admin/content-items", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -551,7 +555,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       if (!contentResponse.ok) throw new Error(content.error || "Recording uploaded but could not be published.");
       setRecordingStatus("Recording saved and published to the mentorship library. Manual local copy remains available below.");
     } catch (err) {
-      setRecordingStatus(`${err.message || "Unable to save recording."} Use the manual save button below to keep the full local KINGSBALFX recording.`);
+      setRecordingStatus(`${storageLimitMessage(err.message) || "Unable to save recording."} Use the manual save button below to keep the full local KINGSBALFX recording.`);
     } finally {
       setPublishingRecording(false);
     }

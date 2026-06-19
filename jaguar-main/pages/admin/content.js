@@ -6,6 +6,7 @@ import ResourceViewer from "../../components/ResourceViewer";
 import { MENTORSHIP_GROUPS, getMentorshipGroup, getMentorshipGroupLabel } from "../../lib/mentorship-groups";
 import { brandVideoFile } from "../../lib/client-video-branding";
 import { setUploadActivity } from "../../lib/activity-guard";
+import { formatUploadSize, storageLimitMessage, uploadToSignedUrlWithProgress } from "../../lib/signed-upload-progress";
 
 const Uploader = dynamic(() => import("../../components/Uploader"), { ssr: false });
 const AdminVideoPlayer = dynamic(() => import("../../components/AdminVideoPlayer"), { ssr: false });
@@ -72,13 +73,19 @@ export default function Content() {
     let uploadFile = fileToUpload;
     setUploadActivity(true);
     try {
-    const maxSize = mediaType === "video" ? 120 * 1024 * 1024 : 30 * 1024 * 1024;
+    const maxSizeMb = Number(process.env.NEXT_PUBLIC_MAX_ADMIN_UPLOAD_MB || 2048);
+    const maxSize = maxSizeMb * 1024 * 1024;
     if (fileToUpload.size > maxSize) {
-      throw new Error(mediaType === "video" ? "Video must be 120 MB or less. Export as MP4 H.264 at 720p before uploading." : "File must be 30 MB or less.");
+      throw new Error(`File is ${formatUploadSize(fileToUpload.size)}, above the ${maxSizeMb} MB upload limit.`);
     }
     if (mediaType === "video") {
-      setStatus("Applying permanent KINGSBALFX logo watermark to the video...");
-      uploadFile = await brandVideoFile(fileToUpload, (progress) => setStatus(`Applying permanent KINGSBALFX watermark: ${progress}%`));
+      const watermarkLimitMb = Number(process.env.NEXT_PUBLIC_BROWSER_WATERMARK_MAX_MB || 350);
+      if (fileToUpload.size <= watermarkLimitMb * 1024 * 1024) {
+        setStatus("Applying permanent KINGSBALFX logo watermark to the video...");
+        uploadFile = await brandVideoFile(fileToUpload, (progress) => setStatus(`Applying permanent KINGSBALFX watermark: ${progress}%`));
+      } else {
+        setStatus(`Large video detected (${formatUploadSize(fileToUpload.size)}). Uploading original file with branded playback and download naming to avoid browser processing failure.`);
+      }
     }
 
     const bucket = resolveBucket(segment);
@@ -92,17 +99,16 @@ export default function Content() {
       throw new Error(signedJson?.error || "Unable to prepare secure upload");
     }
 
-    const { path, token, publicUrl } = signedJson;
+    const { path, publicUrl } = signedJson;
     const uploadBucket = signedJson.bucket || bucket;
-    const { error: uploadError } = await client.storage.from(uploadBucket).uploadToSignedUrl(path, token, uploadFile, {
+    await uploadToSignedUrlWithProgress({
+      signedUrl: signedJson.signedUrl,
+      file: uploadFile,
       cacheControl: "3600",
-      contentType: uploadFile.type || undefined,
-      upsert: false,
+      onProgress: (progress, loaded, total) => {
+        setStatus(`Uploading ${formatUploadSize(total)} file: ${progress}% (${formatUploadSize(loaded)} uploaded). Keep this page open.`);
+      },
     });
-
-    if (uploadError) {
-      throw uploadError;
-    }
 
     return { storagePath: path, publicUrl };
     } finally {
@@ -171,7 +177,7 @@ export default function Content() {
       setEditingItem(null);
       await fetchItems();
     } catch (err) {
-      setStatus(err.message || "Failed to save content");
+      setStatus(storageLimitMessage(err.message) || "Failed to save content");
     } finally {
       setSaving(false);
     }
@@ -275,7 +281,7 @@ export default function Content() {
             {["video", "audio", "pdf", "document"].includes(mediaType) && (
               <div className="rounded-xl border border-dashed border-indigo-300/20 bg-indigo-500/5 p-4">
                 <input type="file" accept={mediaType === "video" ? "video/mp4,video/webm" : mediaType === "audio" ? "audio/mpeg,audio/mp4,audio/webm" : mediaType === "pdf" ? "application/pdf" : ".doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf"} onChange={(e) => setFile(e.target.files?.[0] || null)} />
-                <p className="mt-2 text-xs text-gray-400">{editingId ? "Choose a new file to replace the existing lesson, or leave it empty to keep the current file." : mediaType === "video" ? "Upload MP4 H.264 or WebM under 120 MB. Permanent KINGSBALFX branding is applied before upload and may take about the video's playback duration." : "Keep resources under 30 MB for quick downloads."}</p>
+                <p className="mt-2 text-xs text-gray-400">{editingId ? "Choose a new file to replace the existing lesson, or leave it empty to keep the current file." : mediaType === "video" ? "Upload MP4 H.264 or WebM up to 2GB. Smaller videos receive a permanent KINGSBALFX watermark before upload; larger videos keep branded playback/download protection." : "Upload supporting documents up to 2GB when your Supabase bucket limit allows it."}</p>
                 {mediaType === "video" && (localPreviewUrl || editingItem?.playback_url) && (
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black shadow-xl">
                     <video key={localPreviewUrl || editingItem?.playback_url} src={localPreviewUrl || editingItem?.playback_url} controls preload="metadata" playsInline className="aspect-video w-full bg-black" />

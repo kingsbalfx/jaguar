@@ -4,6 +4,7 @@ import { MENTORSHIP_GROUPS, getMentorshipGroup } from "../lib/mentorship-groups"
 import FeedbackMessage from "./FeedbackMessage";
 import { brandVideoFile } from "../lib/client-video-branding";
 import { setUploadActivity } from "../lib/activity-guard";
+import { formatUploadSize, storageLimitMessage, uploadToSignedUrlWithProgress } from "../lib/signed-upload-progress";
 
 const DEFAULT_BUCKET = process.env.NEXT_PUBLIC_STORAGE_BUCKET || "public";
 const SEGMENT_BUCKETS = {
@@ -32,9 +33,17 @@ export default function Uploader({ bucket = DEFAULT_BUCKET, folder = "", allowSe
     setLastUploaded(null);
     setUploadActivity(true);
     try {
-      const file = selectedFile.type?.startsWith("video/")
+      const maxSizeMb = Number(process.env.NEXT_PUBLIC_MAX_ADMIN_UPLOAD_MB || 2048);
+      if (selectedFile.size > maxSizeMb * 1024 * 1024) {
+        throw new Error(`File is ${formatUploadSize(selectedFile.size)}, above the ${maxSizeMb} MB upload limit.`);
+      }
+      const watermarkLimitMb = Number(process.env.NEXT_PUBLIC_BROWSER_WATERMARK_MAX_MB || 350);
+      const file = selectedFile.type?.startsWith("video/") && selectedFile.size <= watermarkLimitMb * 1024 * 1024
         ? await brandVideoFile(selectedFile, (progress) => setStatus({ type: "info", message: `Applying permanent KINGSBALFX watermark: ${progress}%` }))
         : selectedFile;
+      if (selectedFile.type?.startsWith("video/") && selectedFile.size > watermarkLimitMb * 1024 * 1024) {
+        setStatus({ type: "info", message: `Large video detected (${formatUploadSize(selectedFile.size)}). Uploading without browser re-encoding to preserve the full file.` });
+      }
       const response = await fetch("/api/admin/storage/signed-upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -42,12 +51,19 @@ export default function Uploader({ bucket = DEFAULT_BUCKET, folder = "", allowSe
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to prepare upload.");
-      const { error } = await client.storage.from(effectiveBucket).uploadToSignedUrl(data.path, data.token, file, { cacheControl: "3600", contentType: file.type || undefined, upsert: false });
-      if (error) throw error;
+      await uploadToSignedUrlWithProgress({
+        signedUrl: data.signedUrl,
+        file,
+        cacheControl: "3600",
+        onProgress: (progress, loaded, total) => setStatus({
+          type: "info",
+          message: `Uploading ${formatUploadSize(total)} file: ${progress}% (${formatUploadSize(loaded)} uploaded).`,
+        }),
+      });
       setLastUploaded(data);
       setStatus({ type: "success", message: "Upload completed and ready to publish." });
     } catch (error) {
-      setStatus({ type: "error", message: error.message || "Upload failed." });
+      setStatus({ type: "error", message: storageLimitMessage(error.message) || "Upload failed." });
     } finally {
       setUploadActivity(false);
       event.target.value = "";

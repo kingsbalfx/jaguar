@@ -2,6 +2,7 @@ import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 import { getBotTierDefaults, normalizeBotLimit } from "../../../lib/pricing-config";
 import { isSubscriptionActive } from "../../../lib/subscription-status";
+import { subscriptionEndDate } from "../../../lib/subscription-lifecycle";
 
 const USER_SELECT_BASE =
   "id,email,name,username,role,lifetime,bot_tier,bot_max_signals_per_day,bot_max_concurrent_trades,bot_signal_quality,bot_tier_updated_at,created_at";
@@ -9,6 +10,7 @@ const USER_SELECT_BASE =
 const USER_SELECT_EXT = `${USER_SELECT_BASE},trading_profile`;
 
 const BOT_QUALITY_OPTIONS = new Set(["none", "basic", "standard", "premium", "vip", "pro", "elite"]);
+const PAID_ROLES = new Set(["premium", "vip", "pro", "lifetime"]);
 
 function cleanBotTier(value) {
   return String(value || "free").trim().toLowerCase();
@@ -17,6 +19,67 @@ function cleanBotTier(value) {
 function cleanBotQuality(value, fallback = "none") {
   const quality = String(value || fallback || "none").trim().toLowerCase();
   return BOT_QUALITY_OPTIONS.has(quality) ? quality : fallback;
+}
+
+async function syncSubscriptionForRole(supabaseAdmin, { id, role }) {
+  const normalizedRole = String(role || "").trim().toLowerCase();
+  if (!normalizedRole) return;
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from("profiles")
+    .select("email")
+    .eq("id", id)
+    .maybeSingle();
+  if (profileError || !profile?.email) return;
+
+  const email = String(profile.email).trim().toLowerCase();
+  const now = new Date();
+
+  if (!PAID_ROLES.has(normalizedRole)) {
+    await supabaseAdmin
+      .from("subscriptions")
+      .update({ status: "cancelled", ended_at: now.toISOString() })
+      .ilike("email", email)
+      .in("plan", [...PAID_ROLES]);
+    return;
+  }
+
+  const payload = {
+    email,
+    plan: normalizedRole,
+    status: "active",
+    started_at: now.toISOString(),
+    ended_at: subscriptionEndDate(normalizedRole, now),
+  };
+
+  const existing = await supabaseAdmin
+    .from("subscriptions")
+    .select("email,plan")
+    .ilike("email", email)
+    .ilike("plan", normalizedRole)
+    .limit(1);
+  if (existing.error) return;
+
+  if (existing.data?.[0]) {
+    const update = await supabaseAdmin
+      .from("subscriptions")
+      .update(payload)
+      .ilike("email", email)
+      .ilike("plan", normalizedRole);
+    if (!update.error) return;
+    if (update.error.code !== "42703" && !String(update.error.message || "").toLowerCase().includes("column")) return;
+    await supabaseAdmin
+      .from("subscriptions")
+      .update({ email, plan: normalizedRole, status: "active" })
+      .ilike("email", email)
+      .ilike("plan", normalizedRole);
+    return;
+  }
+
+  const insert = await supabaseAdmin.from("subscriptions").insert(payload);
+  if (insert.error?.code === "42703" || String(insert.error?.message || "").toLowerCase().includes("column")) {
+    await supabaseAdmin.from("subscriptions").insert({ email, plan: normalizedRole, status: "active" });
+  }
 }
 
 async function requireAdmin(req, res) {
@@ -213,6 +276,7 @@ export default async function handler(req, res) {
     }
 
     if (error) return res.status(500).json({ error: error.message || "failed to update user" });
+    if (role) await syncSubscriptionForRole(supabaseAdmin, { id, role });
     return res.status(200).json({ user: data });
   }
 
