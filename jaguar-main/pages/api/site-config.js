@@ -1,15 +1,14 @@
 const SOCIAL_DEFINITIONS = [
   { label: "Instagram", keys: ["NEXT_PUBLIC_SOCIAL_INSTAGRAM", "NEXT_PUBLIC_INSTAGRAM_URL", "SOCIAL_INSTAGRAM", "INSTAGRAM_URL", "INSTAGRAM"] },
   { label: "X", keys: ["NEXT_PUBLIC_SOCIAL_X", "NEXT_PUBLIC_SOCIAL_TWITTER", "NEXT_PUBLIC_X_URL", "NEXT_PUBLIC_TWITTER_URL", "SOCIAL_X", "SOCIAL_TWITTER", "X_URL", "TWITTER_URL", "X", "TWITTER"] },
-  { label: "LinkedIn", keys: ["NEXT_PUBLIC_SOCIAL_LINKEDIN", "NEXT_PUBLIC_LINKEDIN_URL", "SOCIAL_LINKEDIN", "LINKEDIN_URL", "LINKEDIN"] },
   { label: "YouTube", keys: ["NEXT_PUBLIC_SOCIAL_YOUTUBE", "NEXT_PUBLIC_YOUTUBE_URL", "SOCIAL_YOUTUBE", "YOUTUBE_URL", "YOUTUBE"] },
   { label: "Telegram", keys: ["NEXT_PUBLIC_SOCIAL_TELEGRAM", "NEXT_PUBLIC_TELEGRAM_URL", "SOCIAL_TELEGRAM", "TELEGRAM_URL", "TELEGRAM"] },
-  { label: "Snapchat", keys: ["NEXT_PUBLIC_SOCIAL_SNAPCHAT", "NEXT_PUBLIC_SNAPCHAT_URL", "SOCIAL_SNAPCHAT", "SNAPCHAT_URL", "SNAPCHAT"] },
   { label: "TikTok", keys: ["NEXT_PUBLIC_SOCIAL_TIKTOK", "NEXT_PUBLIC_TIKTOK_URL", "SOCIAL_TIKTOK", "TIKTOK_URL", "TIKTOK"] },
   { label: "WhatsApp", keys: ["NEXT_PUBLIC_SOCIAL_WHATSAPP", "NEXT_PUBLIC_WHATSAPP_URL", "SOCIAL_WHATSAPP", "WHATSAPP_URL", "WHATSAPP"] },
   { label: "Facebook", keys: ["NEXT_PUBLIC_SOCIAL_FACEBOOK", "NEXT_PUBLIC_FACEBOOK_URL", "SOCIAL_FACEBOOK", "FACEBOOK_URL", "FACEBOOK"] },
-  { label: "Website", keys: ["NEXT_PUBLIC_SOCIAL_WEBSITE", "NEXT_PUBLIC_WEBSITE_URL", "SOCIAL_WEBSITE", "WEBSITE_URL", "WEBSITE"] },
 ];
+
+const DISABLED_SOCIAL_LABELS = new Set(["linkedin", "snapchat", "website"]);
 
 function normalizeSocialUrl(value, label = "") {
   const raw = String(value || "").trim();
@@ -59,7 +58,9 @@ export default function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
 
   const parsed = parseSocials(process.env.NEXT_PUBLIC_SOCIALS || process.env.SOCIALS || "");
-  const parsedByLabel = new Map(parsed.map((item) => [String(item.label || "").toLowerCase(), item.url || item.value]));
+  const parsedByLabel = new Map(parsed
+    .filter((item) => !DISABLED_SOCIAL_LABELS.has(String(item.label || "").toLowerCase()))
+    .map((item) => [String(item.label || "").toLowerCase(), item.url || item.value]));
   const socials = SOCIAL_DEFINITIONS.map((definition) => {
     const labelKey = definition.label.toLowerCase();
     const raw =

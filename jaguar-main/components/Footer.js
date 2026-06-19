@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  FaFacebook, FaTwitter, FaInstagram, FaLinkedin, FaYoutube,
-  FaTelegram, FaTiktok, FaGlobe, FaWhatsapp, FaSnapchatGhost,
+  FaFacebook, FaTwitter, FaInstagram, FaYoutube,
+  FaTelegram, FaTiktok, FaGlobe, FaWhatsapp,
 } from "react-icons/fa";
 
 const ICON_MAP = {
@@ -10,14 +10,13 @@ const ICON_MAP = {
   twitter: FaTwitter,
   x: FaTwitter,
   instagram: FaInstagram,
-  linkedin: FaLinkedin,
   youtube: FaYoutube,
   telegram: FaTelegram,
   whatsapp: FaWhatsapp,
-  snapchat: FaSnapchatGhost,
   tiktok: FaTiktok,
-  website: FaGlobe,
 };
+
+const DISABLED_SOCIAL_LABELS = new Set(["linkedin", "snapchat", "website"]);
 
 function normalizeSocialUrl(value, label = "") {
   const raw = String(value || "").trim();
@@ -60,16 +59,15 @@ function buildSocials() {
   const mapping = [
     { label: "Instagram", value: process.env.NEXT_PUBLIC_SOCIAL_INSTAGRAM || process.env.NEXT_PUBLIC_INSTAGRAM_URL },
     { label: "X", value: process.env.NEXT_PUBLIC_SOCIAL_X || process.env.NEXT_PUBLIC_SOCIAL_TWITTER || process.env.NEXT_PUBLIC_X_URL || process.env.NEXT_PUBLIC_TWITTER_URL },
-    { label: "LinkedIn", value: process.env.NEXT_PUBLIC_SOCIAL_LINKEDIN || process.env.NEXT_PUBLIC_LINKEDIN_URL },
     { label: "YouTube", value: process.env.NEXT_PUBLIC_SOCIAL_YOUTUBE || process.env.NEXT_PUBLIC_YOUTUBE_URL },
     { label: "Telegram", value: process.env.NEXT_PUBLIC_SOCIAL_TELEGRAM || process.env.NEXT_PUBLIC_TELEGRAM_URL },
-    { label: "Snapchat", value: process.env.NEXT_PUBLIC_SOCIAL_SNAPCHAT || process.env.NEXT_PUBLIC_SNAPCHAT_URL },
     { label: "TikTok", value: process.env.NEXT_PUBLIC_SOCIAL_TIKTOK || process.env.NEXT_PUBLIC_TIKTOK_URL },
     { label: "WhatsApp", value: process.env.NEXT_PUBLIC_SOCIAL_WHATSAPP || process.env.NEXT_PUBLIC_WHATSAPP_URL },
     { label: "Facebook", value: process.env.NEXT_PUBLIC_SOCIAL_FACEBOOK || process.env.NEXT_PUBLIC_FACEBOOK_URL },
-    { label: "Website", value: process.env.NEXT_PUBLIC_SOCIAL_WEBSITE || process.env.NEXT_PUBLIC_WEBSITE_URL },
   ];
-  const parsedByLabel = new Map(parsed.map((item) => [String(item.label || "").toLowerCase(), item.url || item.value]));
+  const parsedByLabel = new Map(parsed
+    .filter((item) => !DISABLED_SOCIAL_LABELS.has(String(item.label || "").toLowerCase()))
+    .map((item) => [String(item.label || "").toLowerCase(), item.url || item.value]));
   return mapping.map((item) => ({
     label: item.label,
     url: normalizeSocialUrl(
@@ -91,7 +89,7 @@ export default function Footer() {
       .then((response) => response.ok ? response.json() : null)
       .then((data) => {
         if (active && Array.isArray(data?.socials) && data.socials.length) {
-          setSocials(data.socials);
+          setSocials(data.socials.filter((item) => !DISABLED_SOCIAL_LABELS.has(String(item.label || "").toLowerCase())));
         }
       })
       .catch(() => {});
