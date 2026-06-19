@@ -180,6 +180,59 @@ def ensure_symbol(symbol):
     return symbol
 
 
+def get_broker_symbols(
+    *,
+    include_hidden=False,
+    require_trade=True,
+    require_tick=False,
+    group_masks=None,
+    limit=None,
+):
+    """Return broker symbols directly from MT5, independent of env/config lists."""
+    _require_mt5()
+    masks = [
+        str(item).strip()
+        for item in (group_masks or [])
+        if str(item).strip()
+    ]
+    symbol_infos = []
+    if masks:
+        for mask in masks:
+            result = mt5.symbols_get(group=mask)
+            if result:
+                symbol_infos.extend(result)
+    else:
+        symbol_infos = list(mt5.symbols_get() or [])
+
+    disabled_mode = getattr(mt5, "SYMBOL_TRADE_MODE_DISABLED", None)
+    names = []
+    seen = set()
+    for info in symbol_infos:
+        name = str(getattr(info, "name", "") or "").strip()
+        if not name or name in seen:
+            continue
+        if require_trade and disabled_mode is not None and getattr(info, "trade_mode", None) == disabled_mode:
+            continue
+        if not include_hidden and not getattr(info, "visible", False):
+            try:
+                if not mt5.symbol_select(name, True):
+                    continue
+            except Exception:
+                continue
+        if require_tick:
+            try:
+                tick = mt5.symbol_info_tick(name)
+                if tick is None or max(float(getattr(tick, "bid", 0.0) or 0.0), float(getattr(tick, "ask", 0.0) or 0.0), float(getattr(tick, "last", 0.0) or 0.0)) <= 0:
+                    continue
+            except Exception:
+                continue
+        seen.add(name)
+        names.append(name)
+        if limit and len(names) >= int(limit):
+            break
+    return names
+
+
 def get_price(symbol):
     """Return a bid/ask snapshot for compatibility with every live caller."""
     tick = mt5.symbol_info_tick(symbol)
@@ -209,6 +262,24 @@ def get_tick_snapshot(symbol):
         "point": float(getattr(info, "point", 0.0) or 0.0),
         "digits": int(getattr(info, "digits", 5) or 5),
         "spread_points": max(0.0, (float(tick.ask) - float(tick.bid)) / max(float(getattr(info, "point", 0.0) or 0.0), 1e-12)),
+    }
+
+
+def get_symbol_info(symbol):
+    _require_mt5()
+    ensure_symbol(symbol)
+    info = mt5.symbol_info(symbol)
+    if not info:
+        return None
+    return {
+        "tick_value": float(getattr(info, "tick_value", getattr(info, "trade_tick_value", 0.0)) or 0.0),
+        "tick_size": float(getattr(info, "tick_size", getattr(info, "trade_tick_size", 0.0)) or 0.0),
+        "volume_step": float(getattr(info, "volume_step", 0.0) or 0.0),
+        "volume_min": float(getattr(info, "volume_min", 0.0) or 0.0),
+        "volume_max": float(getattr(info, "volume_max", 0.0) or 0.0),
+        "stop_level": float(getattr(info, "trade_stops_level", 0.0) or 0.0),
+        "spread": float(getattr(info, "spread", 0.0) or 0.0),
+        "margin_initial": float(getattr(info, "margin_initial", 0.0) or 0.0),
     }
 
 

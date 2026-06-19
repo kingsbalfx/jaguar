@@ -6,6 +6,7 @@ import os
 import sys
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,9 +17,11 @@ from config.symbol_mappings import candidates_for
 from config.smt_correlations import correlated_markets
 from config.trading_pairs import TradingPairs
 from dashboard.bridge import persist_account_snapshot_to_supabase, persist_signal_to_supabase, push_trade
+import execution.mt5_connector as mt5_connector
 from execution.mt5_connector import (
     calculate_volume_for_risk,
     connect,
+    get_broker_symbols,
     get_account_snapshot,
     get_open_positions,
     get_tick_snapshot,
@@ -30,6 +33,7 @@ from fundamentals.news_filter import news_allows_trade
 from multi_account_runner import load_accounts
 from risk.protection import can_trade, register_trade, setup_identity
 from risk.trade_management import manage_trade
+from kingsbalfx_concept import evaluate as evaluate_kingsbalfx
 from strategy.pre_trade_analysis import analyze_market_top_down
 from strategy.unified_strategy import SEQUENCE, evaluate_strategy
 from utils.logger import bot_log
@@ -49,6 +53,36 @@ LOGGER.setLevel(getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging
 
 def _truthy(name: str, default: str = "false") -> bool:
     return os.getenv(name, default).lower() in ("1", "true", "yes", "on")
+
+
+def _int_env(name: str, default: int, minimum: int = None, maximum: int = None) -> int:
+    try:
+        value = int(str(os.getenv(name, str(default))).strip())
+    except (TypeError, ValueError):
+        value = default
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
+def _float_env(name: str, default: float, minimum: float = None, maximum: float = None) -> float:
+    try:
+        value = float(str(os.getenv(name, str(default))).strip())
+    except (TypeError, ValueError):
+        value = default
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
+def _chunks(items, size: int):
+    size = max(1, int(size))
+    for start in range(0, len(items), size):
+        yield start // size + 1, items[start:start + size]
 
 
 def _yes_no(value) -> str:
@@ -192,6 +226,44 @@ def _console_state_report(symbol: str, setup: dict, safety: dict = None, request
         LOGGER.info("[%s] OPERATIONAL SKIP | failed_checks=%s", symbol, failed_checks)
 
 
+def _console_compact_report(symbol: str, setup: dict, safety: dict = None, request: dict = None) -> None:
+    states = setup.get("states") or []
+    passed = sum(1 for state in states if state.get("confirmed"))
+    total_steps = int(setup.get("total_steps") or len(SEQUENCE))
+    failed_step = setup.get("failed_step") or "none"
+    reason = (safety or {}).get("reason") or setup.get("reason") or "none"
+    if setup.get("executable") and request:
+        decision = "SEND_MARKET_ORDER"
+    elif setup.get("executable"):
+        decision = "OPERATIONAL_SKIP"
+    else:
+        decision = "SKIP"
+    LOGGER.info(
+        "[%s] RESULT | decision=%s | direction=%s | passed=%s/%s | failed_step=%s | reason=%s",
+        symbol,
+        decision,
+        setup.get("direction") or "none",
+        passed,
+        total_steps,
+        failed_step,
+        reason,
+    )
+
+
+def _report_setup(symbol: str, setup: dict, safety: dict = None, request: dict = None) -> None:
+    if setup.get("strategy") == "kingsbalfx":
+        _console_compact_report(symbol, setup, safety, request)
+        return
+    mode = os.getenv("STATE_LOG_MODE", "compact").strip().lower()
+    if mode == "full":
+        _console_state_report(symbol, setup, safety, request)
+    elif mode == "none":
+        if request:
+            _console_compact_report(symbol, setup, safety, request)
+    else:
+        _console_compact_report(symbol, setup, safety, request)
+
+
 def _console_skip(symbol: str, reason: str, evidence: dict = None) -> None:
     context = " ".join(f"{key}={value}" for key, value in (evidence or {}).items() if not isinstance(value, (dict, list, tuple)))
     LOGGER.info("[%s] SKIP | %s%s", symbol, reason, f" | {context}" if context else "")
@@ -245,6 +317,84 @@ def _resolve_symbol(symbol: str):
         except (AttributeError, RuntimeError, TypeError, ValueError):
             continue
     return None
+
+
+def _csv_items(name: str):
+    return [
+        item.strip()
+        for item in os.getenv(name, "").split(",")
+        if item.strip()
+    ]
+
+
+def _symbol_matches(symbol: str, filters) -> bool:
+    if not filters:
+        return True
+    normalized = _canonical_symbol(symbol)
+    raw = str(symbol or "").upper()
+    return any(item.upper() in (raw, normalized) or raw.startswith(item.upper()) for item in filters)
+
+
+def _build_symbol_universe():
+    stats = {
+        "raw": 0,
+        "accepted": 0,
+        "unresolved": 0,
+        "asset_filtered": 0,
+        "allowlist_filtered": 0,
+        "blocklist_filtered": 0,
+        "duplicate_filtered": 0,
+    }
+    if _truthy("AUTO_EXTRACT_MT5_SYMBOLS"):
+        groups = _csv_items("MT5_SYMBOL_GROUPS")
+        limit_raw = os.getenv("MT5_SYMBOL_LIMIT", "").strip()
+        raw_symbols = get_broker_symbols(
+            include_hidden=_truthy("MT5_SYMBOL_INCLUDE_HIDDEN"),
+            require_trade=_truthy("MT5_SYMBOL_REQUIRE_TRADE", "true"),
+            require_tick=_truthy("MT5_SYMBOL_REQUIRE_TICK", "false"),
+            group_masks=groups,
+            limit=int(limit_raw) if limit_raw else None,
+        )
+        source = "mt5"
+    else:
+        env_symbols = _csv_items("SYMBOLS")
+        raw_symbols = env_symbols or [
+            str(item.get("symbol") if isinstance(item, dict) else item).strip()
+            for item in TradingPairs.get_trading_pairs()
+        ]
+        source = "configured"
+
+    stats["raw"] = len(raw_symbols)
+    configured_assets = {item.lower() for item in _csv_items("MT5_SYMBOL_ASSET_CLASSES")}
+    allowed_assets = set() if "all" in configured_assets else configured_assets
+    allowlist = _csv_items("MT5_SYMBOL_ALLOWLIST")
+    blocklist = _csv_items("MT5_SYMBOL_BLOCKLIST")
+    resolved_symbols = []
+    seen = set()
+    for item in raw_symbols:
+        symbol = item if source == "mt5" else _resolve_symbol(item)
+        if not symbol:
+            stats["unresolved"] += 1
+            continue
+        asset_class = infer_asset_class(symbol)
+        if allowed_assets and asset_class not in allowed_assets:
+            stats["asset_filtered"] += 1
+            continue
+        if allowlist and not _symbol_matches(symbol, allowlist):
+            stats["allowlist_filtered"] += 1
+            continue
+        if blocklist and _symbol_matches(symbol, blocklist):
+            stats["blocklist_filtered"] += 1
+            continue
+        if symbol in seen:
+            stats["duplicate_filtered"] += 1
+            continue
+        seen.add(symbol)
+        resolved_symbols.append(symbol)
+    stats["accepted"] = len(resolved_symbols)
+    stats["allowed_assets"] = ",".join(sorted(allowed_assets)) if allowed_assets else "all"
+    stats["groups"] = ",".join(_csv_items("MT5_SYMBOL_GROUPS")) or "all"
+    return resolved_symbols, source, stats
 
 
 def _canonical_symbol(symbol: str) -> str:
@@ -385,6 +535,74 @@ def _friday_close() -> None:
         close_position(position["ticket"], position["symbol"], position.get("direction"), position.get("volume", 0.0))
 
 
+def _kingsbalfx_setup(result: dict) -> dict:
+    raw_setup = result.get("setup") or {}
+    evidence = raw_setup.get("evidence") or {}
+    states = evidence.get("states") or []
+    failed = next((state for state in states if not state.get("confirmed")), None)
+    request = result.get("request") or {}
+    return {
+        "strategy": "kingsbalfx",
+        "executable": bool(result.get("valid")),
+        "direction": raw_setup.get("direction") or request.get("direction"),
+        "mode": raw_setup.get("mode"),
+        "reason": result.get("reason") or raw_setup.get("reason"),
+        "failed_step": failed.get("name") if failed else None,
+        "states": states,
+        "total_steps": 6,
+        "plan": {
+            "entry": raw_setup.get("entry") or request.get("entry"),
+            "sl": raw_setup.get("sl") or request.get("sl"),
+            "tp": raw_setup.get("tp") or request.get("tp"),
+            "rr": raw_setup.get("rr"),
+        },
+        "target": raw_setup.get("target"),
+        "entry_zone": raw_setup.get("entry_zone"),
+        "evidence": evidence,
+        "raw": raw_setup,
+    }
+
+
+def _evaluate_kingsbalfx_fallback(symbol: str, direction: str, analysis: dict, tick: dict, account: dict, positions: list):
+    result = evaluate_kingsbalfx(
+        symbol,
+        direction,
+        mt5_connector,
+        analysis=analysis,
+        tick=tick,
+        account=account,
+        risk_percent=_risk_percent(),
+        minimum_rr=1.5,
+    )
+    fallback_setup = _kingsbalfx_setup(result)
+    request = result.get("request")
+    if not request:
+        return None, fallback_setup, {"reason": result.get("reason") or "kingsbalfx_rejected"}
+
+    identity = setup_identity(symbol, request["direction"], request.get("identity_context"))
+    if not can_trade(symbol, identity, cooldown=int(os.getenv("SETUP_COOLDOWN_SECONDS", "1800"))):
+        fallback_setup["executable"] = True
+        return None, fallback_setup, {"reason": "duplicate_setup"}
+
+    safe, safety = validate_execution_safety(
+        symbol,
+        request["direction"],
+        request["entry"],
+        request["sl"],
+        request["tp"],
+        request["lot"],
+        account,
+        positions,
+    )
+    if not safe:
+        fallback_setup["executable"] = True
+        return None, fallback_setup, safety
+
+    request["identity"] = identity
+    request["strategy"] = "kingsbalfx"
+    return request, fallback_setup, safety
+
+
 def _evaluate_symbol(symbol: str, account: dict, positions: list):
     tick = get_tick_snapshot(symbol)
     price = (tick["bid"] + tick["ask"]) / 2.0
@@ -415,6 +633,18 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
     if observed != SEQUENCE[: len(observed)]:
         raise RuntimeError(f"State sequence violated: {observed}")
     if not setup["executable"]:
+        fallback_request, fallback_setup, fallback_safety = _evaluate_kingsbalfx_fallback(
+            symbol,
+            setup.get("direction") or setup.get("trend") or analysis.get("overall_trend"),
+            analysis,
+            tick,
+            account,
+            positions,
+        )
+        if fallback_request:
+            return fallback_request, fallback_setup, fallback_safety
+        if fallback_setup.get("executable"):
+            return None, fallback_setup, fallback_safety
         return None, setup, {"reason": setup["reason"]}
 
     plan = setup["plan"]
@@ -449,6 +679,28 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
     }, setup, safety
 
 
+def _evaluate_symbol_safe(symbol: str, account: dict, positions: list) -> dict:
+    try:
+        request, setup, safety = _evaluate_symbol(symbol, account, positions)
+        return {
+            "symbol": symbol,
+            "request": request,
+            "setup": setup,
+            "safety": safety,
+            "error": None,
+            "trace": None,
+        }
+    except (KeyError, RuntimeError, TypeError, ValueError) as exc:
+        return {
+            "symbol": symbol,
+            "request": None,
+            "setup": None,
+            "safety": None,
+            "error": str(exc),
+            "trace": traceback.format_exc(),
+        }
+
+
 def run_bot() -> None:
     if _launch_multi_account_children():
         return
@@ -459,9 +711,27 @@ def run_bot() -> None:
         raise RuntimeError("Unable to connect to MT5")
 
     max_trades = get_profile_max_trades(get_user_profile())
-    configured = [str(item.get("symbol") if isinstance(item, dict) else item).strip() for item in TradingPairs.get_trading_pairs()]
-    symbols = [resolved for item in configured if item for resolved in [_resolve_symbol(item)] if resolved]
-    LOGGER.info("ICT state-machine bot started | symbols=%s | max_trades=%s", len(symbols), max_trades)
+    symbols, symbol_source, symbol_stats = _build_symbol_universe()
+    LOGGER.info(
+        "ICT state-machine bot started | symbols=%s | symbol_source=%s | raw_symbols=%s | max_trades=%s",
+        len(symbols),
+        symbol_source,
+        symbol_stats.get("raw"),
+        max_trades,
+    )
+    LOGGER.info(
+        "SYMBOL UNIVERSE | source=%s | raw=%s | accepted=%s | unresolved=%s | asset_filtered=%s | allowlist_filtered=%s | blocklist_filtered=%s | duplicate_filtered=%s | allowed_assets=%s | groups=%s",
+        symbol_source,
+        symbol_stats.get("raw"),
+        symbol_stats.get("accepted"),
+        symbol_stats.get("unresolved"),
+        symbol_stats.get("asset_filtered"),
+        symbol_stats.get("allowlist_filtered"),
+        symbol_stats.get("blocklist_filtered"),
+        symbol_stats.get("duplicate_filtered"),
+        symbol_stats.get("allowed_assets"),
+        symbol_stats.get("groups"),
+    )
 
     while is_running():
         try:
@@ -486,26 +756,98 @@ def run_bot() -> None:
             _manage_open_positions()
             _friday_close()
 
+            evaluated = 0
+            skipped_closed = 0
+            skipped_friday = 0
+            trades_opened = 0
+            errors = 0
+            scan_candidates = []
+            log_symbol_skips = _truthy("SYMBOL_SKIP_LOGS", "false")
+
+            positions = get_open_positions() or []
+            if len(positions) >= max_trades:
+                LOGGER.info("SCAN STOP | max open trades reached: %s/%s", len(positions), max_trades)
+
             for symbol in symbols:
+                if len(positions) >= max_trades or not is_running():
+                    break
+                asset_class = infer_asset_class(symbol)
+                if not asset_trading_open(asset_class):
+                    skipped_closed += 1
+                    if log_symbol_skips:
+                        _console_skip(symbol, "asset_market_closed", {"asset_class": asset_class})
+                    continue
+                if not friday_entry_allowed(asset_class):
+                    skipped_friday += 1
+                    if log_symbol_skips:
+                        _console_skip(symbol, "friday_entry_cutoff", {"asset_class": asset_class})
+                    continue
+                scan_candidates.append(symbol)
+
+            batch_size = _int_env("SCAN_BATCH_SIZE", 25, minimum=1)
+            batch_pause = _float_env("SCAN_BATCH_PAUSE_SECONDS", 0.0, minimum=0.0, maximum=60.0)
+            scan_workers = _int_env("SCAN_WORKERS", 1, minimum=1, maximum=8)
+            log_evaluating = _truthy("SYMBOL_EVALUATION_LOGS", "false")
+            batch_count = (len(scan_candidates) + batch_size - 1) // batch_size if scan_candidates else 0
+            LOGGER.info(
+                "SCAN CANDIDATES | universe=%s | candidates=%s | skipped_market_closed=%s | skipped_friday_cutoff=%s | batch_size=%s | workers=%s",
+                len(symbols),
+                len(scan_candidates),
+                skipped_closed,
+                skipped_friday,
+                batch_size,
+                scan_workers,
+            )
+
+            for batch_index, batch in _chunks(scan_candidates, batch_size):
+                if not is_running():
+                    break
                 positions = get_open_positions() or []
                 if len(positions) >= max_trades:
                     LOGGER.info("SCAN STOP | max open trades reached: %s/%s", len(positions), max_trades)
                     break
-                if not is_running():
-                    break
-                asset_class = infer_asset_class(symbol)
-                if not asset_trading_open(asset_class):
-                    _console_skip(symbol, "asset_market_closed", {"asset_class": asset_class})
-                    continue
-                if not friday_entry_allowed(asset_class):
-                    _console_skip(symbol, "friday_entry_cutoff", {"asset_class": asset_class})
-                    continue
-                try:
-                    LOGGER.info("[%s] EVALUATING", symbol)
-                    request, setup, safety = _evaluate_symbol(symbol, account, positions)
-                    _console_state_report(symbol, setup, safety, request)
+
+                LOGGER.info(
+                    "BATCH START | batch=%s/%s | symbols=%s | workers=%s",
+                    batch_index,
+                    batch_count,
+                    len(batch),
+                    scan_workers,
+                )
+                results = []
+                if scan_workers == 1:
+                    for symbol in batch:
+                        if log_evaluating:
+                            LOGGER.info("[%s] EVALUATING", symbol)
+                        results.append(_evaluate_symbol_safe(symbol, account, positions))
+                else:
+                    with ThreadPoolExecutor(max_workers=scan_workers) as executor:
+                        futures = {
+                            executor.submit(_evaluate_symbol_safe, symbol, account, positions): symbol
+                            for symbol in batch
+                        }
+                        for future in as_completed(futures):
+                            results.append(future.result())
+
+                for result in results:
+                    symbol = result["symbol"]
+                    evaluated += 1
+                    if result["error"]:
+                        errors += 1
+                        bot_log("symbol_error", f"[{symbol}] evaluation failed: {result['error']}", {"trace": result["trace"]})
+                        continue
+
+                    request = result["request"]
+                    setup = result["setup"]
+                    safety = result["safety"]
+                    _report_setup(symbol, setup, safety, request)
                     if not request:
                         bot_log("setup_observed", f"[{symbol}] skipped: {safety.get('reason') or setup.get('reason')}", {"setup": setup, "safety": safety}, persist=False)
+                        continue
+
+                    positions = get_open_positions() or []
+                    if len(positions) >= max_trades:
+                        _console_skip(symbol, "max_open_trades_reached_before_execution", {"open_positions": len(positions), "max_trades": max_trades})
                         continue
                     trade = execute_trade(
                         request["symbol"],
@@ -519,13 +861,37 @@ def run_bot() -> None:
                     if not trade:
                         _console_skip(symbol, "broker_rejected_or_failed_market_order", request)
                         continue
+                    trades_opened += 1
                     register_trade(symbol, request["identity"])
                     payload = {**request, "state_machine": setup, "status": "open"}
                     persist_signal_to_supabase(payload)
                     push_trade(payload)
-                    bot_log("trade_opened", f"[{symbol}] strict ICT sequence confirmed and trade opened", payload)
-                except (KeyError, RuntimeError, TypeError, ValueError) as exc:
-                    bot_log("symbol_error", f"[{symbol}] evaluation failed: {exc}", {"trace": traceback.format_exc()})
+                    strategy_name = request.get("strategy") or "ict_state_machine"
+                    if strategy_name == "kingsbalfx":
+                        bot_log("trade_opened", f"[{symbol}] Kingsbalfx fallback confirmed and trade opened", payload)
+                    else:
+                        bot_log("trade_opened", f"[{symbol}] strict ICT sequence confirmed and trade opened", payload)
+
+                LOGGER.info(
+                    "BATCH COMPLETE | batch=%s/%s | evaluated_total=%s | trades_opened=%s | errors=%s",
+                    batch_index,
+                    batch_count,
+                    evaluated,
+                    trades_opened,
+                    errors,
+                )
+                if batch_pause > 0 and batch_index < batch_count:
+                    time.sleep(batch_pause)
+            LOGGER.info(
+                "SCAN SUMMARY | universe=%s | candidates=%s | evaluated=%s | trades_opened=%s | errors=%s | skipped_market_closed=%s | skipped_friday_cutoff=%s",
+                len(symbols),
+                len(scan_candidates),
+                evaluated,
+                trades_opened,
+                errors,
+                skipped_closed,
+                skipped_friday,
+            )
             LOGGER.info("SCAN COMPLETE | sleeping=%ss", max(15, int(os.getenv("SCAN_INTERVAL_SECONDS", "60"))))
             time.sleep(max(15, int(os.getenv("SCAN_INTERVAL_SECONDS", "60"))))
         except KeyboardInterrupt:
