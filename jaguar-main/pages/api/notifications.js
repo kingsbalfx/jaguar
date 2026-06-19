@@ -4,6 +4,7 @@ import { getSupabaseClient } from "../../lib/supabaseClient";
 export default async function handler(req, res) {
   const supabase = createPagesServerClient({ req, res });
   const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user && req.method === "GET") return res.status(200).json({ notifications: [] });
   if (!session?.user) return res.status(401).json({ error: "not authenticated" });
   const admin = getSupabaseClient({ server: true });
   if (!admin) return res.status(500).json({ error: "Supabase admin client not configured" });

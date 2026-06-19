@@ -1,7 +1,31 @@
 // pages/admin/messages.js
 import React, { useEffect, useState } from "react";
+import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import FeedbackMessage from "../../components/FeedbackMessage";
+import { getSupabaseClient } from "../../lib/supabaseClient";
 import { MENTORSHIP_GROUPS, getMentorshipGroupLabel } from "../../lib/mentorship-groups";
+
+export async function getServerSideProps(ctx) {
+  const supabase = createPagesServerClient(ctx);
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) {
+    return { redirect: { destination: `/login?next=${encodeURIComponent("/admin/messages")}`, permanent: false } };
+  }
+
+  const admin = getSupabaseClient({ server: true });
+  if (!admin) return { props: {} };
+  const { data: profile } = await admin.from("profiles").select("role").eq("id", session.user.id).maybeSingle();
+  const role = String(profile?.role || "user").toLowerCase();
+  const adminEmail = String(process.env.SUPER_ADMIN_EMAIL || process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.ADMIN_EMAIL || "").toLowerCase();
+  const isAdminEmail = adminEmail && String(session.user.email || "").toLowerCase() === adminEmail;
+  if (role !== "admin" && !isAdminEmail) {
+    return { redirect: { destination: "/", permanent: false } };
+  }
+  if (isAdminEmail && role !== "admin") {
+    await admin.from("profiles").upsert({ id: session.user.id, email: session.user.email, role: "admin", updated_at: new Date().toISOString() });
+  }
+  return { props: {} };
+}
 
 export default function Messages() {
   const [msg, setMsg] = useState("");
