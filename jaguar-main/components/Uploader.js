@@ -23,6 +23,7 @@ export default function Uploader({ bucket = DEFAULT_BUCKET, folder = "", allowSe
   const [segment, setSegment] = useState(defaultSegment);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [lastUploaded, setLastUploaded] = useState(null);
+  const [muteVideoAudio, setMuteVideoAudio] = useState(false);
   const group = getMentorshipGroup(segment);
   const effectiveBucket = allowSegmentSelect ? SEGMENT_BUCKETS[segment] || bucket : bucket;
 
@@ -39,10 +40,14 @@ export default function Uploader({ bucket = DEFAULT_BUCKET, folder = "", allowSe
       }
       const watermarkLimitMb = Number(process.env.NEXT_PUBLIC_BROWSER_WATERMARK_MAX_MB || 350);
       const file = selectedFile.type?.startsWith("video/") && selectedFile.size <= watermarkLimitMb * 1024 * 1024
-        ? await brandVideoFile(selectedFile, (progress) => setStatus({ type: "info", message: `Applying permanent KINGSBALFX watermark: ${progress}%` }))
+        ? await brandVideoFile(
+            selectedFile,
+            (progress) => setStatus({ type: "info", message: `${muteVideoAudio ? "Removing audio and applying" : "Applying permanent"} KINGSBALFX watermark: ${progress}%` }),
+            { muteAudio: muteVideoAudio },
+          )
         : selectedFile;
       if (selectedFile.type?.startsWith("video/") && selectedFile.size > watermarkLimitMb * 1024 * 1024) {
-        setStatus({ type: "info", message: `Large video detected (${formatUploadSize(selectedFile.size)}). Uploading without browser re-encoding to preserve the full file.` });
+        setStatus({ type: "info", message: `Large video detected (${formatUploadSize(selectedFile.size)}). Uploading without browser re-encoding to preserve the full file.${muteVideoAudio ? " Export this large video muted before upload to remove audio." : ""}` });
       }
       const response = await fetch("/api/admin/storage/signed-upload", {
         method: "POST",
@@ -89,6 +94,13 @@ export default function Uploader({ bucket = DEFAULT_BUCKET, folder = "", allowSe
       <div className="m-4 rounded-xl border border-dashed border-indigo-300/25 bg-indigo-500/5 p-5 text-center">
         <div className="text-sm font-medium text-white">Choose a resource to upload</div>
         <div className="mt-1 text-xs text-gray-400">Video, audio, image, PDF, or supporting document</div>
+        <label className="mx-auto mt-3 flex max-w-md items-start gap-2 rounded-lg border border-white/10 bg-black/20 p-3 text-left text-xs text-gray-200">
+          <input type="checkbox" checked={muteVideoAudio} onChange={(event) => setMuteVideoAudio(event.target.checked)} className="mt-0.5" />
+          <span>
+            <span className="block font-semibold text-white">Mute video audio before upload</span>
+            <span className="text-gray-400">Works during browser watermark processing for smaller videos.</span>
+          </span>
+        </label>
         <input type="file" onChange={uploadFile} className="mt-4 block w-full text-sm text-gray-200" />
       </div>
       <FeedbackMessage message={status.message} type={status.type || "info"} />

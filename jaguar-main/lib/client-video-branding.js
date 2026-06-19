@@ -1,4 +1,4 @@
-export async function brandVideoFile(file, onProgress = () => {}) {
+export async function brandVideoFile(file, onProgress = () => {}, options = {}) {
   if (!file?.type?.startsWith("video/")) return file;
   if (typeof document === "undefined" || typeof MediaRecorder === "undefined") {
     throw new Error("This browser cannot apply the permanent KINGSBALFX video watermark. Use current Chrome or Edge.");
@@ -7,7 +7,8 @@ export async function brandVideoFile(file, onProgress = () => {}) {
   const sourceUrl = URL.createObjectURL(file);
   const video = document.createElement("video");
   video.src = sourceUrl;
-  video.muted = false;
+  const muteAudio = Boolean(options.muteAudio);
+  video.muted = muteAudio;
   video.playsInline = true;
   video.preload = "auto";
   await once(video, "loadedmetadata");
@@ -28,7 +29,7 @@ export async function brandVideoFile(file, onProgress = () => {}) {
   await Promise.race([once(logo, "load"), new Promise((resolve) => window.setTimeout(resolve, 1500))]);
   const output = canvas.captureStream(24);
   const sourceStream = video.captureStream?.() || video.mozCaptureStream?.();
-  sourceStream?.getAudioTracks().forEach((track) => output.addTrack(track));
+  if (!muteAudio) sourceStream?.getAudioTracks().forEach((track) => output.addTrack(track));
   const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") ? "video/webm;codecs=vp9,opus" : "video/webm";
   const recorder = new MediaRecorder(output, { mimeType, videoBitsPerSecond: 1800000 });
   const chunks = [];

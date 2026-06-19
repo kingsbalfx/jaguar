@@ -46,6 +46,7 @@ export default function Content() {
   const [editingItem, setEditingItem] = useState(null);
   const [status, setStatus] = useState("");
   const [localPreviewUrl, setLocalPreviewUrl] = useState("");
+  const [muteVideoAudio, setMuteVideoAudio] = useState(false);
 
   useEffect(() => {
     fetchItems();
@@ -81,10 +82,14 @@ export default function Content() {
     if (mediaType === "video") {
       const watermarkLimitMb = Number(process.env.NEXT_PUBLIC_BROWSER_WATERMARK_MAX_MB || 350);
       if (fileToUpload.size <= watermarkLimitMb * 1024 * 1024) {
-        setStatus("Applying permanent KINGSBALFX logo watermark to the video...");
-        uploadFile = await brandVideoFile(fileToUpload, (progress) => setStatus(`Applying permanent KINGSBALFX watermark: ${progress}%`));
+        setStatus(muteVideoAudio ? "Applying KINGSBALFX watermark and removing video audio..." : "Applying permanent KINGSBALFX logo watermark to the video...");
+        uploadFile = await brandVideoFile(
+          fileToUpload,
+          (progress) => setStatus(`${muteVideoAudio ? "Removing audio and applying" : "Applying permanent"} KINGSBALFX watermark: ${progress}%`),
+          { muteAudio: muteVideoAudio },
+        );
       } else {
-        setStatus(`Large video detected (${formatUploadSize(fileToUpload.size)}). Uploading original file with branded playback and download naming to avoid browser processing failure.`);
+        setStatus(`Large video detected (${formatUploadSize(fileToUpload.size)}). Uploading original file with branded playback and download naming to avoid browser processing failure.${muteVideoAudio ? " Audio removal requires browser processing, so export this large video muted before upload." : ""}`);
       }
     }
 
@@ -173,6 +178,7 @@ export default function Content() {
       setMediaUrl("");
       setBody("");
       setFile(null);
+      setMuteVideoAudio(false);
       setEditingId(null);
       setEditingItem(null);
       await fetchItems();
@@ -205,6 +211,7 @@ export default function Content() {
     setMediaUrl(item.media_url || "");
     setBody(item.body || "");
     setFile(null);
+    setMuteVideoAudio(false);
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   }
 
@@ -282,6 +289,15 @@ export default function Content() {
               <div className="rounded-xl border border-dashed border-indigo-300/20 bg-indigo-500/5 p-4">
                 <input type="file" accept={mediaType === "video" ? "video/mp4,video/webm" : mediaType === "audio" ? "audio/mpeg,audio/mp4,audio/webm" : mediaType === "pdf" ? "application/pdf" : ".doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf"} onChange={(e) => setFile(e.target.files?.[0] || null)} />
                 <p className="mt-2 text-xs text-gray-400">{editingId ? "Choose a new file to replace the existing lesson, or leave it empty to keep the current file." : mediaType === "video" ? "Upload MP4 H.264 or WebM up to 2GB. Smaller videos receive a permanent KINGSBALFX watermark before upload; larger videos keep branded playback/download protection." : "Upload supporting documents up to 2GB when your Supabase bucket limit allows it."}</p>
+                {mediaType === "video" && (
+                  <label className="mt-3 flex items-start gap-2 rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-gray-200">
+                    <input type="checkbox" checked={muteVideoAudio} onChange={(event) => setMuteVideoAudio(event.target.checked)} className="mt-0.5" />
+                    <span>
+                      <span className="block font-semibold text-white">Mute this video before upload</span>
+                      <span className="text-gray-400">For smaller videos, audio is removed while the KINGSBALFX watermark is applied. For very large videos, export muted first before upload.</span>
+                    </span>
+                  </label>
+                )}
                 {mediaType === "video" && (localPreviewUrl || editingItem?.playback_url) && (
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black shadow-xl">
                     <video key={localPreviewUrl || editingItem?.playback_url} src={localPreviewUrl || editingItem?.playback_url} controls preload="metadata" playsInline className="aspect-video w-full bg-black" />
@@ -333,6 +349,7 @@ export default function Content() {
                     setMediaUrl("");
                     setBody("");
                     setFile(null);
+                    setMuteVideoAudio(false);
                     setEditingItem(null);
                   }}
                   className="px-4 py-2 rounded bg-gray-700 text-white"

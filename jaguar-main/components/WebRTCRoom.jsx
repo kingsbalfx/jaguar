@@ -739,7 +739,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
             {!isHost && presenting && <button onClick={stopPresenting} className="rounded-lg bg-red-600 px-3 py-2 text-sm sm:px-4">Leave stage</button>}
             {(isHost || presenting) && <>
             <button onClick={toggleMic} className={`rounded-lg px-3 py-2 text-sm sm:px-4 ${micEnabled ? "bg-white/10" : "bg-amber-600"}`}>{micEnabled ? "Mute microphone" : "Unmute microphone"}</button>
-            <button onClick={toggleCamera} className={`rounded-lg px-3 py-2 text-sm sm:px-4 ${cameraEnabled ? "bg-white/10" : "bg-amber-600"}`}>{cameraEnabled ? "Turn camera off" : "Turn camera on"}</button>
+            <button onClick={toggleCamera} className={`rounded-lg px-3 py-2 text-sm sm:px-4 ${cameraEnabled ? "bg-white/10" : "bg-amber-600"}`}>{cameraEnabled ? "Mute camera" : "Unmute camera"}</button>
             {isHost && <button onClick={sharingScreen ? stopScreenShare : shareScreen} className="rounded-lg bg-indigo-600 px-3 py-2 text-sm sm:px-4">{sharingScreen ? "Stop sharing" : "Share screen"}</button>}
             {isHost && <button onClick={recording ? stopRecording : startRecording} disabled={publishingRecording} className={`rounded-lg px-3 py-2 text-sm disabled:opacity-60 sm:px-4 ${recording ? "bg-red-600" : "bg-fuchsia-600"}`}>{publishingRecording ? "Publishing recording..." : recording ? `Stop recording (${formatDuration(recordingSeconds)})` : "Record session"}</button>}
             </>}
