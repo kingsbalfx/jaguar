@@ -74,13 +74,13 @@ export default function Content() {
     let uploadFile = fileToUpload;
     setUploadActivity(true);
     try {
-    const maxSizeMb = Number(process.env.NEXT_PUBLIC_MAX_ADMIN_UPLOAD_MB || 2048);
+    const maxSizeMb = Number(process.env.NEXT_PUBLIC_MAX_ADMIN_UPLOAD_MB || 5120);
     const maxSize = maxSizeMb * 1024 * 1024;
     if (fileToUpload.size > maxSize) {
       throw new Error(`File is ${formatUploadSize(fileToUpload.size)}, above the ${maxSizeMb} MB upload limit.`);
     }
     if (mediaType === "video") {
-      const watermarkLimitMb = Number(process.env.NEXT_PUBLIC_BROWSER_WATERMARK_MAX_MB || 350);
+      const watermarkLimitMb = muteVideoAudio ? 350 : Number(process.env.NEXT_PUBLIC_BROWSER_WATERMARK_MAX_MB || 0);
       if (fileToUpload.size <= watermarkLimitMb * 1024 * 1024) {
         setStatus(muteVideoAudio ? "Applying KINGSBALFX watermark and removing video audio..." : "Applying permanent KINGSBALFX logo watermark to the video...");
         uploadFile = await brandVideoFile(
@@ -89,7 +89,7 @@ export default function Content() {
           { muteAudio: muteVideoAudio },
         );
       } else {
-        setStatus(`Large video detected (${formatUploadSize(fileToUpload.size)}). Uploading original file with branded playback and download naming to avoid browser processing failure.${muteVideoAudio ? " Audio removal requires browser processing, so export this large video muted before upload." : ""}`);
+        setStatus(`Uploading original video (${formatUploadSize(fileToUpload.size)}) without slow browser re-encoding. Playback and downloads remain KINGSBALFX branded.${muteVideoAudio ? " Audio removal requires browser processing, so export this large video muted before upload." : ""}`);
       }
     }
 

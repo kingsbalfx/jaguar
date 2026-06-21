@@ -533,7 +533,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
 
   const publishRecording = useCallback(async (blob) => {
     if (!supabase || !blob?.size) return;
-    const maxRecordingMb = Number(process.env.NEXT_PUBLIC_MAX_RECORDING_MB || 2500);
+    const maxRecordingMb = Number(process.env.NEXT_PUBLIC_MAX_RECORDING_MB || 5120);
     const fileSizeMb = blob.size / 1024 / 1024;
     setPublishingRecording(true);
     setRecordingStatus(`Preparing ${formatUploadSize(blob.size)} recording upload. Keep this page open until it reaches 100%.`);
@@ -599,7 +599,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     }
     try {
       recordingChunksRef.current = [];
-      const stream = createReliableRecordingStream({
+      const stream = await createReliableRecordingStream({
         presentationStream,
         screenStream: screenStreamRef.current,
         localStream: localStreamRef.current,
@@ -616,7 +616,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       recorder.ondataavailable = (event) => {
         if (event.data?.size) recordingChunksRef.current.push(event.data);
       };
-      stream.mediaStream.getVideoTracks()[0]?.addEventListener("ended", () => {
+      (stream.sourceTrack || stream.mediaStream.getVideoTracks()[0])?.addEventListener("ended", () => {
         if (recorder.state === "recording") {
           try { recorder.requestData(); } catch {}
           recorder.stop();
@@ -640,32 +640,20 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
         recordingChunksRef.current = [];
         recorderRef.current = null;
         setRecording(false);
-        setPublishingRecording(true);
-        setRecordingStatus("Applying KINGSBALFX logo watermark before upload and download...");
-        try {
-          const watermarkedBlob = await createWatermarkedRecordingBlob(rawBlob, (progress) => {
-            setRecordingStatus(`Applying KINGSBALFX logo watermark: ${progress}%`);
-          });
-          if (lastRecordingUrlRef.current) URL.revokeObjectURL(lastRecordingUrlRef.current);
-          const url = URL.createObjectURL(watermarkedBlob);
-          lastRecordingUrlRef.current = url;
-          setLastRecording({ url, name, size: watermarkedBlob.size, watermarked: true });
-          setPublishingRecording(false);
-          void publishRecording(watermarkedBlob);
-        } catch (err) {
-          if (lastRecordingUrlRef.current) URL.revokeObjectURL(lastRecordingUrlRef.current);
-          const url = URL.createObjectURL(rawBlob);
-          lastRecordingUrlRef.current = url;
-          setLastRecording({ url, name: name.replace(".webm", "_raw_backup.webm"), size: rawBlob.size, watermarked: false });
-          setPublishingRecording(false);
-          setRecordingStatus(`${err.message || "Unable to apply KINGSBALFX watermark."} Raw backup is available below; try recording again in Chrome/Edge for a branded copy.`);
-        }
+        if (lastRecordingUrlRef.current) URL.revokeObjectURL(lastRecordingUrlRef.current);
+        const url = URL.createObjectURL(rawBlob);
+        lastRecordingUrlRef.current = url;
+        setLastRecording({ url, name, size: rawBlob.size, watermarked: stream.watermarked !== false });
+        setRecordingStatus(stream.watermarked === false
+          ? "Recording is ready. Browser did not support live watermark capture, so upload is starting with the raw copy."
+          : "Watermarked recording is ready. Upload is starting now; keep this page open.");
+        void publishRecording(rawBlob);
       };
       recorder.start(10000);
       setRecording(true);
       setRecordingSeconds(0);
       recordingTimerRef.current = window.setInterval(() => setRecordingSeconds((current) => current + 1), 1000);
-      setRecordingStatus("Recording in progress. Long sessions are captured directly from the live screen/camera tracks.");
+      setRecordingStatus("Recording in progress. KINGSBALFX watermark is applied live during recording.");
     } catch (err) {
       setRecordingStatus(err.message || "Unable to start recording.");
     }
@@ -833,26 +821,72 @@ function getSupportedRecordingMimeType() {
   ].find((type) => MediaRecorder.isTypeSupported(type)) || "";
 }
 
-function createReliableRecordingStream({ presentationStream, screenStream, localStream }) {
-  const mediaStream = new MediaStream();
-  const videoTrack = presentationStream?.getVideoTracks?.()[0] || localStream?.getVideoTracks?.()[0];
-  if (videoTrack) {
-    videoTrack.contentHint = screenStream ? "detail" : "motion";
-    mediaStream.addTrack(videoTrack);
-  }
-
+async function createReliableRecordingStream({ presentationStream, screenStream, localStream }) {
+  const sourceTrack = presentationStream?.getVideoTracks?.()[0] || localStream?.getVideoTracks?.()[0];
   const audioTracks = [
     ...(screenStream?.getAudioTracks?.() || []),
     ...(localStream?.getAudioTracks?.() || []),
-  ];
-  [...new Set(audioTracks)].forEach((track) => {
-    if (track.readyState === "live") mediaStream.addTrack(track);
-  });
+  ].filter((track, index, tracks) => track?.readyState === "live" && tracks.indexOf(track) === index);
 
-  return {
-    mediaStream,
-    cleanup: () => {},
-  };
+  if (!sourceTrack || typeof document === "undefined") {
+    const mediaStream = new MediaStream();
+    audioTracks.forEach((track) => mediaStream.addTrack(track));
+    return { mediaStream, sourceTrack: null, watermarked: false, cleanup: () => {} };
+  }
+
+  try {
+    sourceTrack.contentHint = screenStream ? "detail" : "motion";
+    const sourceStream = new MediaStream([sourceTrack]);
+    const video = document.createElement("video");
+    video.srcObject = sourceStream;
+    video.muted = true;
+    video.playsInline = true;
+    video.autoplay = true;
+    await video.play().catch(() => {});
+
+    const canvas = document.createElement("canvas");
+    canvas.width = sourceTrack.getSettings?.().width || video.videoWidth || 1280;
+    canvas.height = sourceTrack.getSettings?.().height || video.videoHeight || 720;
+    const context = canvas.getContext("2d");
+    if (!context || typeof canvas.captureStream !== "function") throw new Error("canvas recording unsupported");
+
+    const logo = new Image();
+    logo.src = "/jaguar.png";
+    await Promise.race([waitForImage(logo), new Promise((resolve) => window.setTimeout(resolve, 1000))]);
+
+    const output = canvas.captureStream(24);
+    audioTracks.forEach((track) => output.addTrack(track));
+    let frameId = null;
+    const draw = () => {
+      const width = video.videoWidth || canvas.width;
+      const height = video.videoHeight || canvas.height;
+      if (width && height && (canvas.width !== width || canvas.height !== height)) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      drawRecordingWatermark(context, logo, canvas.width, canvas.height);
+      frameId = window.requestAnimationFrame(draw);
+    };
+    draw();
+
+    return {
+      mediaStream: output,
+      sourceTrack,
+      watermarked: true,
+      cleanup: () => {
+        if (frameId) window.cancelAnimationFrame(frameId);
+        output.getVideoTracks().forEach((track) => track.stop());
+        video.pause();
+        video.srcObject = null;
+      },
+    };
+  } catch {
+    const mediaStream = new MediaStream();
+    mediaStream.addTrack(sourceTrack);
+    audioTracks.forEach((track) => mediaStream.addTrack(track));
+    return { mediaStream, sourceTrack, watermarked: false, cleanup: () => {} };
+  }
 }
 
 async function createWatermarkedRecordingBlob(sourceBlob, onProgress = () => {}) {

@@ -16,6 +16,9 @@ export default async function handler(req, res) {
       .eq("user_id", session.user.id)
       .order("created_at", { ascending: false })
       .limit(20);
+    if (error?.code === "42P01" || error?.code === "42703") {
+      return res.status(200).json({ notifications: [], missingTable: true });
+    }
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ notifications: data || [] });
   }
@@ -27,6 +30,7 @@ export default async function handler(req, res) {
       .update({ read_at: new Date().toISOString() })
       .eq("user_id", session.user.id);
     const result = id ? await query.eq("id", id) : await query.is("read_at", null);
+    if (result.error?.code === "42P01" || result.error?.code === "42703") return res.status(200).json({ ok: true, missingTable: true });
     if (result.error) return res.status(500).json({ error: result.error.message });
     return res.status(200).json({ ok: true });
   }

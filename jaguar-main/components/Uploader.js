@@ -34,11 +34,11 @@ export default function Uploader({ bucket = DEFAULT_BUCKET, folder = "", allowSe
     setLastUploaded(null);
     setUploadActivity(true);
     try {
-      const maxSizeMb = Number(process.env.NEXT_PUBLIC_MAX_ADMIN_UPLOAD_MB || 2048);
+      const maxSizeMb = Number(process.env.NEXT_PUBLIC_MAX_ADMIN_UPLOAD_MB || 5120);
       if (selectedFile.size > maxSizeMb * 1024 * 1024) {
         throw new Error(`File is ${formatUploadSize(selectedFile.size)}, above the ${maxSizeMb} MB upload limit.`);
       }
-      const watermarkLimitMb = Number(process.env.NEXT_PUBLIC_BROWSER_WATERMARK_MAX_MB || 350);
+      const watermarkLimitMb = muteVideoAudio ? 350 : Number(process.env.NEXT_PUBLIC_BROWSER_WATERMARK_MAX_MB || 0);
       const file = selectedFile.type?.startsWith("video/") && selectedFile.size <= watermarkLimitMb * 1024 * 1024
         ? await brandVideoFile(
             selectedFile,
@@ -47,7 +47,7 @@ export default function Uploader({ bucket = DEFAULT_BUCKET, folder = "", allowSe
           )
         : selectedFile;
       if (selectedFile.type?.startsWith("video/") && selectedFile.size > watermarkLimitMb * 1024 * 1024) {
-        setStatus({ type: "info", message: `Large video detected (${formatUploadSize(selectedFile.size)}). Uploading without browser re-encoding to preserve the full file.${muteVideoAudio ? " Export this large video muted before upload to remove audio." : ""}` });
+        setStatus({ type: "info", message: `Uploading original video (${formatUploadSize(selectedFile.size)}) without slow browser re-encoding.${muteVideoAudio ? " Export this large video muted before upload to remove audio." : ""}` });
       }
       const response = await fetch("/api/admin/storage/signed-upload", {
         method: "POST",
