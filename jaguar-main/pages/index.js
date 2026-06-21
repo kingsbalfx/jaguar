@@ -7,10 +7,12 @@ import dynamic from "next/dynamic";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { PRICING_TIERS, formatPrice } from "../lib/pricing-config";
 import { useRouter } from "next/router";
-import EmbeddedLivePlayer from "../components/EmbeddedLivePlayer";
 import { parseMentorshipSegments } from "../lib/mentorship-groups";
 
 const WebRTCRoom = dynamic(() => import("../components/WebRTCRoom"), {
+  ssr: false,
+});
+const SFURoom = dynamic(() => import("../components/SFURoom"), {
   ssr: false,
 });
 
@@ -394,16 +396,14 @@ export default function Home({
               </div>
               {currentCanViewLive ? (
                 <div className="mt-4">
-                  {["youtube", "videosdk", "embed"].includes(
-                    currentLiveSession.media_type,
-                  ) &&
-                    currentLiveSession.media_url && (
-                      <EmbeddedLivePlayer
-                        mediaType={currentLiveSession.media_type}
-                        mediaUrl={currentLiveSession.media_url}
-                        title={currentLiveSession.title || "Live Session"}
-                      />
-                    )}
+                  {(currentLiveSession.media_type === "kingsbal_sfu" || currentLiveSession.media_type === "sfu") && (
+                    <SFURoom
+                      key={currentLiveSession.room_name || currentLiveSession.id}
+                      roomName={currentLiveSession.room_name || currentLiveSession.id}
+                      roomTitle={currentLiveSession.title || "Live Session"}
+                      displayName={liveDisplayName}
+                    />
+                  )}
                   {currentLiveSession.media_type === "webrtc" && (
                     <div className="mt-3">
                       <WebRTCRoom

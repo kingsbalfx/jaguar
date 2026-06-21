@@ -1,9 +1,9 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import FeedbackMessage from "./FeedbackMessage";
-import EmbeddedLivePlayer from "./EmbeddedLivePlayer";
 
 const WebRTCRoom = dynamic(() => import("./WebRTCRoom"), { ssr: false });
+const SFURoom = dynamic(() => import("./SFURoom"), { ssr: false });
 const Chat = dynamic(() => import("./Chat"), { ssr: false });
 
 export default function LiveSessionPanel({ heading = "Live Mentorship" }) {
@@ -49,13 +49,14 @@ export default function LiveSessionPanel({ heading = "Live Mentorship" }) {
           {session.room_mode ? ` · ${session.room_mode === "one_to_one" ? "Private 1:1" : "Group room"}` : ""}
         </div>
       </div>
-      {session.media_type === "webrtc" || !session.media_type ? (
+      {session.media_type === "kingsbal_sfu" || session.media_type === "sfu" ? (
+        <SFURoom key={session.room_name || session.id} roomName={session.room_name || session.id} roomTitle={session.title} displayName={displayName || role || "Subscriber"} />
+      ) : session.media_type === "webrtc" || !session.media_type ? (
         <WebRTCRoom key={session.room_name || session.id} roomName={session.room_name || session.id} roomTitle={session.title} displayName={displayName || role || "Subscriber"} />
       ) : (
         <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/80 p-4">
-          <div className="text-xs uppercase tracking-widest text-sky-200">Scalable broadcast mode</div>
-          <EmbeddedLivePlayer mediaType={session.media_type} mediaUrl={session.media_url} title={session.title || "Live mentorship session"} />
-          <div className="text-xs text-gray-400">Broadcast mode is recommended for 100-200+ viewers. Use the room chat below for questions.</div>
+          <div className="text-xs uppercase tracking-widest text-sky-200">Live mode unavailable</div>
+          <div className="text-sm text-gray-300">This room uses an unsupported live delivery mode. Ask Admin to switch it to KINGSBALFX SFU or WebRTC.</div>
         </div>
       )}
       <Chat key={`chat-${session.room_name || session.id}`} channel={session.segment || role || "mentorship"} roomId={session.room_name || session.id} />

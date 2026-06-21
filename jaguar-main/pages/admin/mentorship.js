@@ -6,8 +6,8 @@ import FeedbackMessage from "../../components/FeedbackMessage";
 import { MENTORSHIP_GROUPS, formatMentorshipSegmentList, getMentorshipGroupLabel, parseMentorshipSegments } from "../../lib/mentorship-groups";
 
 const WebRTCRoom = dynamic(() => import("../../components/WebRTCRoom"), { ssr: false });
+const SFURoom = dynamic(() => import("../../components/SFURoom"), { ssr: false });
 const Chat = dynamic(() => import("../../components/Chat"), { ssr: false });
-const EmbeddedLivePlayer = dynamic(() => import("../../components/EmbeddedLivePlayer"), { ssr: false });
 export const getServerSideProps = async (ctx) => {
   const supabase = createPagesServerClient(ctx);
   const { data: { session } } = await supabase.auth.getSession();
@@ -34,8 +34,7 @@ export default function Mentorship({ adminName }) {
   const [selectedSegments, setSelectedSegments] = useState(["vip"]);
   const [roomMode, setRoomMode] = useState("group");
   const [roomName, setRoomName] = useState(`mentorship-${Date.now()}`);
-  const [deliveryMode, setDeliveryMode] = useState("webrtc");
-  const [mediaUrl, setMediaUrl] = useState("");
+  const [deliveryMode, setDeliveryMode] = useState("kingsbal_sfu");
   const [status, setStatus] = useState("scheduled");
   const [message, setMessage] = useState("");
   const [live, setLive] = useState(false);
@@ -53,8 +52,7 @@ export default function Mentorship({ adminName }) {
         setSelectedSegments(savedSegments);
         setRoomMode(data.session.room_mode || "group");
         setRoomName(data.session.room_name || roomName);
-        setDeliveryMode(data.session.media_type || "webrtc");
-        setMediaUrl(data.session.media_url || "");
+        setDeliveryMode(data.session.media_type || "kingsbal_sfu");
         setStatus(data.session.status || "scheduled");
         setSelectedUsers(data.session.target_user_ids || []);
       }
@@ -102,7 +100,7 @@ export default function Mentorship({ adminName }) {
         roomMode,
         targetUserIds: roomMode === "one_to_one" ? selectedUsers : [],
         mediaType: deliveryMode,
-        mediaUrl: deliveryMode === "webrtc" ? null : mediaUrl,
+        mediaUrl: null,
       }),
     });
     const data = await response.json();
@@ -111,19 +109,18 @@ export default function Mentorship({ adminName }) {
     setTitle(data.session.title || title);
     setRoomName(data.session.room_name || roomName);
     setDeliveryMode(data.session.media_type || deliveryMode);
-    setMediaUrl(data.session.media_url || mediaUrl);
     setStartsAt(data.session.starts_at?.slice(0, 16) || startsAt);
     setEndsAt(data.session.ends_at?.slice(0, 16) || endsAt);
     setLive(data.session.status === "live");
     const notified = data.notifications?.notified || 0;
     const emailed = data.notifications?.emailed || 0;
-    setMessage(`WebRTC mentorship room saved. ${notified} in-app alert${notified === 1 ? "" : "s"} created; ${emailed} email${emailed === 1 ? "" : "s"} sent.`);
+    setMessage(`Mentorship room saved. ${notified} in-app alert${notified === 1 ? "" : "s"} created; ${emailed} email${emailed === 1 ? "" : "s"} sent.`);
   };
 
   return (
     <div className="min-h-screen p-4 text-white sm:p-6">
-      <h1 className="text-2xl font-bold">WebRTC Mentorship Dashboard</h1>
-      <p className="mt-1 text-sm text-gray-300">Create private one-to-one sessions or selected subscription-group WebRTC rooms.</p>
+      <h1 className="text-2xl font-bold">Live Mentorship Dashboard</h1>
+      <p className="mt-1 text-sm text-gray-300">Create selected subscription-group rooms with embedded KINGSBALFX SFU for large classes, or WebRTC fallback for small rooms.</p>
       <div className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
         <form onSubmit={save} className="card space-y-3 p-4">
           <label className="text-xs text-gray-300">Mentorship title
@@ -137,23 +134,11 @@ export default function Mentorship({ adminName }) {
           </select>
           <label className="text-xs text-gray-300">Delivery mode
             <select value={deliveryMode} onChange={(e) => setDeliveryMode(e.target.value)} className="mt-1 w-full rounded bg-black/30 p-2">
-              <option value="webrtc">Interactive WebRTC room (best for small groups)</option>
-              <option value="youtube">YouTube/stream embed (best for 100-200+ viewers)</option>
-              <option value="iframe">External broadcast embed URL</option>
+              <option value="kingsbal_sfu">KINGSBALFX SFU room (recommended for 100-200+)</option>
+              <option value="webrtc">Browser WebRTC mesh fallback (small groups only)</option>
             </select>
+            <span className="mt-1 block text-[11px] text-emerald-200">SFU mode stays fully embedded in your app. It requires your self-hosted SFU server to be running.</span>
           </label>
-          {deliveryMode !== "webrtc" && (
-            <label className="text-xs text-gray-300">Broadcast/watch URL
-              <input
-                value={mediaUrl}
-                onChange={(e) => setMediaUrl(e.target.value)}
-                className="mt-1 w-full rounded bg-black/30 p-2"
-                placeholder="https://youtube.com/watch?v=... or provider embed URL"
-                required={deliveryMode !== "webrtc"}
-              />
-              <span className="mt-1 block text-[11px] text-amber-200">Use this for broad mentorships over 100 viewers. Questions still run through the room chat.</span>
-            </label>
-          )}
           <div className="rounded-xl border border-white/10 bg-black/20 p-3">
             <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-gray-300">Classes allowed to join</div>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -200,7 +185,7 @@ export default function Mentorship({ adminName }) {
         </form>
         <div className="space-y-5">
           {live && deliveryMode === "webrtc" && <WebRTCRoom key={roomName} roomName={roomName} roomTitle={title} displayName={adminName} isHost recordingTitle={title} recordingSegment={segment} />}
-          {live && deliveryMode !== "webrtc" && <EmbeddedLivePlayer mediaType={deliveryMode} mediaUrl={mediaUrl} title={title} />}
+          {live && deliveryMode !== "webrtc" && <SFURoom key={roomName} roomName={roomName} roomTitle={title} displayName={adminName} isHost />}
           <Chat key={`chat-${roomName}`} channel={segment} roomId={roomName} />
         </div>
       </div>

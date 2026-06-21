@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node server.js",
+    "sfu": "node sfu-server.js",
     "build": "next build",
     "start": "NODE_ENV=production node server.js",
     "lint": "next lint",
@@ -24,6 +25,8 @@
     "bcrypt": "^5.1.1",
     "dotenv": "^16.6.1",
     "lightweight-charts": "^5.0.8",
+    "mediasoup": "^3.20.9",
+    "mediasoup-client": "^3.21.0",
     "next": "13.4.10",
     "node-fetch": "^3.3.2",
     "nodemailer": "^8.0.11",

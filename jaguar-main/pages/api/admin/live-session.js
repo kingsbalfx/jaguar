@@ -99,12 +99,10 @@ export default async function handler(req, res) {
     if (!title || !starts_at) {
       return res.status(400).json({ error: "title and startsAt are required" });
     }
-    const normalizedMediaType = ["youtube", "iframe", "broadcast"].includes(String(mediaType || "").toLowerCase())
-      ? String(mediaType).toLowerCase()
-      : "webrtc";
-    if (normalizedMediaType !== "webrtc" && !mediaUrl) {
-      return res.status(400).json({ error: "broadcast/watch URL is required for scalable broadcast mode" });
-    }
+    const requestedMediaType = String(mediaType || "").toLowerCase();
+    const normalizedMediaType = ["kingsbal_sfu", "sfu", "webrtc"].includes(requestedMediaType)
+      ? (requestedMediaType === "sfu" ? "kingsbal_sfu" : requestedMediaType)
+      : "kingsbal_sfu";
     if (roomMode === "one_to_one" && (!Array.isArray(targetUserIds) || targetUserIds.length !== 1)) {
       return res.status(400).json({ error: "one-to-one rooms require exactly one selected subscriber" });
     }
@@ -123,7 +121,7 @@ export default async function handler(req, res) {
         timezone: timezone || "Africa/Lagos",
         status: status || "scheduled",
         media_type: normalizedMediaType,
-        media_url: mediaUrl || null,
+        media_url: normalizedMediaType === "webrtc" ? mediaUrl || null : null,
         room_name: roomName || "global-room",
         segment: segment || "all",
         audio_only: Boolean(audioOnly),
