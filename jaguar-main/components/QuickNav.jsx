@@ -78,7 +78,7 @@ function buildLinks(role, pathname) {
   }
 
   if (role && role !== "admin") {
-    links.push({ label: "Live Room", href: "/live-pen", group: "Trading" });
+    links.push({ label: "Live Room", href: "/dashboard/live", group: "Trading" });
     links.push({
       label: "Profile",
       href: "/complete-profile",
