@@ -62,6 +62,9 @@ function VideoTile({ stream, label, muted = false, cameraEnabled = true }) {
       {!cameraEnabled && <div className="absolute inset-0 grid place-items-center bg-slate-900 text-3xl font-bold">{String(label || "?").slice(0, 1).toUpperCase()}</div>}
       <div className="absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 text-xs text-white">{label}</div>
       <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-2 rounded-xl border border-white/25 bg-black/75 px-3 py-2 text-xs font-black tracking-wider text-white shadow-2xl shadow-black/50 backdrop-blur-sm"><img src="/jaguar.png" alt="" className="h-8 w-8 object-contain" />KINGSBALFX</div>
+      <div className="pointer-events-none absolute inset-0 grid place-items-center opacity-10">
+        <div className="-rotate-12 text-4xl font-black tracking-[0.25em] text-white sm:text-6xl">KINGSBALFX</div>
+      </div>
       <div className="absolute right-2 bottom-2 z-10 flex flex-wrap justify-end gap-1 rounded-xl border border-white/10 bg-black/70 p-1 text-xs text-white opacity-100 backdrop-blur sm:opacity-0 sm:transition sm:group-hover:opacity-100">
         <button type="button" onClick={() => zoomBy(-0.25)} className="rounded bg-white/10 px-2 py-1 hover:bg-white/20" aria-label="Zoom out">-</button>
         <span className="rounded bg-white/10 px-2 py-1">{Math.round(zoom * 100)}%</span>
@@ -758,11 +761,11 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       {isHost && lastRecording && (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-300/20 bg-emerald-500/10 p-3 text-sm text-emerald-100">
           <div>
-            <div className="font-semibold">{lastRecording.watermarked ? "Watermarked recording copy ready" : "Raw backup recording ready"}</div>
-            <div className="text-xs text-emerald-100/75">{lastRecording.name} ({(lastRecording.size / 1024 / 1024).toFixed(1)} MB)</div>
+            <div className="font-semibold">{lastRecording.watermarked ? "Watermarked local backup ready" : "Raw local backup ready"}</div>
+            <div className="text-xs text-emerald-100/75">{lastRecording.name} ({(lastRecording.size / 1024 / 1024).toFixed(1)} MB). This local backup stays available while cloud upload runs.</div>
           </div>
           <button type="button" onClick={() => saveRecordingLocally()} className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-500">
-            {lastRecording.watermarked ? "Save watermarked copy" : "Save raw backup"}
+            {lastRecording.watermarked ? "Download watermarked backup" : "Download raw backup"}
           </button>
         </div>
       )}
