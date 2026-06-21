@@ -95,6 +95,8 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
   const recordingTimerRef = useRef(null);
   const recordingRenderCleanupRef = useRef(null);
   const lastRecordingUrlRef = useRef("");
+  const originalTitleRef = useRef("");
+  const stageAlertTimerRef = useRef(null);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({});
   const [participants, setParticipants] = useState({});
@@ -117,6 +119,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
   const [recordingStatus, setRecordingStatus] = useState("");
   const [lastRecording, setLastRecording] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState("ready");
+  const [stageAlert, setStageAlert] = useState(null);
 
   const setLiveRoomActivity = useCallback((active) => {
     if (typeof window === "undefined") return;
@@ -159,6 +162,41 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
 
   const attachRemoteStream = useCallback((peerId, stream) => {
     setRemoteStreams((current) => ({ ...current, [peerId]: stream }));
+  }, []);
+
+  const notifyStageRequest = useCallback((payload) => {
+    if (!payload?.source) return;
+    setStageAlert(payload);
+    if (typeof document !== "undefined") {
+      originalTitleRef.current = originalTitleRef.current || document.title;
+      document.title = `REQUEST: ${payload.name || "Student"} needs approval`;
+      window.clearTimeout(stageAlertTimerRef.current);
+      stageAlertTimerRef.current = window.setTimeout(() => {
+        document.title = originalTitleRef.current || document.title;
+      }, 20000);
+    }
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (AudioContext) {
+        const ctx = new AudioContext();
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+        oscillator.frequency.value = 880;
+        gain.gain.value = 0.08;
+        oscillator.connect(gain);
+        gain.connect(ctx.destination);
+        oscillator.start();
+        oscillator.stop(ctx.currentTime + 0.22);
+      }
+    } catch {}
+    try {
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("KINGSBALFX stage request", {
+          body: `${payload.name || "A student"} requests ${payload.kind === "screen" ? "screen sharing" : "camera/microphone"} approval.`,
+          icon: "/jaguar.png",
+        });
+      }
+    } catch {}
   }, []);
 
   const createPeer = useCallback(
@@ -302,6 +340,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       });
       channel.on("broadcast", { event: "stage-request" }, ({ payload }) => {
         if (!isHost || !payload?.source) return;
+        notifyStageRequest(payload);
         setStageRequests((current) => [
           ...current.filter((item) => item.source !== payload.source),
           payload,
@@ -336,6 +375,9 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       });
       channel.subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
+          if (isHost && "Notification" in window && Notification.permission === "default") {
+            Notification.requestPermission().catch(() => {});
+          }
           await channel.track({ name: displayName || "Participant", host: isHost, joinedAt: new Date().toISOString() });
           setConnectionStatus("connected");
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
@@ -356,7 +398,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     } finally {
       setJoining(false);
     }
-  }, [audioDeviceId, createPeer, displayName, handleSignal, isHost, joined, loadDevices, roomName, supabase, videoDeviceId]);
+  }, [audioDeviceId, createPeer, displayName, handleSignal, isHost, joined, loadDevices, notifyStageRequest, roomName, supabase, videoDeviceId]);
 
   const leave = useCallback(async () => {
     if (recorderRef.current?.state === "recording" || publishingRecording) {
@@ -505,6 +547,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
 
   const approvePresenter = async (request) => {
     setStageRequests((current) => current.filter((item) => item.source !== request.source));
+    setStageAlert((current) => current?.source === request.source ? null : current);
     await channelRef.current?.send({
       type: "broadcast",
       event: "moderation",
@@ -674,6 +717,8 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     loadDevices().catch(() => {});
     if (autoJoin) join();
     return () => {
+      window.clearTimeout(stageAlertTimerRef.current);
+      if (originalTitleRef.current) document.title = originalTitleRef.current;
       window.clearInterval(recordingTimerRef.current);
       if (recorderRef.current?.state === "recording") recorderRef.current.stop();
       else recordingRenderCleanupRef.current?.();
@@ -758,6 +803,37 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
         message={error || recordingStatus}
         type={error || /unable|requires|could not|above|failed|recovery/i.test(recordingStatus) ? "error" : "info"}
       />
+      {isHost && joined && stageRequests.length > 0 && (
+        <div className="fixed inset-x-3 top-20 z-[120] mx-auto max-w-3xl rounded-2xl border border-sky-300/30 bg-slate-950/95 p-3 text-white shadow-2xl shadow-black/50 backdrop-blur">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-xs uppercase tracking-[0.22em] text-sky-200">Stage request pending</div>
+              <div className="text-sm font-semibold">
+                {(stageAlert || stageRequests[0]).name || "Student"} requests {(stageAlert || stageRequests[0]).kind === "screen" ? "screen sharing" : "camera/microphone"} approval.
+              </div>
+              <div className="text-xs text-gray-300">This stays visible while you are live or sharing your screen.</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {stageRequests.slice(0, 3).map((request) => (
+                <button key={request.source} onClick={() => approvePresenter(request)} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold hover:bg-emerald-500">
+                  Approve {request.name || "student"}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setStageAlert(null);
+                  window.clearTimeout(stageAlertTimerRef.current);
+                  if (originalTitleRef.current) document.title = originalTitleRef.current;
+                }}
+                className="rounded-lg bg-white/10 px-3 py-2 text-sm hover:bg-white/20"
+              >
+                Dismiss alert
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {isHost && lastRecording && (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-300/20 bg-emerald-500/10 p-3 text-sm text-emerald-100">
           <div>
