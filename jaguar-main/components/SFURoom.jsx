@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Device } from "mediasoup-client";
 import FeedbackMessage from "./FeedbackMessage";
+import WebRTCRoom from "./WebRTCRoom";
 
 function sfuUrl() {
   const configured = process.env.NEXT_PUBLIC_KINGSBAL_SFU_URL;
   if (configured) return configured;
   if (typeof window === "undefined") return "";
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.hostname}:4443/sfu`;
+  if (["localhost", "127.0.0.1"].includes(window.location.hostname)) return "ws://localhost:4443/sfu";
+  return "";
+}
+
+function hasConfiguredSfu() {
+  if (process.env.NEXT_PUBLIC_KINGSBAL_SFU_URL) return true;
+  if (typeof window === "undefined") return false;
+  if (["localhost", "127.0.0.1"].includes(window.location.hostname)) return true;
+  return false;
 }
 
 function VideoTile({ stream, label, muted = false }) {
@@ -48,7 +56,7 @@ function VideoTile({ stream, label, muted = false }) {
   );
 }
 
-export default function SFURoom({ roomName, roomTitle = "", displayName = "Subscriber", isHost = false }) {
+export default function SFURoom({ roomName, roomTitle = "", displayName = "Subscriber", isHost = false, recordingTitle = "", recordingSegment = "all" }) {
   const socketRef = useRef(null);
   const requestsRef = useRef(new Map());
   const deviceRef = useRef(null);
@@ -57,6 +65,8 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
   const localStreamRef = useRef(null);
   const localProducersRef = useRef(new Map());
   const consumedProducersRef = useRef(new Set());
+  const originalTitleRef = useRef("");
+  const stageAlertTimerRef = useRef(null);
   const [joined, setJoined] = useState(false);
   const [joining, setJoining] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState("ready");
@@ -65,8 +75,13 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({});
   const [stageRequests, setStageRequests] = useState([]);
+  const [stageAlert, setStageAlert] = useState(null);
   const [approvedKinds, setApprovedKinds] = useState(new Set());
   const [requestStatus, setRequestStatus] = useState("");
+  const [micEnabled, setMicEnabled] = useState(true);
+  const [cameraEnabled, setCameraEnabled] = useState(true);
+
+  const sfuConfigured = hasConfiguredSfu();
 
   const rpc = useCallback((action, data = {}) => new Promise((resolve, reject) => {
     const socket = socketRef.current;
@@ -152,6 +167,8 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
       });
       localStreamRef.current = stream;
       setLocalStream(stream);
+      setMicEnabled(true);
+      setCameraEnabled(true);
       await publishTracks(stream, "camera");
     } catch (err) {
       setError(err.message || "Unable to publish camera.");
@@ -163,11 +180,32 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       localStreamRef.current = stream;
       setLocalStream(stream);
+      setCameraEnabled(true);
       await publishTracks(stream, "screen");
     } catch (err) {
       setError(err.message || "Unable to share screen.");
     }
   }, [publishTracks]);
+
+  const toggleMic = useCallback(() => {
+    setMicEnabled((current) => {
+      const next = !current;
+      localStreamRef.current?.getAudioTracks().forEach((track) => {
+        track.enabled = next;
+      });
+      return next;
+    });
+  }, []);
+
+  const toggleCamera = useCallback(() => {
+    setCameraEnabled((current) => {
+      const next = !current;
+      localStreamRef.current?.getVideoTracks().forEach((track) => {
+        track.enabled = next;
+      });
+      return next;
+    });
+  }, []);
 
   const join = useCallback(async () => {
     if (joined || joining) return;
@@ -203,6 +241,37 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
         }
         if (message.event === "peerJoined" || message.event === "peerLeft") setPeerCount(message.data?.peerCount || 0);
         if (message.event === "stageRequest" && isHost) {
+          setStageAlert(message.data);
+          if (typeof document !== "undefined") {
+            originalTitleRef.current = originalTitleRef.current || document.title;
+            document.title = `REQUEST: ${message.data?.displayName || "Student"} needs approval`;
+            window.clearTimeout(stageAlertTimerRef.current);
+            stageAlertTimerRef.current = window.setTimeout(() => {
+              document.title = originalTitleRef.current || document.title;
+            }, 20000);
+          }
+          try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (AudioContext) {
+              const ctx = new AudioContext();
+              const oscillator = ctx.createOscillator();
+              const gain = ctx.createGain();
+              oscillator.frequency.value = 880;
+              gain.gain.value = 0.08;
+              oscillator.connect(gain);
+              gain.connect(ctx.destination);
+              oscillator.start();
+              oscillator.stop(ctx.currentTime + 0.22);
+            }
+          } catch {}
+          try {
+            if ("Notification" in window && Notification.permission === "granted") {
+              new Notification("KINGSBALFX stage request", {
+                body: `${message.data?.displayName || "A student"} requests ${message.data?.kind === "screen" ? "screen sharing" : "camera/microphone"} approval.`,
+                icon: "/jaguar.png",
+              });
+            }
+          } catch {}
           setStageRequests((current) => [message.data, ...current.filter((item) => item.peerId !== message.data.peerId || item.kind !== message.data.kind)].slice(0, 30));
         }
         if (message.event === "stageApproved") {
@@ -246,6 +315,7 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
     try {
       await rpc("approveStage", { targetPeerId: request.peerId, kind: request.kind });
       setStageRequests((current) => current.filter((item) => item !== request));
+      setStageAlert(null);
     } catch (err) {
       setError(err.message || "Unable to approve request.");
     }
@@ -269,9 +339,31 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
     setConnectionStatus("ready");
   }, []);
 
-  useEffect(() => () => leave(), [leave]);
+  useEffect(() => () => {
+    window.clearTimeout(stageAlertTimerRef.current);
+    if (originalTitleRef.current && typeof document !== "undefined") document.title = originalTitleRef.current;
+    leave();
+  }, [leave]);
 
   const canPublish = isHost || approvedKinds.has("camera") || approvedKinds.has("screen");
+
+  if (!sfuConfigured) {
+    return (
+      <div className="space-y-3">
+        <div className="rounded-2xl border border-amber-300/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+          SFU server URL is not configured yet, so this room is using the emergency in-app WebRTC fallback. Supabase cannot host SFU media routing; use this fallback for tonight until a VPS is available.
+        </div>
+        <WebRTCRoom
+          roomName={roomName}
+          roomTitle={roomTitle}
+          displayName={displayName}
+          isHost={isHost}
+          recordingTitle={recordingTitle || roomTitle}
+          recordingSegment={recordingSegment}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-3xl border border-emerald-400/20 bg-slate-950/90 p-4 text-white shadow-2xl shadow-black/40">
@@ -289,6 +381,8 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
           )}
           {joined && canPublish && <button type="button" onClick={publishCamera} className="rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold">Camera</button>}
           {joined && canPublish && <button type="button" onClick={shareScreen} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold">Share screen</button>}
+          {joined && localStream && <button type="button" onClick={toggleMic} className={`rounded-xl px-4 py-2 text-sm font-semibold ${micEnabled ? "bg-white/10" : "bg-amber-600"}`}>{micEnabled ? "Mute mic" : "Unmute mic"}</button>}
+          {joined && localStream && <button type="button" onClick={toggleCamera} className={`rounded-xl px-4 py-2 text-sm font-semibold ${cameraEnabled ? "bg-white/10" : "bg-amber-600"}`}>{cameraEnabled ? "Mute video" : "Unmute video"}</button>}
           {joined && !isHost && <button type="button" onClick={() => requestStage("camera")} className="rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold">Request to speak</button>}
           {joined && !isHost && <button type="button" onClick={() => requestStage("screen")} className="rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold">Request screen</button>}
         </div>
@@ -298,15 +392,33 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
       {requestStatus && <div className="mt-3"><FeedbackMessage message={requestStatus} type={/approved/i.test(requestStatus) ? "success" : "info"} /></div>}
 
       {isHost && stageRequests.length > 0 && (
-        <div className="mt-4 rounded-2xl border border-amber-300/30 bg-amber-500/10 p-3">
-          <div className="mb-2 text-sm font-semibold text-amber-100">Permission requests</div>
-          <div className="space-y-2">
-            {stageRequests.map((request) => (
-              <div key={`${request.peerId}-${request.kind}`} className="flex flex-col gap-2 rounded-xl bg-black/30 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-                <span>{request.displayName || "Subscriber"} requests {request.kind === "screen" ? "screen sharing" : "camera/microphone"}</span>
-                <button type="button" onClick={() => approveStage(request)} className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold">Approve</button>
+        <div className="fixed inset-x-3 top-20 z-[120] mx-auto max-w-3xl rounded-2xl border border-sky-300/30 bg-slate-950/95 p-3 text-white shadow-2xl shadow-black/50 backdrop-blur">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-xs uppercase tracking-[0.22em] text-sky-200">Permission request pending</div>
+              <div className="text-sm font-semibold">
+                {(stageAlert || stageRequests[0])?.displayName || "Subscriber"} requests {(stageAlert || stageRequests[0])?.kind === "screen" ? "screen sharing" : "camera/microphone"} approval.
               </div>
-            ))}
+              <div className="text-xs text-gray-300">This stays visible while you are live or sharing your screen inside the browser.</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {stageRequests.slice(0, 3).map((request) => (
+                <button key={`${request.peerId}-${request.kind}`} type="button" onClick={() => approveStage(request)} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold">
+                  Approve {request.displayName || "student"}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setStageAlert(null);
+                  window.clearTimeout(stageAlertTimerRef.current);
+                  if (originalTitleRef.current) document.title = originalTitleRef.current;
+                }}
+                className="rounded-lg bg-white/10 px-3 py-2 text-sm hover:bg-white/20"
+              >
+                Dismiss alert
+              </button>
+            </div>
           </div>
         </div>
       )}

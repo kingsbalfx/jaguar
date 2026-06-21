@@ -185,7 +185,7 @@ export default function Mentorship({ adminName }) {
         </form>
         <div className="space-y-5">
           {live && deliveryMode === "webrtc" && <WebRTCRoom key={roomName} roomName={roomName} roomTitle={title} displayName={adminName} isHost recordingTitle={title} recordingSegment={segment} />}
-          {live && deliveryMode !== "webrtc" && <SFURoom key={roomName} roomName={roomName} roomTitle={title} displayName={adminName} isHost />}
+          {live && deliveryMode !== "webrtc" && <SFURoom key={roomName} roomName={roomName} roomTitle={title} displayName={adminName} isHost recordingTitle={title} recordingSegment={segment} />}
           <Chat key={`chat-${roomName}`} channel={segment} roomId={roomName} />
         </div>
       </div>
