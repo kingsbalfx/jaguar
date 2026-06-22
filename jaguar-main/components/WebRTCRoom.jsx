@@ -97,6 +97,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
   const lastRecordingUrlRef = useRef("");
   const originalTitleRef = useRef("");
   const stageAlertTimerRef = useRef(null);
+  const remoteMediaStreamsRef = useRef(new Map());
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({});
   const [participants, setParticipants] = useState({});
@@ -135,6 +136,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     peersRef.current.delete(peerId);
     pendingCandidatesRef.current.delete(peerId);
     screenAudioSendersRef.current.delete(peerId);
+    remoteMediaStreamsRef.current.delete(peerId);
     setRemoteStreams((current) => {
       const next = { ...current };
       delete next[peerId];
@@ -160,8 +162,16 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     });
   }, []);
 
-  const attachRemoteStream = useCallback((peerId, stream) => {
-    setRemoteStreams((current) => ({ ...current, [peerId]: stream }));
+  const attachRemoteTrack = useCallback((peerId, event) => {
+    const incoming = event.streams?.[0] || remoteMediaStreamsRef.current.get(peerId) || new MediaStream();
+    if (!event.streams?.[0] && event.track && !incoming.getTracks().some((track) => track.id === event.track.id)) {
+      incoming.addTrack(event.track);
+    }
+    remoteMediaStreamsRef.current.set(peerId, incoming);
+    setRemoteStreams((current) => ({ ...current, [peerId]: incoming }));
+    event.track.onunmute = () => {
+      setRemoteStreams((current) => ({ ...current, [peerId]: incoming }));
+    };
   }, []);
 
   const notifyStageRequest = useCallback((payload) => {
@@ -221,7 +231,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       peer.onicecandidate = (event) => {
         if (event.candidate) sendSignal(peerId, "candidate", event.candidate);
       };
-      peer.ontrack = (event) => attachRemoteStream(peerId, event.streams[0]);
+      peer.ontrack = (event) => attachRemoteTrack(peerId, event);
       peer.onconnectionstatechange = () => {
         if (peer.connectionState === "connected") {
           setConnectionStatus("connected");
@@ -254,14 +264,14 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       }
       return peer;
     },
-    [attachRemoteStream, isHost, removePeer, sendSignal],
+    [attachRemoteTrack, isHost, removePeer, sendSignal],
   );
 
   const handleSignal = useCallback(
     async ({ payload }) => {
       if (!payload || payload.target !== clientId.current || payload.source === clientId.current) return;
       let peer = peersRef.current.get(payload.source);
-      if (payload.type === "offer" && peer && peer.signalingState !== "stable") {
+      if (payload.type === "offer" && peer) {
         removePeer(payload.source);
         peer = null;
       }
@@ -348,7 +358,8 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       });
       channel.on("broadcast", { event: "presenter-ready" }, ({ payload }) => {
         if (!payload?.source || payload.source === clientId.current) return;
-        if (!peersRef.current.has(payload.source)) createPeer(payload.source, false);
+        removePeer(payload.source);
+        createPeer(payload.source, false);
       });
       channel.on("broadcast", { event: "presenter-stopped" }, ({ payload }) => {
         const peerId = payload?.source;
@@ -417,6 +428,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     screenStreamRef.current = null;
     setLocalStream(null);
     setRemoteStreams({});
+    remoteMediaStreamsRef.current.clear();
     setParticipants({});
     setSharingScreen(false);
     setMicEnabled(true);
