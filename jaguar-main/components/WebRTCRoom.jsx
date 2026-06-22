@@ -465,6 +465,22 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     setSharingScreen(false);
   }, [replaceTrack]);
 
+  const applyScreenShareStream = useCallback(async (screen) => {
+    const track = screen?.getVideoTracks?.()[0];
+    if (!track) throw new Error("No screen or window was selected.");
+    screenStreamRef.current?.getTracks().forEach((item) => item.stop());
+    screenAudioSendersRef.current.clear();
+    screenStreamRef.current = screen;
+    track.onended = stopScreenShare;
+    track.contentHint = "detail";
+    await replaceTrack(track);
+    peersRef.current.forEach((peer) => {
+      const sender = peer.getSenders().find((item) => item.track?.kind === "video");
+      void optimizeSender(sender, "screen");
+    });
+    setSharingScreen(true);
+  }, [replaceTrack, stopScreenShare]);
+
   const shareScreen = useCallback(async () => {
     try {
       setError("");
@@ -477,24 +493,14 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
         if (firstError?.name === "NotAllowedError") throw firstError;
         screen = await navigator.mediaDevices.getDisplayMedia({ video: true });
       }
-      const track = screen.getVideoTracks()[0];
-      if (!track) throw new Error("No window or screen was selected.");
-      screenStreamRef.current = screen;
-      track.onended = stopScreenShare;
-      track.contentHint = "detail";
-      await replaceTrack(track);
-      peersRef.current.forEach((peer) => {
-        const sender = peer.getSenders().find((item) => item.track?.kind === "video");
-        void optimizeSender(sender, "screen");
-      });
-      setSharingScreen(true);
+      await applyScreenShareStream(screen);
     } catch (err) {
       const message = err?.name === "NotAllowedError"
         ? "Screen sharing was cancelled or blocked. Use Chrome or Edge on HTTPS, select a screen/window, then click the browser Share button."
         : err.message || "Screen sharing was cancelled.";
       setError(message);
     }
-  }, [replaceTrack, stopScreenShare]);
+  }, [applyScreenShareStream]);
 
   const requestStage = async (kind) => {
     setRequestSent(kind);
@@ -658,14 +664,23 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     let recordingScreenStream = null;
     if (navigator.mediaDevices?.getDisplayMedia && window.isSecureContext) {
       try {
-        setRecordingStatus("Select the full screen or exact window you want recorded. Do not select this live-room tab unless you want the recursive preview.");
+        setRecordingStatus("Select Entire Screen to record everything you move to. Browser security requires this one selection before recording can follow your full screen.");
         recordingScreenStream = await navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: { ideal: 24, max: 30 }, displaySurface: "monitor" },
+          video: {
+            frameRate: { ideal: 24, max: 30 },
+            displaySurface: "monitor",
+            cursor: "always",
+          },
           audio: true,
         });
+        const displaySurface = recordingScreenStream.getVideoTracks()[0]?.getSettings?.().displaySurface;
+        if (displaySurface && displaySurface !== "monitor") {
+          setRecordingStatus("Recording started, but you selected a window/tab. To follow every app and window, stop recording and choose Entire Screen.");
+        }
+        if (isHost) await applyScreenShareStream(recordingScreenStream.clone());
       } catch (err) {
         if (!screenStreamRef.current && !localStreamRef.current) {
-          setRecordingStatus(err?.name === "NotAllowedError" ? "Recording cancelled. Select a screen/window and click Share to start recording." : err.message || "Unable to select a screen/window for recording.");
+          setRecordingStatus(err?.name === "NotAllowedError" ? "Recording cancelled. Browser security requires selecting Entire Screen/Window before recording can start." : err.message || "Unable to select a screen/window for recording.");
           return;
         }
       }
@@ -733,12 +748,12 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       setRecording(true);
       setRecordingSeconds(0);
       recordingTimerRef.current = window.setInterval(() => setRecordingSeconds((current) => current + 1), 1000);
-      setRecordingStatus("Recording in progress. Keep the selected screen/window open. KINGSBALFX watermark is applied live during recording.");
+      setRecordingStatus("Recording in progress. If you selected Entire Screen, it will follow any window/app you move to. KINGSBALFX watermark is applied live.");
     } catch (err) {
       recordingScreenStream?.getTracks().forEach((track) => track.stop());
       setRecordingStatus(err.message || "Unable to start recording.");
     }
-  }, [isHost, publishRecording, roomName]);
+  }, [applyScreenShareStream, isHost, publishRecording, roomName]);
 
   const stopRecording = useCallback(() => {
     if (recorderRef.current?.state === "recording") {
