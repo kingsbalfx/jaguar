@@ -702,6 +702,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
         const url = URL.createObjectURL(rawBlob);
         lastRecordingUrlRef.current = url;
         setLastRecording({ url, name, size: rawBlob.size, watermarked: stream.watermarked !== false });
+        saveRecordingBackupToIndexedDb({ blob: rawBlob, name, watermarked: stream.watermarked !== false }).catch(() => {});
         setRecordingStatus(stream.watermarked === false
           ? "Recording is ready. Browser did not support live watermark capture, so upload is starting with the raw copy."
           : "Watermarked recording is ready. Upload is starting now; keep this page open.");
@@ -727,6 +728,19 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
 
   useEffect(() => {
     loadDevices().catch(() => {});
+    loadRecordingBackupFromIndexedDb().then((backup) => {
+      if (!backup?.blob?.size) return;
+      if (lastRecordingUrlRef.current) URL.revokeObjectURL(lastRecordingUrlRef.current);
+      const url = URL.createObjectURL(backup.blob);
+      lastRecordingUrlRef.current = url;
+      setLastRecording({
+        url,
+        name: backup.name || `KINGSBALFX_${String(roomName || "live-session").replace(/[^a-zA-Z0-9_-]/g, "_")}_backup.webm`,
+        size: backup.blob.size,
+        watermarked: backup.watermarked !== false,
+      });
+      setRecordingStatus("Recovered your last local KINGSBALFX recording backup. Download it before starting a new recording.");
+    }).catch(() => {});
     if (autoJoin) join();
     return () => {
       window.clearTimeout(stageAlertTimerRef.current);
@@ -761,6 +775,17 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     const reconnectTimer = window.setTimeout(() => void join(), 1500);
     return () => window.clearTimeout(reconnectTimer);
   }, [connectionStatus, join, joined, joining]);
+
+  useEffect(() => {
+    if (!recording && !publishingRecording) return undefined;
+    const warnBeforeLeaving = (event) => {
+      event.preventDefault();
+      event.returnValue = "A KINGSBALFX live recording or upload is still running. Stop the recording and download the local backup before leaving.";
+      return event.returnValue;
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [publishingRecording, recording]);
 
   const participantCount = Object.keys(participants).length || (joined ? 1 : 0);
 
@@ -934,6 +959,7 @@ async function createReliableRecordingStream({ presentationStream, screenStream,
     video.playsInline = true;
     video.autoplay = true;
     await video.play().catch(() => {});
+    await waitForVideoReady(video);
 
     const canvas = document.createElement("canvas");
     canvas.width = sourceTrack.getSettings?.().width || video.videoWidth || 1280;
@@ -947,8 +973,9 @@ async function createReliableRecordingStream({ presentationStream, screenStream,
 
     const output = canvas.captureStream(24);
     audioTracks.forEach((track) => output.addTrack(track));
-    let frameId = null;
+    let frameTimer = null;
     const draw = () => {
+      if (video.readyState < 2 || sourceTrack.readyState !== "live") return;
       const width = video.videoWidth || canvas.width;
       const height = video.videoHeight || canvas.height;
       if (width && height && (canvas.width !== width || canvas.height !== height)) {
@@ -957,16 +984,16 @@ async function createReliableRecordingStream({ presentationStream, screenStream,
       }
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       drawRecordingWatermark(context, logo, canvas.width, canvas.height);
-      frameId = window.requestAnimationFrame(draw);
     };
     draw();
+    frameTimer = window.setInterval(draw, 1000 / 24);
 
     return {
       mediaStream: output,
       sourceTrack,
       watermarked: true,
       cleanup: () => {
-        if (frameId) window.cancelAnimationFrame(frameId);
+        if (frameTimer) window.clearInterval(frameTimer);
         output.getVideoTracks().forEach((track) => track.stop());
         video.pause();
         video.srcObject = null;
@@ -1110,6 +1137,61 @@ function waitForMediaEvent(target, event) {
     target.addEventListener(event, resolve, { once: true });
     target.addEventListener("error", () => reject(new Error("Unable to process the recording media.")), { once: true });
   });
+}
+
+function waitForVideoReady(video) {
+  if (video.videoWidth && video.videoHeight && video.readyState >= 2) return Promise.resolve();
+  return Promise.race([
+    new Promise((resolve) => {
+      const done = () => resolve();
+      video.addEventListener("loadedmetadata", done, { once: true });
+      video.addEventListener("loadeddata", done, { once: true });
+      video.addEventListener("playing", done, { once: true });
+    }),
+    new Promise((resolve) => window.setTimeout(resolve, 1500)),
+  ]);
+}
+
+function openRecordingBackupDb() {
+  if (typeof indexedDB === "undefined") return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("kingsbalfx-live-recordings", 1);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore("recordings");
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveRecordingBackupToIndexedDb(recording) {
+  const db = await openRecordingBackupDb();
+  if (!db || !recording?.blob?.size) return;
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction("recordings", "readwrite");
+    transaction.objectStore("recordings").put({
+      blob: recording.blob,
+      name: recording.name,
+      watermarked: recording.watermarked,
+      savedAt: new Date().toISOString(),
+    }, "last-live-recording");
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+  db.close();
+}
+
+async function loadRecordingBackupFromIndexedDb() {
+  const db = await openRecordingBackupDb();
+  if (!db) return null;
+  const backup = await new Promise((resolve, reject) => {
+    const transaction = db.transaction("recordings", "readonly");
+    const request = transaction.objectStore("recordings").get("last-live-recording");
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return backup;
 }
 
 function waitForImage(image) {
