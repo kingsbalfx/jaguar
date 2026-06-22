@@ -118,6 +118,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [publishingRecording, setPublishingRecording] = useState(false);
   const [recordingStatus, setRecordingStatus] = useState("");
+  const [uploadProgress, setUploadProgress] = useState(null);
   const [lastRecording, setLastRecording] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState("ready");
   const [stageAlert, setStageAlert] = useState(null);
@@ -594,6 +595,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     const maxRecordingMb = Number(process.env.NEXT_PUBLIC_MAX_RECORDING_MB || 5120);
     const fileSizeMb = blob.size / 1024 / 1024;
     setPublishingRecording(true);
+    setUploadProgress({ progress: 0, loaded: 0, total: blob.size });
     setRecordingStatus(`Preparing ${formatUploadSize(blob.size)} recording upload. Keep this page open until it reaches 100%.`);
     try {
       if (fileSizeMb > maxRecordingMb) {
@@ -622,6 +624,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
         file: blob,
         cacheControl: "3600",
         onProgress: (progress, loaded, total) => {
+          setUploadProgress({ progress, loaded, total });
           setRecordingStatus(`Uploading recording: ${progress}% (${formatUploadSize(loaded)} of ${formatUploadSize(total)}). Keep this page open.`);
         },
       });
@@ -640,8 +643,10 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       });
       const content = await contentResponse.json();
       if (!contentResponse.ok) throw new Error(content.error || "Recording uploaded but could not be published.");
+      setUploadProgress({ progress: 100, loaded: blob.size, total: blob.size });
       setRecordingStatus("Recording saved and published to the mentorship library. Manual local copy remains available below.");
     } catch (err) {
+      setUploadProgress((current) => current ? { ...current, failed: true } : null);
       setRecordingStatus(`${storageLimitMessage(err.message) || "Unable to save recording."} Use the manual save button below to keep the full local KINGSBALFX recording.`);
     } finally {
       setPublishingRecording(false);
@@ -650,7 +655,22 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
 
   const startRecording = useCallback(async () => {
     if (!isHost) return;
-    const presentationStream = screenStreamRef.current || localStreamRef.current;
+    let recordingScreenStream = null;
+    if (navigator.mediaDevices?.getDisplayMedia && window.isSecureContext) {
+      try {
+        setRecordingStatus("Select the full screen or exact window you want recorded. Do not select this live-room tab unless you want the recursive preview.");
+        recordingScreenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: { frameRate: { ideal: 24, max: 30 }, displaySurface: "monitor" },
+          audio: true,
+        });
+      } catch (err) {
+        if (!screenStreamRef.current && !localStreamRef.current) {
+          setRecordingStatus(err?.name === "NotAllowedError" ? "Recording cancelled. Select a screen/window and click Share to start recording." : err.message || "Unable to select a screen/window for recording.");
+          return;
+        }
+      }
+    }
+    const presentationStream = recordingScreenStream || screenStreamRef.current || localStreamRef.current;
     if (!presentationStream || typeof MediaRecorder === "undefined") {
       setRecordingStatus("Join the room first. Recording also requires a browser with MediaRecorder support.");
       return;
@@ -659,7 +679,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       recordingChunksRef.current = [];
       const stream = await createReliableRecordingStream({
         presentationStream,
-        screenStream: screenStreamRef.current,
+        screenStream: recordingScreenStream || screenStreamRef.current,
         localStream: localStreamRef.current,
       });
       recordingRenderCleanupRef.current = stream.cleanup;
@@ -684,6 +704,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
         window.clearInterval(recordingTimerRef.current);
         recordingTimerRef.current = null;
         recordingRenderCleanupRef.current?.();
+        recordingScreenStream?.getTracks().forEach((track) => track.stop());
         recordingRenderCleanupRef.current = null;
         const rawBlob = new Blob(recordingChunksRef.current, { type: recorder.mimeType || "video/webm" });
         if (!rawBlob.size) {
@@ -712,8 +733,9 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       setRecording(true);
       setRecordingSeconds(0);
       recordingTimerRef.current = window.setInterval(() => setRecordingSeconds((current) => current + 1), 1000);
-      setRecordingStatus("Recording in progress. KINGSBALFX watermark is applied live during recording.");
+      setRecordingStatus("Recording in progress. Keep the selected screen/window open. KINGSBALFX watermark is applied live during recording.");
     } catch (err) {
+      recordingScreenStream?.getTracks().forEach((track) => track.stop());
       setRecordingStatus(err.message || "Unable to start recording.");
     }
   }, [isHost, publishRecording, roomName]);
@@ -840,6 +862,20 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
         message={error || recordingStatus}
         type={error || /unable|requires|could not|above|failed|recovery/i.test(recordingStatus) ? "error" : "info"}
       />
+      {uploadProgress && (
+        <div className="mt-3 rounded-xl border border-emerald-300/20 bg-black/30 p-3 text-sm text-emerald-100">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-semibold">Cloud upload progress</span>
+            <span>{uploadProgress.failed ? "Failed" : `${uploadProgress.progress}%`}</span>
+          </div>
+          <div className="mt-2 h-3 overflow-hidden rounded-full bg-white/10">
+            <div className={`h-full rounded-full transition-all ${uploadProgress.failed ? "bg-red-500" : "bg-emerald-500"}`} style={{ width: `${Math.max(0, Math.min(100, uploadProgress.progress || 0))}%` }} />
+          </div>
+          <div className="mt-1 text-xs text-emerald-100/75">
+            {formatUploadSize(uploadProgress.loaded || 0)} of {formatUploadSize(uploadProgress.total || 0)}
+          </div>
+        </div>
+      )}
       {isHost && joined && stageRequests.length > 0 && (
         <div className="fixed inset-x-3 top-20 z-[120] mx-auto max-w-3xl rounded-2xl border border-sky-300/30 bg-slate-950/95 p-3 text-white shadow-2xl shadow-black/50 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
