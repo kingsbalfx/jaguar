@@ -27,6 +27,25 @@ function iceServers() {
   }
 }
 
+async function captureEntireScreen({ audio = false, frameRate = { ideal: 15, max: 24 } } = {}) {
+  if (!window.isSecureContext) throw new Error("Screen sharing requires a secure HTTPS connection.");
+  if (!navigator.mediaDevices?.getDisplayMedia) throw new Error("This browser does not provide screen sharing. Use the latest Chrome or Edge.");
+  const stream = await navigator.mediaDevices.getDisplayMedia({
+    video: {
+      frameRate,
+      displaySurface: "monitor",
+      cursor: "always",
+    },
+    audio,
+  });
+  const displaySurface = stream.getVideoTracks()[0]?.getSettings?.().displaySurface;
+  if (displaySurface && displaySurface !== "monitor") {
+    stream.getTracks().forEach((track) => track.stop());
+    throw new Error("You selected a tab/window. To keep sharing when you open another app, choose Entire Screen in the browser share picker.");
+  }
+  return stream;
+}
+
 function VideoTile({ stream, label, muted = false, cameraEnabled = true }) {
   const ref = useRef(null);
   const containerRef = useRef(null);
@@ -484,19 +503,11 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
   const shareScreen = useCallback(async () => {
     try {
       setError("");
-      if (!window.isSecureContext) throw new Error("Screen sharing requires a secure HTTPS connection.");
-      if (!navigator.mediaDevices?.getDisplayMedia) throw new Error("This mobile browser does not provide screen sharing. Use its latest Chrome/Edge version or share your camera instead.");
-      let screen;
-      try {
-        screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 24 } }, audio: false });
-      } catch (firstError) {
-        if (firstError?.name === "NotAllowedError") throw firstError;
-        screen = await navigator.mediaDevices.getDisplayMedia({ video: true });
-      }
+      const screen = await captureEntireScreen({ audio: false, frameRate: { ideal: 15, max: 24 } });
       await applyScreenShareStream(screen);
     } catch (err) {
       const message = err?.name === "NotAllowedError"
-        ? "Screen sharing was cancelled or blocked. Use Chrome or Edge on HTTPS, select a screen/window, then click the browser Share button."
+        ? "Screen sharing was cancelled or blocked. Use Chrome or Edge on HTTPS, choose Entire Screen, then click the browser Share button."
         : err.message || "Screen sharing was cancelled.";
       setError(message);
     }
@@ -515,7 +526,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     try {
       setError("");
       const stream = kind === "screen"
-        ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+        ? await captureEntireScreen({ audio: false, frameRate: { ideal: 15, max: 24 } })
         : await navigator.mediaDevices.getUserMedia({
             audio: audioDeviceId ? { deviceId: { exact: audioDeviceId }, echoCancellation: true, noiseSuppression: true } : { echoCancellation: true, noiseSuppression: true },
             video: videoDeviceId ? { deviceId: { exact: videoDeviceId }, ...CAMERA_VIDEO } : CAMERA_VIDEO,
@@ -664,23 +675,12 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     let recordingScreenStream = null;
     if (navigator.mediaDevices?.getDisplayMedia && window.isSecureContext) {
       try {
-        setRecordingStatus("Select Entire Screen to record everything you move to. Browser security requires this one selection before recording can follow your full screen.");
-        recordingScreenStream = await navigator.mediaDevices.getDisplayMedia({
-          video: {
-            frameRate: { ideal: 24, max: 30 },
-            displaySurface: "monitor",
-            cursor: "always",
-          },
-          audio: true,
-        });
-        const displaySurface = recordingScreenStream.getVideoTracks()[0]?.getSettings?.().displaySurface;
-        if (displaySurface && displaySurface !== "monitor") {
-          setRecordingStatus("Recording started, but you selected a window/tab. To follow every app and window, stop recording and choose Entire Screen.");
-        }
+        setRecordingStatus("Choose Entire Screen so recording follows every app/window you open.");
+        recordingScreenStream = await captureEntireScreen({ audio: true, frameRate: { ideal: 24, max: 30 } });
         if (isHost) await applyScreenShareStream(recordingScreenStream.clone());
       } catch (err) {
         if (!screenStreamRef.current && !localStreamRef.current) {
-          setRecordingStatus(err?.name === "NotAllowedError" ? "Recording cancelled. Browser security requires selecting Entire Screen/Window before recording can start." : err.message || "Unable to select a screen/window for recording.");
+          setRecordingStatus(err?.name === "NotAllowedError" ? "Recording cancelled. Browser security requires selecting Entire Screen before recording can start." : err.message || "Unable to select Entire Screen for recording.");
           return;
         }
       }
@@ -729,20 +729,35 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
           setRecordingStatus("The browser returned an empty recording. Keep the room open, start recording again, and make sure the shared screen or camera stays active.");
           return;
         }
+        let finalBlob = rawBlob;
+        let finalWatermarked = stream.watermarked !== false;
+        if (stream.needsWatermark) {
+          try {
+            setRecordingStatus("Full screen recording captured. Applying KINGSBALFX watermark before backup/upload...");
+            finalBlob = await createWatermarkedRecordingBlob(rawBlob, (progress) => {
+              setRecordingStatus(`Applying KINGSBALFX watermark: ${progress}%. Keep this page open.`);
+            });
+            finalWatermarked = true;
+          } catch (watermarkError) {
+            finalBlob = rawBlob;
+            finalWatermarked = false;
+            setRecordingStatus(`${watermarkError.message || "Unable to apply watermark after recording."} Full raw screen recording is still available for download.`);
+          }
+        }
         const safeRoom = String(roomName || "live-session").replace(/[^a-zA-Z0-9_-]/g, "_");
         const name = `KINGSBALFX_${safeRoom}_${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
         recordingChunksRef.current = [];
         recorderRef.current = null;
         setRecording(false);
         if (lastRecordingUrlRef.current) URL.revokeObjectURL(lastRecordingUrlRef.current);
-        const url = URL.createObjectURL(rawBlob);
+        const url = URL.createObjectURL(finalBlob);
         lastRecordingUrlRef.current = url;
-        setLastRecording({ url, name, size: rawBlob.size, watermarked: stream.watermarked !== false });
-        saveRecordingBackupToIndexedDb({ blob: rawBlob, name, watermarked: stream.watermarked !== false }).catch(() => {});
-        setRecordingStatus(stream.watermarked === false
+        setLastRecording({ url, name, size: finalBlob.size, watermarked: finalWatermarked });
+        saveRecordingBackupToIndexedDb({ blob: finalBlob, name, watermarked: finalWatermarked }).catch(() => {});
+        setRecordingStatus(!finalWatermarked
           ? "Recording is ready. Browser did not support live watermark capture, so upload is starting with the raw copy."
           : "Watermarked recording is ready. Upload is starting now; keep this page open.");
-        void publishRecording(rawBlob);
+        void publishRecording(finalBlob);
       };
       recorder.start(10000);
       setRecording(true);
@@ -845,7 +860,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
           <div className="grid w-full grid-cols-1 gap-2 rounded-xl bg-black/30 p-2 sm:grid-cols-2 lg:flex lg:w-auto lg:flex-wrap">
             {!isHost && !presenting && !approvedKind && <button onClick={() => requestStage("camera")} disabled={Boolean(requestSent)} className="rounded-lg bg-sky-600 px-3 py-2 text-sm disabled:opacity-60 sm:px-4">{requestSent === "camera" ? "Camera request sent" : "Raise hand for camera"}</button>}
             {!isHost && !presenting && !approvedKind && <button onClick={() => requestStage("screen")} disabled={Boolean(requestSent)} className="rounded-lg bg-violet-600 px-3 py-2 text-sm disabled:opacity-60 sm:px-4">{requestSent === "screen" ? "Screen request sent" : "Request screen share"}</button>}
-            {!isHost && !presenting && approvedKind && <button onClick={() => startPresenting(approvedKind)} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm sm:px-4">Start approved {approvedKind === "screen" ? "screen share" : "camera"}</button>}
+            {!isHost && !presenting && approvedKind && <button onClick={() => startPresenting(approvedKind)} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm sm:px-4">Start approved {approvedKind === "screen" ? "Entire Screen share" : "camera"}</button>}
             {!isHost && presenting && <button onClick={stopPresenting} className="rounded-lg bg-red-600 px-3 py-2 text-sm sm:px-4">Leave stage</button>}
             {(isHost || presenting) && <>
             <button onClick={toggleMic} className={`rounded-lg px-3 py-2 text-sm sm:px-4 ${micEnabled ? "bg-white/10" : "bg-amber-600"}`}>{micEnabled ? "Mute microphone" : "Unmute microphone"}</button>
@@ -999,6 +1014,18 @@ async function createReliableRecordingStream({ presentationStream, screenStream,
     const mediaStream = new MediaStream();
     audioTracks.forEach((track) => mediaStream.addTrack(track));
     return { mediaStream, sourceTrack: null, watermarked: false, cleanup: () => {} };
+  }
+
+  if (screenStream) {
+    const mediaStream = new MediaStream([sourceTrack]);
+    audioTracks.forEach((track) => mediaStream.addTrack(track));
+    return {
+      mediaStream,
+      sourceTrack,
+      watermarked: false,
+      needsWatermark: true,
+      cleanup: () => {},
+    };
   }
 
   try {
