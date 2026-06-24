@@ -31,6 +31,37 @@ RATE_COLUMNS = [
 _RATE_SYMBOL_CACHE = {}
 
 
+def _env_int(name, default, minimum=1, maximum=None):
+    try:
+        value = int(str(os.getenv(name, str(default))).strip())
+    except (TypeError, ValueError):
+        value = default
+    value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
+def _concept_candle_windows():
+    return {
+        "fetch_per_timeframe": _env_int("CANDLE_FETCH_PER_TIMEFRAME", 500, minimum=120, maximum=2000),
+        "htf_context": _env_int("HTF_CONTEXT_CANDLES", 120, minimum=50, maximum=500),
+        "external_liquidity": _env_int("EXTERNAL_LIQUIDITY_CANDLES", 200, minimum=50, maximum=500),
+        "structure": _env_int("STRUCTURE_CANDLES", 80, minimum=20, maximum=250),
+        "true_fvg_ob_context": _env_int("TRUE_FVG_OB_CONTEXT_CANDLES", 100, minimum=20, maximum=250),
+        "smt": _env_int("SMT_CANDLES", 20, minimum=10, maximum=50),
+        "sweep": _env_int("SWEEP_CANDLES", 20, minimum=5, maximum=50),
+        "displacement": _env_int("DISPLACEMENT_CANDLES", 10, minimum=3, maximum=30),
+        "execution_confirmation": _env_int("EXECUTION_CONFIRMATION_CANDLES", 50, minimum=10, maximum=100),
+    }
+
+
+def _candle_window(candles, size):
+    if not candles:
+        return []
+    return candles[-max(1, min(int(size), len(candles))):]
+
+
 def _require_mt5():
     if mt5 is None:
         raise RuntimeError("MetaTrader5 package not available for backtesting")
@@ -243,13 +274,15 @@ def _analysis_from_frames(symbol, price, frames, profile):
 
     analysis = {}
     entry_profile = get_entry_profile(symbol)
-    recent_candle_count = max(16, int(entry_profile["recent_candles"]))
+    candle_windows = _concept_candle_windows()
+    recent_candle_count = max(int(entry_profile["recent_candles"]), candle_windows["fetch_per_timeframe"])
     atr_period = max(5, int(profile.get("entry_atr_period", 14)))
     for timeframe, df in frames.items():
         if df is None or len(df) < 20:
             return None
         swings = _swings_from_df(df)
         timeframe_trend = _trend_from_swings(swings)
+        recent_candles = _recent_candles_from_df(df, bars=recent_candle_count)
         analysis[timeframe] = {
             "trend": timeframe_trend,
             "fib": _fib_from_df(df),
@@ -260,7 +293,28 @@ def _analysis_from_frames(symbol, price, frames, profile):
             "order_blocks": _order_blocks_from_df(symbol, timeframe, df),
             "liquidity": detect_liquidity_zones(swings),
             "swings": swings,
-            "recent_candles": _recent_candles_from_df(df, bars=recent_candle_count),
+            "recent_candles": recent_candles,
+            "concept_windows": {
+                "htf_context": _candle_window(recent_candles, candle_windows["htf_context"]),
+                "external_liquidity": _candle_window(recent_candles, candle_windows["external_liquidity"]),
+                "structure": _candle_window(recent_candles, candle_windows["structure"]),
+                "true_fvg_ob_context": _candle_window(recent_candles, candle_windows["true_fvg_ob_context"]),
+                "smt": _candle_window(recent_candles, candle_windows["smt"]),
+                "sweep": _candle_window(recent_candles, candle_windows["sweep"]),
+                "displacement": _candle_window(recent_candles, candle_windows["displacement"]),
+                "execution_confirmation": _candle_window(recent_candles, candle_windows["execution_confirmation"]),
+            },
+            "candle_window_lengths": {
+                "fetched": len(recent_candles),
+                "htf_context": len(_candle_window(recent_candles, candle_windows["htf_context"])),
+                "external_liquidity": len(_candle_window(recent_candles, candle_windows["external_liquidity"])),
+                "structure": len(_candle_window(recent_candles, candle_windows["structure"])),
+                "true_fvg_ob_context": len(_candle_window(recent_candles, candle_windows["true_fvg_ob_context"])),
+                "smt": len(_candle_window(recent_candles, candle_windows["smt"])),
+                "sweep": len(_candle_window(recent_candles, candle_windows["sweep"])),
+                "displacement": len(_candle_window(recent_candles, candle_windows["displacement"])),
+                "execution_confirmation": len(_candle_window(recent_candles, candle_windows["execution_confirmation"])),
+            },
             "atr": _atr_from_df(df, period=atr_period),
         }
 
@@ -275,6 +329,18 @@ def _analysis_from_frames(symbol, price, frames, profile):
         "topdown": {"trend": overall_trend, "context_alignment": "mixed"},
         "price": price,
         "timeframes": {"HTF": htf, "MTF": mtf, "LTF": ltf},
+        "candle_windows": candle_windows,
+        "candle_window_usage": {
+            "fetch_per_timeframe": recent_candle_count,
+            "htf_narrative": candle_windows["htf_context"],
+            "external_liquidity": candle_windows["external_liquidity"],
+            "market_structure_mss_bos": candle_windows["structure"],
+            "true_fvg_order_block_context": candle_windows["true_fvg_ob_context"],
+            "smt_divergence": candle_windows["smt"],
+            "liquidity_sweep": candle_windows["sweep"],
+            "displacement": candle_windows["displacement"],
+            "m1_m5_confirmation": candle_windows["execution_confirmation"],
+        },
         "HTF": analysis[htf],
         "MTF": analysis[mtf],
         "LTF": analysis[ltf],

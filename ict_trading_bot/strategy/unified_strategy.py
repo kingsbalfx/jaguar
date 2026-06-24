@@ -28,6 +28,20 @@ def _state(name, confirmed, evidence, reason):
 
 
 def _narrative(analysis):
+    alignment = analysis.get("daily_h4_alignment") or (analysis.get("topdown") or {}).get("daily_h4_alignment")
+    if isinstance(alignment, dict):
+        evidence = {
+            "D1": alignment.get("daily_trend"),
+            "H4": alignment.get("h4_trend"),
+            "daily_bias": alignment.get("daily_bias"),
+            "h4_current_day_bias": alignment.get("h4_current_day_bias"),
+            "daily_candles_used": alignment.get("daily_candles_used"),
+            "h4_candles_used": alignment.get("h4_candles_used"),
+            "alignment_rule": alignment.get("rule"),
+        }
+        if alignment.get("confirmed") and alignment.get("direction") in ("buy", "sell"):
+            return alignment["direction"], evidence
+        return None, evidence
     htf = analysis.get("HTF") or {}
     d1 = str((analysis.get("DAILY") or {}).get("trend") or htf.get("D1") or analysis.get("daily_trend") or "").lower()
     h4 = str((analysis.get("H4_CONTEXT") or {}).get("trend") or htf.get("H4") or "").lower()

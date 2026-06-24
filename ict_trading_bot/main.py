@@ -421,15 +421,24 @@ def _smt_snapshot(symbol: str, analysis: dict, trend: str) -> dict:
         return {"confirmed": False, "direction": None, "pair": None, "reason": "no configured SMT correlation"}
 
     def summary(candles):
+        smt_window = _int_env("SMT_CANDLES", 20, minimum=10, maximum=50)
+        recent = list(candles or [])[-smt_window:]
+        if len(recent) < 10:
+            raise ValueError("insufficient SMT candle window")
+        midpoint = max(5, len(recent) // 2)
+        previous = recent[:midpoint]
+        current = recent[midpoint:]
         return {
-            "high": max(float(candle["high"]) for candle in candles[-5:]),
-            "low": min(float(candle["low"]) for candle in candles[-5:]),
-            "prev_high": max(float(candle["high"]) for candle in candles[-10:-5]),
-            "prev_low": min(float(candle["low"]) for candle in candles[-10:-5]),
+            "high": max(float(candle["high"]) for candle in current),
+            "low": min(float(candle["low"]) for candle in current),
+            "prev_high": max(float(candle["high"]) for candle in previous),
+            "prev_low": min(float(candle["low"]) for candle in previous),
             "timeframe": "M5",
+            "candles_used": len(recent),
         }
 
     main_candles = analysis.get("m5_candles") or []
+    smt_window = _int_env("SMT_CANDLES", 20, minimum=10, maximum=50)
     if len(main_candles) < 10:
         return {"confirmed": False, "direction": None, "pair": None, "reason": "insufficient primary M5 data"}
 
@@ -452,6 +461,7 @@ def _smt_snapshot(symbol: str, analysis: dict, trend: str) -> dict:
             result = detect_smt(summary(main_candles), summary(other_candles), expected_direction=trend, correlation_mode=mode)
             result["pair"] = pair_name
             result["correlated_symbol"] = correlated
+            result["candles_used"] = min(smt_window, len(main_candles), len(other_candles))
             result["reason"] = (
                 f"{result.get('reason')} ({mode} correlation)"
                 if result.get("confirmed")
@@ -641,6 +651,7 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
     if observed != SEQUENCE[: len(observed)]:
         raise RuntimeError(f"State sequence violated: {observed}")
     if not setup["executable"]:
+        LOGGER.info("[%s] ICT SKIP -> KINGSBALFX FALLBACK | failed_step=%s | reason=%s", symbol, setup.get("failed_step"), setup.get("reason"))
         fallback_request, fallback_setup, fallback_safety = _evaluate_kingsbalfx_fallback(
             symbol,
             setup.get("direction") or setup.get("trend") or analysis.get("overall_trend"),
@@ -706,6 +717,48 @@ def _evaluate_symbol_safe(symbol: str, account: dict, positions: list) -> dict:
             "error": str(exc),
             "trace": traceback.format_exc(),
         }
+
+
+def _process_scan_result(result: dict, max_trades: int) -> dict:
+    symbol = result["symbol"]
+    if result["error"]:
+        bot_log("symbol_error", f"[{symbol}] evaluation failed: {result['error']}", {"trace": result["trace"]})
+        return {"evaluated": 1, "trades_opened": 0, "errors": 1}
+
+    request = result["request"]
+    setup = result["setup"]
+    safety = result["safety"]
+    _report_setup(symbol, setup, safety, request)
+    if not request:
+        bot_log("setup_observed", f"[{symbol}] skipped: {safety.get('reason') or setup.get('reason')}", {"setup": setup, "safety": safety}, persist=False)
+        return {"evaluated": 1, "trades_opened": 0, "errors": 0}
+
+    positions = get_open_positions() or []
+    if len(positions) >= max_trades:
+        _console_skip(symbol, "max_open_trades_reached_before_execution", {"open_positions": len(positions), "max_trades": max_trades})
+        return {"evaluated": 1, "trades_opened": 0, "errors": 0}
+    trade = execute_trade(
+        request["symbol"],
+        request["direction"],
+        request["lot"],
+        request["sl"],
+        request["tp"],
+        request["order_type"],
+        request["entry"],
+    )
+    if not trade:
+        _console_skip(symbol, "broker_rejected_or_failed_market_order", request)
+        return {"evaluated": 1, "trades_opened": 0, "errors": 0}
+    register_trade(symbol, request["identity"])
+    payload = {**request, "state_machine": setup, "status": "open"}
+    persist_signal_to_supabase(payload)
+    push_trade(payload)
+    strategy_name = request.get("strategy") or "ict_state_machine"
+    if strategy_name == "kingsbalfx":
+        bot_log("trade_opened", f"[{symbol}] Kingsbalfx fallback confirmed and trade opened", payload)
+    else:
+        bot_log("trade_opened", f"[{symbol}] strict ICT sequence confirmed and trade opened", payload)
+    return {"evaluated": 1, "trades_opened": 1, "errors": 0}
 
 
 def run_bot() -> None:
@@ -821,13 +874,16 @@ def run_bot() -> None:
                     len(batch),
                     scan_workers,
                 )
-                results = []
                 if scan_workers == 1:
                     for symbol in batch:
                         if log_evaluating:
                             LOGGER.info("[%s] EVALUATING", symbol)
-                        results.append(_evaluate_symbol_safe(symbol, account, positions))
+                        counts = _process_scan_result(_evaluate_symbol_safe(symbol, account, positions), max_trades)
+                        evaluated += counts["evaluated"]
+                        trades_opened += counts["trades_opened"]
+                        errors += counts["errors"]
                 else:
+                    results = []
                     with ThreadPoolExecutor(max_workers=scan_workers) as executor:
                         futures = {
                             executor.submit(_evaluate_symbol_safe, symbol, account, positions): symbol
@@ -835,49 +891,11 @@ def run_bot() -> None:
                         }
                         for future in as_completed(futures):
                             results.append(future.result())
-
-                for result in results:
-                    symbol = result["symbol"]
-                    evaluated += 1
-                    if result["error"]:
-                        errors += 1
-                        bot_log("symbol_error", f"[{symbol}] evaluation failed: {result['error']}", {"trace": result["trace"]})
-                        continue
-
-                    request = result["request"]
-                    setup = result["setup"]
-                    safety = result["safety"]
-                    _report_setup(symbol, setup, safety, request)
-                    if not request:
-                        bot_log("setup_observed", f"[{symbol}] skipped: {safety.get('reason') or setup.get('reason')}", {"setup": setup, "safety": safety}, persist=False)
-                        continue
-
-                    positions = get_open_positions() or []
-                    if len(positions) >= max_trades:
-                        _console_skip(symbol, "max_open_trades_reached_before_execution", {"open_positions": len(positions), "max_trades": max_trades})
-                        continue
-                    trade = execute_trade(
-                        request["symbol"],
-                        request["direction"],
-                        request["lot"],
-                        request["sl"],
-                        request["tp"],
-                        request["order_type"],
-                        request["entry"],
-                    )
-                    if not trade:
-                        _console_skip(symbol, "broker_rejected_or_failed_market_order", request)
-                        continue
-                    trades_opened += 1
-                    register_trade(symbol, request["identity"])
-                    payload = {**request, "state_machine": setup, "status": "open"}
-                    persist_signal_to_supabase(payload)
-                    push_trade(payload)
-                    strategy_name = request.get("strategy") or "ict_state_machine"
-                    if strategy_name == "kingsbalfx":
-                        bot_log("trade_opened", f"[{symbol}] Kingsbalfx fallback confirmed and trade opened", payload)
-                    else:
-                        bot_log("trade_opened", f"[{symbol}] strict ICT sequence confirmed and trade opened", payload)
+                    for result in results:
+                        counts = _process_scan_result(result, max_trades)
+                        evaluated += counts["evaluated"]
+                        trades_opened += counts["trades_opened"]
+                        errors += counts["errors"]
 
                 LOGGER.info(
                     "BATCH COMPLETE | batch=%s/%s | evaluated_total=%s | trades_opened=%s | errors=%s",
