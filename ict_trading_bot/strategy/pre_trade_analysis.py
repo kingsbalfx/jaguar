@@ -7,6 +7,13 @@ from ict_concepts.market_structure import get_swings
 import os
 
 from utils.symbol_profile import get_entry_profile
+from utils.sessions import (
+    in_asia_session,
+    in_london_session,
+    in_newyork_session,
+    intelligence_session_open,
+    session_name,
+)
 
 try:
     import MetaTrader5 as mt5
@@ -281,17 +288,21 @@ def _window_bias(candles):
     return None
 
 
-def _current_day_h4_candles(daily_candles, h4_candles):
-    if not h4_candles:
+def _child_candles_inside_current_parent(parent_candles, child_candles, fallback_count):
+    if not child_candles:
         return []
-    current_day_start = _session_start(daily_candles[-1]) if daily_candles else None
-    if current_day_start is None:
-        return h4_candles[-6:]
-    current_day = [
-        candle for candle in h4_candles
-        if (_session_start(candle) or 0) >= current_day_start
+    current_parent_start = _session_start(parent_candles[-1]) if parent_candles else None
+    if current_parent_start is None:
+        return child_candles[-fallback_count:]
+    current_parent = [
+        candle for candle in child_candles
+        if (_session_start(candle) or 0) >= current_parent_start
     ]
-    return current_day or h4_candles[-6:]
+    return current_parent or child_candles[-fallback_count:]
+
+
+def _current_day_h4_candles(daily_candles, h4_candles):
+    return _child_candles_inside_current_parent(daily_candles, h4_candles, fallback_count=6)
 
 
 def _daily_h4_candle_alignment(daily_state, h4_state):
@@ -321,14 +332,125 @@ def _daily_h4_candle_alignment(daily_state, h4_state):
     }
 
 
+def _h1_m15_candle_alignment(h1_state, m15_state):
+    h1_candles = h1_state.get("recent_candles") or []
+    m15_candles = m15_state.get("recent_candles") or []
+    h1_window = h1_candles[-3:]
+    m15_window = _child_candles_inside_current_parent(h1_candles, m15_candles, fallback_count=4)
+    h1_bias = _window_bias(h1_window)
+    m15_bias = _window_bias(m15_window)
+    trend_h1 = str(h1_state.get("trend") or "").lower()
+    trend_m15 = str(m15_state.get("trend") or "").lower()
+    confirmed = (
+        h1_bias in ("bullish", "bearish")
+        and h1_bias == m15_bias
+        and trend_h1 == h1_bias
+    )
+    return {
+        "confirmed": confirmed,
+        "direction": "buy" if confirmed and h1_bias == "bullish" else "sell" if confirmed and h1_bias == "bearish" else None,
+        "h1_bias": h1_bias,
+        "m15_current_h1_bias": m15_bias,
+        "h1_trend": trend_h1 or None,
+        "m15_trend": trend_m15 or None,
+        "h1_candles_used": len(h1_window),
+        "m15_candles_used": len(m15_window),
+        "rule": "H1 is the highest trading timeframe; H1 trend/current bias must align with current-H1 M15 candles",
+    }
+
+
+def _zone_contains_price(zone, price):
+    if not isinstance(zone, dict):
+        return False
+    if "low" in zone and "high" in zone:
+        low = float(zone.get("low", 0.0) or 0.0)
+        high = float(zone.get("high", 0.0) or 0.0)
+        return min(low, high) <= price <= max(low, high)
+    prices = zone.get("prices")
+    if isinstance(prices, (list, tuple)) and len(prices) >= 2:
+        low = float(prices[0])
+        high = float(prices[1])
+        return min(low, high) <= price <= max(low, high)
+    level = zone.get("level")
+    if level is not None:
+        return abs(float(level) - price) <= max(abs(price) * 0.0005, 1e-9)
+    return False
+
+
+def _previous_day_context(daily_state, price):
+    candles = daily_state.get("recent_candles") or []
+    if not candles:
+        return {
+            "available": False,
+            "role": "background_only",
+            "rule": "D1 is background only: previous daily candle is checked for FVG/OB/liquidity behavior but does not replace H1 trend",
+        }
+    previous = candles[-2] if len(candles) >= 2 else candles[-1]
+    before = candles[-3] if len(candles) >= 3 else None
+    previous_close = float(previous.get("close", 0.0) or 0.0)
+    previous_direction = _candle_direction(previous)
+    before_direction = _candle_direction(before) if before else None
+    previous_range = max(float(previous.get("high", 0.0) or 0.0) - float(previous.get("low", 0.0) or 0.0), 1e-9)
+    close_position = (previous_close - float(previous.get("low", 0.0) or 0.0)) / previous_range
+    swept_buy_side = bool(
+        before
+        and float(previous.get("high", 0.0) or 0.0) > float(before.get("high", 0.0) or 0.0)
+        and previous_close < float(before.get("high", 0.0) or 0.0)
+    )
+    swept_sell_side = bool(
+        before
+        and float(previous.get("low", 0.0) or 0.0) < float(before.get("low", 0.0) or 0.0)
+        and previous_close > float(before.get("low", 0.0) or 0.0)
+    )
+    trend = str(daily_state.get("trend") or "").lower()
+    continuing = previous_direction == trend if trend in ("bullish", "bearish") else False
+    reversing = bool((swept_buy_side or swept_sell_side) and previous_direction and previous_direction != before_direction)
+    chasing_liquidity = bool(
+        (previous_direction == "bullish" and close_position >= 0.75)
+        or (previous_direction == "bearish" and close_position <= 0.25)
+    )
+    fvg_hits = [
+        {**zone, "timeframe": zone.get("timeframe", "D1")}
+        for zone in daily_state.get("fvgs") or []
+        if _zone_contains_price(zone, previous_close)
+    ]
+    ob_hits = [
+        {**zone, "timeframe": zone.get("timeframe", "D1")}
+        for zone in daily_state.get("order_blocks") or []
+        if _zone_contains_price(zone, previous_close)
+    ]
+    return {
+        "available": True,
+        "role": "background_only",
+        "previous_day_direction": previous_direction,
+        "previous_day_close": previous_close,
+        "previous_day_close_in_fvg": bool(fvg_hits),
+        "previous_day_close_in_order_block": bool(ob_hits),
+        "fvg_hits": fvg_hits[:3],
+        "order_block_hits": ob_hits[:3],
+        "swept_buy_side_liquidity": swept_buy_side,
+        "swept_sell_side_liquidity": swept_sell_side,
+        "chasing_liquidity": chasing_liquidity,
+        "continuing_daily_trend": continuing,
+        "reversing_after_daily_sweep": reversing,
+        "daily_trend": trend or None,
+        "rule": "D1 checks only the previous daily candle: in FVG/OB, chasing liquidity, swept liquidity, continuing, or reversing",
+    }
+
+
 def _external_liquidity(*states):
-    """Build external liquidity from D1, H4, H1, M30, and M15 context."""
+    """Build external liquidity from the active intraday schedule."""
     result = {"EQH": [], "EQL": []}
+    seen = set()
     for timeframe, state in states:
         for swing in (state.get("swings") or [])[-30:]:
             if not isinstance(swing, dict) or swing.get("type") not in ("high", "low"):
                 continue
             level = float(swing["price"])
+            identity = (swing["type"], round(level, 10), timeframe)
+            if identity in seen:
+                continue
+            seen.add(identity)
             zone = {
                 "type": swing["type"],
                 "level": level,
@@ -340,32 +462,21 @@ def _external_liquidity(*states):
                 "untaken": True,
             }
             result["EQH" if swing["type"] == "high" else "EQL"].append(zone)
-
-    daily_state = next((state for timeframe, state in states if timeframe == "D1"), {})
-    daily = daily_state.get("recent_candles") or []
-    if daily:
-        previous_day = daily[-2] if len(daily) >= 2 else daily[-1]
-        week = daily[-6:-1] if len(daily) >= 6 else daily
-        levels = (
-            ("EQH", max(float(item["high"]) for item in week), "previous_week_high"),
-            ("EQL", min(float(item["low"]) for item in week), "previous_week_low"),
-            ("EQH", float(previous_day["high"]), "previous_day_high"),
-            ("EQL", float(previous_day["low"]), "previous_day_low"),
-        )
-        for key, level, source in levels:
-            result[key].append(
-                {
-                    "type": "high" if key == "EQH" else "low",
-                    "level": level,
-                    "prices": (level, level),
-                    "source": source,
-                    "timeframe": "D1",
-                    "touches": 1,
-                    "separation": 1,
-                    "untaken": True,
-                }
-            )
     return result
+
+
+def _session_trade_analysis(symbol, execution_state):
+    candles = execution_state.get("recent_candles") or []
+    timestamp = candles[-1].get("time") if candles else None
+    return {
+        "symbol": symbol,
+        "session": session_name(timestamp),
+        "asia": in_asia_session(timestamp),
+        "london_killzone": in_london_session(timestamp),
+        "newyork_killzone": in_newyork_session(timestamp),
+        "execution_session_open": intelligence_session_open(timestamp),
+        "rule": "Session is analyzed per symbol; it supports timing but structure still controls execution",
+    }
 
 
 def _detect_htf_liquidity_sweep(symbol, htf_tf, price, direction):
@@ -386,10 +497,10 @@ def analyze_market_top_down(
     ltf=None
 ):
     daily_tf = os.getenv("DAILY_TIMEFRAME", os.getenv("CONTEXT_DAILY_TIMEFRAME", "D1"))
-    h4_tf = os.getenv("FOUR_HOUR_TIMEFRAME", os.getenv("CONTEXT_4H_TIMEFRAME", "H4"))
+    h4_tf = os.getenv("FOUR_HOUR_TIMEFRAME", os.getenv("CONTEXT_4H_TIMEFRAME", "")).strip().upper()
     htf = htf or os.getenv("HTF_TIMEFRAME", "H1")
-    mtf = mtf or os.getenv("MTF_TIMEFRAME", "M30")
-    ltf = ltf or os.getenv("LTF_TIMEFRAME", "M15")
+    mtf = mtf or os.getenv("MTF_TIMEFRAME", "M15")
+    ltf = ltf or os.getenv("LTF_TIMEFRAME", "M5")
     execution_tf = os.getenv("EXECUTION_TIMEFRAME", "M5")
     candle_windows = _concept_candle_windows()
     recent_candle_count = candle_windows["fetch_per_timeframe"]
@@ -406,28 +517,36 @@ def analyze_market_top_down(
     }
 
     daily_state = analysis[daily_tf]
-    h4_state = analysis[h4_tf]
+    h4_state = analysis.get(h4_tf, {}) if h4_tf else {}
     h1_state = analysis[htf]
     m30_state = analysis[mtf]
     m15_state = analysis[ltf]
     execution_state = analysis[execution_tf]
-    external_liquidity = _external_liquidity(
-        ("D1", daily_state),
-        ("H4", h4_state),
-        (htf, h1_state),
-        (mtf, m30_state),
-        (ltf, m15_state),
-    )
-    for state in (daily_state, h4_state, h1_state, m30_state, m15_state):
+    liquidity_sources = []
+    seen_liquidity_timeframes = set()
+    for timeframe, state in ((htf, h1_state), (mtf, m30_state), (ltf, m15_state), (execution_tf, execution_state)):
+        key = str(timeframe).upper()
+        if key in seen_liquidity_timeframes:
+            continue
+        seen_liquidity_timeframes.add(key)
+        liquidity_sources.append((key, state))
+    external_liquidity = _external_liquidity(*liquidity_sources)
+    for state in (h1_state, m30_state, m15_state, execution_state):
         state["external_liquidity"] = external_liquidity
     h1_state["liquidity"] = external_liquidity
 
-    overall_trend = _majority_trend([h1_state, m30_state, m15_state])
+    h1_m15_alignment = _h1_m15_candle_alignment(h1_state, m30_state)
+    if h1_m15_alignment.get("confirmed") and h1_m15_alignment.get("direction"):
+        overall_trend = "bullish" if h1_m15_alignment["direction"] == "buy" else "bearish"
+    else:
+        h1_trend = h1_state.get("trend")
+        overall_trend = h1_trend if h1_trend in ("bullish", "bearish") else _majority_trend([h1_state, m30_state, m15_state])
 
-    context_alignment = _context_alignment(overall_trend, [daily_state, h4_state])
-    daily_h4_alignment = _daily_h4_candle_alignment(daily_state, h4_state)
-    daily_state["daily_h4_alignment"] = daily_h4_alignment
-    h4_state["daily_h4_alignment"] = daily_h4_alignment
+    context_alignment = "aligned" if h1_m15_alignment.get("confirmed") else "mixed"
+    daily_h4_alignment = _daily_h4_candle_alignment(daily_state, h4_state) if h4_state else {}
+    daily_context = _previous_day_context(daily_state, price)
+    h1_state["h1_m15_alignment"] = h1_m15_alignment
+    m30_state["h1_m15_alignment"] = h1_m15_alignment
 
     htf_sweep = _detect_htf_liquidity_sweep(symbol, htf, price, "buy" if overall_trend == "bullish" else "sell")
 
@@ -439,18 +558,29 @@ def analyze_market_top_down(
         "topdown": {
             "trend": overall_trend,
             "daily_trend": daily_state.get("trend"),
-            "h4_trend": h4_state.get("trend"),
+            "h4_trend": h4_state.get("trend") if h4_state else "disabled",
             "h1_trend": h1_state.get("trend"),
-            "m30_trend": m30_state.get("trend"),
-            "m15_trend": m15_state.get("trend"),
+            "m30_trend": m30_state.get("trend") if str(mtf).upper() == "M30" else "not_used",
+            "m15_trend": (
+                m30_state.get("trend") if str(mtf).upper() == "M15"
+                else m15_state.get("trend") if str(ltf).upper() == "M15"
+                else "not_used"
+            ),
+            "m5_trend": (
+                execution_state.get("trend") if str(execution_tf).upper() == "M5"
+                else m15_state.get("trend") if str(ltf).upper() == "M5"
+                else "not_used"
+            ),
             "execution_trend": execution_state.get("trend"),
             "context_alignment": context_alignment,
             "daily_h4_alignment": daily_h4_alignment,
+            "h1_m15_alignment": h1_m15_alignment,
+            "previous_day_context": daily_context,
         },
         "price": price,
         "timeframes": {
             "DAILY": daily_tf,
-            "H4": h4_tf,
+            "H4": h4_tf or None,
             "HTF": htf,
             "MTF": mtf,
             "LTF": ltf,
@@ -469,10 +599,14 @@ def analyze_market_top_down(
             "m1_m5_confirmation": candle_windows["execution_confirmation"],
         },
         "daily_h4_alignment": daily_h4_alignment,
+        "h1_m15_alignment": h1_m15_alignment,
+        "previous_day_context": daily_context,
+        "session_analysis": _session_trade_analysis(symbol, execution_state),
         "brief_context": {
             "daily": daily_state,
             "h4": h4_state,
             "alignment": context_alignment,
+            "previous_day": daily_context,
         },
         "DAILY": daily_state,
         "H4_CONTEXT": h4_state,

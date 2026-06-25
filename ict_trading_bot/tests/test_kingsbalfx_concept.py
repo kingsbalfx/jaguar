@@ -39,6 +39,7 @@ def _analysis_for_valid_buy():
     h4[-1] = _candle(135.0, 140.0, 134.8, 139.5, 29)
 
     h1 = _bullish_candles(40, start=120.0, step=0.45)
+    h1[20] = _candle(142.0, 147.0, 141.5, 142.5, 20)
     h1[-4] = _candle(137.0, 137.5, 135.0, 135.6, 36)
     h1[-3] = _candle(135.5, 136.2, 134.8, 135.2, 37)
     h1[-2] = _candle(135.1, 137.2, 134.9, 136.9, 38)
@@ -51,6 +52,7 @@ def _analysis_for_valid_buy():
     m15[-1] = _candle(137.5, 139.2, 137.4, 139.0, 29)
 
     m5 = _bullish_candles(20, start=134.0, step=0.25)
+    m5[-5] = _candle(137.20, 137.45, 136.90, 137.30, 15)
     m5[-2] = _candle(138.00, 139.10, 137.95, 138.95, 18)
     m5[-1] = _candle(138.96, 140.25, 138.90, 140.05, 19)
 
@@ -58,7 +60,8 @@ def _analysis_for_valid_buy():
         "DAILY": {"trend": "bullish", "recent_candles": daily},
         "H4_CONTEXT": {"trend": "bullish", "recent_candles": h4},
         "HTF": {"trend": "bullish", "recent_candles": h1},
-        "LTF": {"trend": "bullish", "recent_candles": m15},
+        "MTF": {"trend": "bullish", "recent_candles": m15},
+        "LTF": {"trend": "bullish", "recent_candles": m5},
         "EXECUTION": {"trend": "bullish", "recent_candles": m5},
         "overall_trend": "bullish",
         "m5_candles": m5,
@@ -85,10 +88,10 @@ def test_kingsbalfx_returns_valid_fallback_buy_request():
     assert request["lot"] == 0.10
 
 
-def test_kingsbalfx_rejects_unclear_daily_context():
+def test_kingsbalfx_rejects_unclear_h1_context():
     analysis = _analysis_for_valid_buy()
-    analysis["DAILY"]["trend"] = "range"
-    analysis["DAILY"]["recent_candles"] = [
+    analysis["HTF"]["trend"] = "range"
+    analysis["HTF"]["recent_candles"] = [
         _candle(100.0, 101.0, 99.0, 100.2, index)
         for index in range(10)
     ]
@@ -103,4 +106,4 @@ def test_kingsbalfx_rejects_unclear_daily_context():
     )
 
     assert result["valid"] is False
-    assert result["reason"] == "d1_narrative_unclear"
+    assert result["reason"] == "h1_narrative_unclear"

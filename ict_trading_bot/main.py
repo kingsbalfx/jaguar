@@ -105,6 +105,13 @@ def _state_reasoning(state: dict) -> str:
     evidence = state.get("evidence") or {}
     confirmed = bool(state.get("confirmed"))
     if name == "higher_timeframe_narrative":
+        if "H1" in evidence or "M15" in evidence:
+            return (
+                f"H1={evidence.get('H1', 'unknown')} M15={evidence.get('M15', 'unknown')} "
+                f"h1_bias={evidence.get('h1_bias', 'unknown')} "
+                f"m15_current_h1_bias={evidence.get('m15_current_h1_bias', 'unknown')} "
+                f"agreement={_yes_no(confirmed)}"
+            )
         return f"D1={evidence.get('D1', 'unknown')} H4={evidence.get('H4', 'unknown')} agreement={_yes_no(confirmed)}"
     if name == "external_liquidity":
         zones = evidence.get("entry_side") or []
@@ -171,7 +178,7 @@ def _trend_reasoning(advisories: dict) -> str:
     trend = advisories.get("trend") or {}
     return " ".join(
         f"{timeframe}={trend.get(timeframe, 'unknown')}"
-        for timeframe in ("D1", "H4", "H1", "M15", "M5")
+        for timeframe in ("D1_context", "H1", "M15", "M5", "session")
     )
 
 
@@ -640,11 +647,11 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
         "smt": smt,
         "news": news,
         "trend": {
-            "D1": topdown.get("daily_trend", "unknown"),
-            "H4": topdown.get("h4_trend", "unknown"),
+            "D1_context": (topdown.get("previous_day_context") or {}).get("previous_day_direction", "unknown"),
             "H1": topdown.get("h1_trend", "unknown"),
-            "M15": topdown.get("m15_trend", "unknown"),
+            "M15": topdown.get("m15_trend") or topdown.get("m30_trend", "unknown"),
             "M5": topdown.get("execution_trend", "unknown"),
+            "session": (analysis.get("session_analysis") or {}).get("session", "unknown"),
         },
     }
     observed = tuple(state["name"] for state in setup.get("states", []))

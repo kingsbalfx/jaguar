@@ -14,6 +14,11 @@ from backtest.metrics import calculate_metrics
 from config.symbol_mappings import candidates_for
 from ict_concepts.fvg import detect_fvg_from_df
 from ict_concepts.liquidity import detect_liquidity_zones
+from strategy.pre_trade_analysis import (
+    _external_liquidity as _live_external_liquidity,
+    _h1_m15_candle_alignment as _live_h1_m15_candle_alignment,
+    _previous_day_context as _live_previous_day_context,
+)
 from strategy.unified_strategy import evaluate_unified_setup
 from utils.sessions import in_london_session, in_newyork_session
 from utils.symbol_profile import build_symbol_profile_snapshot, get_entry_profile
@@ -83,9 +88,9 @@ def _tf_to_mt5(tf):
 
 def _profile_snapshot():
     profile = {
-        "htf_timeframe": os.getenv("HTF_TIMEFRAME", "H4"),
-        "mtf_timeframe": os.getenv("MTF_TIMEFRAME", "H1"),
-        "ltf_timeframe": os.getenv("LTF_TIMEFRAME", "M15"),
+        "htf_timeframe": os.getenv("HTF_TIMEFRAME", "H1"),
+        "mtf_timeframe": os.getenv("MTF_TIMEFRAME", "M15"),
+        "ltf_timeframe": os.getenv("LTF_TIMEFRAME", "M5"),
         "default_rr_ratio": float(os.getenv("DEFAULT_RR_RATIO", "3.0")),
         "min_rr_ratio": float(os.getenv("MIN_RR_RATIO", "2.0")),
         "liquidity_tolerance_ratio": float(os.getenv("LIQUIDITY_TOLERANCE_RATIO", "0.0015")),
@@ -323,12 +328,33 @@ def _analysis_from_frames(symbol, price, frames, profile):
         mtf_trend = analysis[mtf]["trend"]
         if mtf_trend in ("bullish", "bearish"):
             overall_trend = mtf_trend
+    external_liquidity = _live_external_liquidity(
+        (htf, analysis[htf]),
+        (mtf, analysis[mtf]),
+        (ltf, analysis[ltf]),
+    )
+    for state in (analysis[htf], analysis[mtf], analysis[ltf]):
+        state["external_liquidity"] = external_liquidity
+    analysis[htf]["liquidity"] = external_liquidity
+    h1_m15_alignment = _live_h1_m15_candle_alignment(analysis[htf], analysis[mtf])
+    if h1_m15_alignment.get("confirmed") and h1_m15_alignment.get("direction"):
+        overall_trend = "bullish" if h1_m15_alignment["direction"] == "buy" else "bearish"
+    previous_day_context = _live_previous_day_context(analysis.get("D1", {}), price)
     return {
         "overall_trend": overall_trend,
         "daily_trend": analysis.get("D1", {}).get("trend"),
-        "topdown": {"trend": overall_trend, "context_alignment": "mixed"},
+        "topdown": {
+            "trend": overall_trend,
+            "context_alignment": "aligned" if h1_m15_alignment.get("confirmed") else "mixed",
+            "h1_trend": analysis[htf].get("trend"),
+            "m15_trend": analysis[mtf].get("trend") if str(mtf).upper() == "M15" else "not_used",
+            "m5_trend": analysis[ltf].get("trend") if str(ltf).upper() == "M5" else "not_used",
+            "execution_trend": analysis[ltf].get("trend"),
+            "h1_m15_alignment": h1_m15_alignment,
+            "previous_day_context": previous_day_context,
+        },
         "price": price,
-        "timeframes": {"HTF": htf, "MTF": mtf, "LTF": ltf},
+        "timeframes": {"DAILY": "D1", "HTF": htf, "MTF": mtf, "LTF": ltf, "EXECUTION": ltf},
         "candle_windows": candle_windows,
         "candle_window_usage": {
             "fetch_per_timeframe": recent_candle_count,
@@ -347,7 +373,11 @@ def _analysis_from_frames(symbol, price, frames, profile):
         "EXECUTION": analysis[ltf],
         "m5_candles": analysis[ltf].get("recent_candles", []),
         "m1_candles": [],
+        "DAILY": analysis.get("D1", {}),
         "D1": analysis.get("D1", {}),
+        "external_liquidity": external_liquidity,
+        "h1_m15_alignment": h1_m15_alignment,
+        "previous_day_context": previous_day_context,
         "correlated": {},
     }
 

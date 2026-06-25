@@ -28,6 +28,22 @@ def _state(name, confirmed, evidence, reason):
 
 
 def _narrative(analysis):
+    intraday_alignment = analysis.get("h1_m15_alignment") or (analysis.get("topdown") or {}).get("h1_m15_alignment")
+    if isinstance(intraday_alignment, dict):
+        evidence = {
+            "H1": intraday_alignment.get("h1_trend"),
+            "M15": intraday_alignment.get("m15_trend"),
+            "h1_bias": intraday_alignment.get("h1_bias"),
+            "m15_current_h1_bias": intraday_alignment.get("m15_current_h1_bias"),
+            "h1_candles_used": intraday_alignment.get("h1_candles_used"),
+            "m15_candles_used": intraday_alignment.get("m15_candles_used"),
+            "alignment_rule": intraday_alignment.get("rule"),
+            "previous_day_context": analysis.get("previous_day_context") or (analysis.get("topdown") or {}).get("previous_day_context"),
+        }
+        if intraday_alignment.get("confirmed") and intraday_alignment.get("direction") in ("buy", "sell"):
+            return intraday_alignment["direction"], evidence
+        return None, evidence
+
     alignment = analysis.get("daily_h4_alignment") or (analysis.get("topdown") or {}).get("daily_h4_alignment")
     if isinstance(alignment, dict):
         evidence = {
@@ -86,6 +102,13 @@ def _retracement_zone(price, fvg, order_block):
 
 
 def _external_liquidity(analysis):
+    supplied = analysis.get("external_liquidity")
+    if isinstance(supplied, dict):
+        return {
+            "EQH": list(supplied.get("EQH") or []),
+            "EQL": list(supplied.get("EQL") or []),
+        }
+
     htf = analysis.get("HTF") or {}
     configured_htf = (
         htf.get("timeframe")
@@ -180,7 +203,7 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
         return bool(condition)
 
     direction, narrative = _narrative(analysis)
-    if not require(SEQUENCE[0], direction is not None, narrative, "D1 and H4 must agree"):
+    if not require(SEQUENCE[0], direction is not None, narrative, "H1 trend and current-H1 M15 candles must agree"):
         return _result(symbol, direction, states)
 
     htf = analysis.get("HTF") or {}
@@ -188,7 +211,7 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
     entry_side = "EQL" if direction == "buy" else "EQH"
     entry_liquidity = list(liquidity.get(entry_side, []))
     targets = rank_liquidity_zones(liquidity, price, direction)
-    if not require(SEQUENCE[1], bool(entry_liquidity), {"entry_side": entry_liquidity}, "H1-or-higher external liquidity is required"):
+    if not require(SEQUENCE[1], bool(entry_liquidity), {"entry_side": entry_liquidity}, "H1/M15/M5 external liquidity is required"):
         return _result(symbol, direction, states)
 
     sweep = liquidity_sweep_or_swing(price, analysis, direction, external_liquidity=liquidity)
