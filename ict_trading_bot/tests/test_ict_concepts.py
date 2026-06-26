@@ -70,7 +70,8 @@ def _analysis():
     return {
         "overall_trend": "bullish",
         "daily_trend": "bullish",
-        "HTF": {"D1": "bullish", "H4": "bullish", **state},
+        "timeframes": {"HTF": "H1", "MTF": "M15", "LTF": "M5", "EXECUTION": "M5"},
+        "HTF": {"timeframe": "H1", **state},
         "MTF": dict(state),
         "LTF": dict(state),
         "EXECUTION": dict(state),
@@ -96,14 +97,14 @@ def test_liquidity_is_ranked_in_target_direction():
     assert ranked[0]["level"] > 1.1020
 
 
-def test_external_liquidity_uses_h1_h4_d1_and_w1_when_available():
+def test_external_liquidity_uses_h1_m15_and_m5_when_available():
     analysis = _analysis()
     analysis["HTF"]["timeframe"] = "H1"
-    analysis["H4_CONTEXT"] = {"liquidity": {"EQH": [{"level": 1.1100}], "EQL": []}}
-    analysis["DAILY"] = {"liquidity": {"EQH": [{"level": 1.1200}], "EQL": []}}
-    analysis["WEEKLY"] = {"liquidity": {"EQH": [{"level": 1.1400}], "EQL": []}}
+    analysis["MTF"]["liquidity"] = {"EQH": [{"level": 1.1100}], "EQL": []}
+    analysis["LTF"]["liquidity"] = {"EQH": [{"level": 1.1200}], "EQL": []}
+    analysis["EXECUTION"]["liquidity"] = {"EQH": [{"level": 1.1300}], "EQL": []}
     liquidity = _external_liquidity(analysis)
-    assert {zone["timeframe"] for zone in liquidity["EQH"]} == {"H1", "H4", "D1", "W1"}
+    assert {zone["timeframe"] for zone in liquidity["EQH"]} == {"H1", "M15", "M5"}
 
 
 def test_retracement_accepts_fvg_at_quarter_level_without_ob_overlap():
@@ -133,11 +134,11 @@ def test_sweep_confirmation_uses_the_supplied_external_liquidity_source():
         {"open": 1.0990, "high": 1.1030, "low": 1.0988, "close": 1.1028},
         {"open": 1.1028, "high": 1.1040, "low": 1.1020, "close": 1.1035},
     ]
-    external = {"EQL": [{"level": 1.0980, "source": "D1_external_liquidity", "timeframe": "D1"}], "EQH": []}
+    external = {"EQL": [{"level": 1.0980, "source": "H1_external_liquidity", "timeframe": "H1"}], "EQH": []}
     result = liquidity_sweep_or_swing(1.1035, analysis, "buy", external_liquidity=external)
     assert result["confirmed"]
-    assert result["swept_source"] == "D1_external_liquidity"
-    assert result["swept_timeframe"] == "D1"
+    assert result["swept_source"] == "H1_external_liquidity"
+    assert result["swept_timeframe"] == "H1"
 
 
 def test_true_fvg_and_order_block_require_sequence_evidence():

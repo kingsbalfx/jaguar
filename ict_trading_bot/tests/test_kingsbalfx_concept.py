@@ -35,9 +35,6 @@ def _analysis_for_valid_buy():
     daily[-2] = _candle(127.0, 132.0, 126.0, 131.5, 16)
     daily[-1] = _candle(131.0, 135.0, 130.5, 134.0, 17)
 
-    h4 = _bullish_candles(30, start=110.0, step=0.9)
-    h4[-1] = _candle(135.0, 140.0, 134.8, 139.5, 29)
-
     h1 = _bullish_candles(40, start=120.0, step=0.45)
     h1[20] = _candle(142.0, 147.0, 141.5, 142.5, 20)
     h1[-4] = _candle(137.0, 137.5, 135.0, 135.6, 36)
@@ -58,7 +55,6 @@ def _analysis_for_valid_buy():
 
     return {
         "DAILY": {"trend": "bullish", "recent_candles": daily},
-        "H4_CONTEXT": {"trend": "bullish", "recent_candles": h4},
         "HTF": {"trend": "bullish", "recent_candles": h1},
         "MTF": {"trend": "bullish", "recent_candles": m15},
         "LTF": {"trend": "bullish", "recent_candles": m5},

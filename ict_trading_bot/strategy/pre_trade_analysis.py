@@ -301,37 +301,6 @@ def _child_candles_inside_current_parent(parent_candles, child_candles, fallback
     return current_parent or child_candles[-fallback_count:]
 
 
-def _current_day_h4_candles(daily_candles, h4_candles):
-    return _child_candles_inside_current_parent(daily_candles, h4_candles, fallback_count=6)
-
-
-def _daily_h4_candle_alignment(daily_state, h4_state):
-    daily_candles = daily_state.get("recent_candles") or []
-    h4_candles = h4_state.get("recent_candles") or []
-    daily_window = daily_candles[-3:]
-    h4_window = _current_day_h4_candles(daily_candles, h4_candles)
-    daily_bias = _window_bias(daily_window)
-    h4_bias = _window_bias(h4_window)
-    trend_d1 = str(daily_state.get("trend") or "").lower()
-    trend_h4 = str(h4_state.get("trend") or "").lower()
-    confirmed = (
-        daily_bias in ("bullish", "bearish")
-        and daily_bias == h4_bias
-        and trend_d1 == trend_h4 == daily_bias
-    )
-    return {
-        "confirmed": confirmed,
-        "direction": "buy" if confirmed and daily_bias == "bullish" else "sell" if confirmed and daily_bias == "bearish" else None,
-        "daily_bias": daily_bias,
-        "h4_current_day_bias": h4_bias,
-        "daily_trend": trend_d1 or None,
-        "h4_trend": trend_h4 or None,
-        "daily_candles_used": len(daily_window),
-        "h4_candles_used": len(h4_window),
-        "rule": "D1 current/previous two candles must align with current-day H4 candles after D1/H4 trend confirmation",
-    }
-
-
 def _h1_m15_candle_alignment(h1_state, m15_state):
     h1_candles = h1_state.get("recent_candles") or []
     m15_candles = m15_state.get("recent_candles") or []
@@ -497,7 +466,6 @@ def analyze_market_top_down(
     ltf=None
 ):
     daily_tf = os.getenv("DAILY_TIMEFRAME", os.getenv("CONTEXT_DAILY_TIMEFRAME", "D1"))
-    h4_tf = os.getenv("FOUR_HOUR_TIMEFRAME", os.getenv("CONTEXT_4H_TIMEFRAME", "")).strip().upper()
     htf = htf or os.getenv("HTF_TIMEFRAME", "H1")
     mtf = mtf or os.getenv("MTF_TIMEFRAME", "M15")
     ltf = ltf or os.getenv("LTF_TIMEFRAME", "M5")
@@ -507,7 +475,7 @@ def analyze_market_top_down(
     atr_period = max(5, int(os.getenv("ENTRY_ATR_PERIOD", "14")))
 
     requested_timeframes = []
-    for tf in [daily_tf, h4_tf, htf, mtf, ltf, execution_tf]:
+    for tf in [daily_tf, htf, mtf, ltf, execution_tf]:
         if tf and tf not in requested_timeframes:
             requested_timeframes.append(tf)
 
@@ -517,7 +485,6 @@ def analyze_market_top_down(
     }
 
     daily_state = analysis[daily_tf]
-    h4_state = analysis.get(h4_tf, {}) if h4_tf else {}
     h1_state = analysis[htf]
     m30_state = analysis[mtf]
     m15_state = analysis[ltf]
@@ -543,7 +510,6 @@ def analyze_market_top_down(
         overall_trend = h1_trend if h1_trend in ("bullish", "bearish") else _majority_trend([h1_state, m30_state, m15_state])
 
     context_alignment = "aligned" if h1_m15_alignment.get("confirmed") else "mixed"
-    daily_h4_alignment = _daily_h4_candle_alignment(daily_state, h4_state) if h4_state else {}
     daily_context = _previous_day_context(daily_state, price)
     h1_state["h1_m15_alignment"] = h1_m15_alignment
     m30_state["h1_m15_alignment"] = h1_m15_alignment
@@ -558,7 +524,6 @@ def analyze_market_top_down(
         "topdown": {
             "trend": overall_trend,
             "daily_trend": daily_state.get("trend"),
-            "h4_trend": h4_state.get("trend") if h4_state else "disabled",
             "h1_trend": h1_state.get("trend"),
             "m30_trend": m30_state.get("trend") if str(mtf).upper() == "M30" else "not_used",
             "m15_trend": (
@@ -573,14 +538,12 @@ def analyze_market_top_down(
             ),
             "execution_trend": execution_state.get("trend"),
             "context_alignment": context_alignment,
-            "daily_h4_alignment": daily_h4_alignment,
             "h1_m15_alignment": h1_m15_alignment,
             "previous_day_context": daily_context,
         },
         "price": price,
         "timeframes": {
             "DAILY": daily_tf,
-            "H4": h4_tf or None,
             "HTF": htf,
             "MTF": mtf,
             "LTF": ltf,
@@ -598,18 +561,15 @@ def analyze_market_top_down(
             "displacement": candle_windows["displacement"],
             "m1_m5_confirmation": candle_windows["execution_confirmation"],
         },
-        "daily_h4_alignment": daily_h4_alignment,
         "h1_m15_alignment": h1_m15_alignment,
         "previous_day_context": daily_context,
         "session_analysis": _session_trade_analysis(symbol, execution_state),
         "brief_context": {
             "daily": daily_state,
-            "h4": h4_state,
             "alignment": context_alignment,
             "previous_day": daily_context,
         },
         "DAILY": daily_state,
-        "H4_CONTEXT": h4_state,
         "HTF": h1_state,
         "MTF": m30_state,
         "LTF": m15_state,

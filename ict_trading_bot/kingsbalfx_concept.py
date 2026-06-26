@@ -478,18 +478,6 @@ def _previous_day_shift(candles: Sequence[Candle], direction: Direction) -> Dict
     return {"confirmed": False, "type": "none", "body_ratio": _body_ratio(previous)}
 
 
-def _h4_aligned(h4_state: Dict[str, Any], h4_candles: Sequence[Candle], direction: Direction) -> bool:
-    state_bias = _bias_from_state(h4_state, h4_candles)
-    if state_bias == direction:
-        return True
-    recent = list(h4_candles)[-8:]
-    if len(recent) < 4:
-        return False
-    if direction == "buy":
-        return recent[-1]["close"] > max(c["high"] for c in recent[:-1])
-    return recent[-1]["close"] < min(c["low"] for c in recent[:-1])
-
-
 def _engulfing(candles: Sequence[Candle], direction: Direction) -> bool:
     if len(candles) < 2:
         return False

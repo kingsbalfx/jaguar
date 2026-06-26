@@ -44,28 +44,21 @@ def _narrative(analysis):
             return intraday_alignment["direction"], evidence
         return None, evidence
 
-    alignment = analysis.get("daily_h4_alignment") or (analysis.get("topdown") or {}).get("daily_h4_alignment")
-    if isinstance(alignment, dict):
-        evidence = {
-            "D1": alignment.get("daily_trend"),
-            "H4": alignment.get("h4_trend"),
-            "daily_bias": alignment.get("daily_bias"),
-            "h4_current_day_bias": alignment.get("h4_current_day_bias"),
-            "daily_candles_used": alignment.get("daily_candles_used"),
-            "h4_candles_used": alignment.get("h4_candles_used"),
-            "alignment_rule": alignment.get("rule"),
-        }
-        if alignment.get("confirmed") and alignment.get("direction") in ("buy", "sell"):
-            return alignment["direction"], evidence
-        return None, evidence
     htf = analysis.get("HTF") or {}
-    d1 = str((analysis.get("DAILY") or {}).get("trend") or htf.get("D1") or analysis.get("daily_trend") or "").lower()
-    h4 = str((analysis.get("H4_CONTEXT") or {}).get("trend") or htf.get("H4") or "").lower()
-    if d1 == h4 == "bullish":
-        return "buy", {"D1": d1, "H4": h4}
-    if d1 == h4 == "bearish":
-        return "sell", {"D1": d1, "H4": h4}
-    return None, {"D1": d1, "H4": h4}
+    mtf = analysis.get("MTF") or {}
+    h1 = str(htf.get("trend") or htf.get("H1") or "").lower()
+    m15 = str(mtf.get("trend") or mtf.get("M15") or "").lower()
+    evidence = {
+        "H1": h1,
+        "M15": m15,
+        "previous_day_context": analysis.get("previous_day_context") or (analysis.get("topdown") or {}).get("previous_day_context"),
+        "alignment_rule": "H1 trend must align with M15 trend when explicit H1/M15 candle alignment is unavailable",
+    }
+    if h1 == m15 == "bullish":
+        return "buy", evidence
+    if h1 == m15 == "bearish":
+        return "sell", evidence
+    return None, evidence
 
 
 def _touches(price, zone):
@@ -101,6 +94,35 @@ def _retracement_zone(price, fvg, order_block):
     return {"confirmed": False}
 
 
+def _ote_retracement_zone(price, fib, direction):
+    if not fib:
+        return {"confirmed": False}
+    low, high = ote_zone(fib, direction)
+    low = float(low or 0.0)
+    high = float(high or 0.0)
+    if low <= 0 or high <= 0:
+        return {"confirmed": False}
+    zone = {
+        "low": min(low, high),
+        "high": max(low, high),
+        "midpoint": (low + high) / 2.0,
+        "kind": "ote",
+        "timeframe": "H1",
+        "source": "optimal_trade_entry_62_79_retracement",
+    }
+    if not _touches(price, zone):
+        return {"confirmed": False, **zone}
+    levels = _zone_levels(zone)
+    nearest = min(("25", "50", "75"), key=lambda name: abs(float(price) - levels[name]))
+    return {
+        **zone,
+        "confirmed": True,
+        "entry_price": float(price),
+        "levels": levels,
+        "nearest_reference_level": nearest,
+    }
+
+
 def _external_liquidity(analysis):
     supplied = analysis.get("external_liquidity")
     if isinstance(supplied, dict):
@@ -113,13 +135,16 @@ def _external_liquidity(analysis):
     configured_htf = (
         htf.get("timeframe")
         or (analysis.get("timeframes") or {}).get("HTF")
-        or "HTF"
+        or "H1"
     )
+    configured_mtf = (analysis.get("timeframes") or {}).get("MTF") or "M15"
+    configured_ltf = (analysis.get("timeframes") or {}).get("LTF") or "M5"
+    execution_tf = (analysis.get("timeframes") or {}).get("EXECUTION") or "M5"
     sources = (
         (str(configured_htf).upper(), htf),
-        ("H4", analysis.get("H4_CONTEXT") or {}),
-        ("D1", analysis.get("DAILY") or analysis.get("D1") or {}),
-        ("W1", analysis.get("WEEKLY") or analysis.get("W1") or {}),
+        (str(configured_mtf).upper(), analysis.get("MTF") or {}),
+        (str(configured_ltf).upper(), analysis.get("LTF") or {}),
+        (str(execution_tf).upper(), analysis.get("EXECUTION") or {}),
     )
     combined = {"EQH": [], "EQL": []}
     seen = set()
@@ -261,11 +286,12 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
     if not require(SEQUENCE[8], target is not None and risk > 0, {"target": target, "risk": risk}, "Opposing external liquidity must provide at least 1.5R"):
         return _result(symbol, direction, states)
 
-    ote = ote_zone(fib, direction) if fib else (0.0, 0.0)
     eligible_fvg = fvg if fvg_correct_half else None
     eligible_order_block = order_block if order_block_correct_half else None
     retracement = _retracement_zone(price, eligible_fvg, eligible_order_block)
-    if not require(SEQUENCE[9], retracement.get("confirmed"), {"fvg": eligible_fvg, "order_block": eligible_order_block, "ote": ote, "zone": retracement}, "Price must retrace into either the true FVG at any depth or the true order block"):
+    ote_retracement = _ote_retracement_zone(price, fib, direction)
+    executable_retracement = retracement if retracement.get("confirmed") else ote_retracement
+    if not require(SEQUENCE[9], executable_retracement.get("confirmed"), {"fvg": eligible_fvg, "order_block": eligible_order_block, "ote": ote_retracement, "zone": executable_retracement}, "Price must retrace into either the true FVG, the true order block, or the H1 OTE zone"):
         return _result(symbol, direction, states)
 
     confirmation = price_action_setup(analysis, direction)
@@ -278,10 +304,10 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
     plan = {
         **market_order,
         "direction": direction,
-        "entry_type": retracement["kind"].upper(),
+        "entry_type": executable_retracement["kind"].upper(),
         "fvg": fvg,
         "order_block": order_block,
-        "confluence_zone": retracement,
+        "confluence_zone": executable_retracement,
         "swept_liquidity": sweep,
         "target_liquidity": target,
     }

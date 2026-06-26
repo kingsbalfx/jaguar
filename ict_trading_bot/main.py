@@ -112,7 +112,11 @@ def _state_reasoning(state: dict) -> str:
                 f"m15_current_h1_bias={evidence.get('m15_current_h1_bias', 'unknown')} "
                 f"agreement={_yes_no(confirmed)}"
             )
-        return f"D1={evidence.get('D1', 'unknown')} H4={evidence.get('H4', 'unknown')} agreement={_yes_no(confirmed)}"
+        return (
+            f"H1={evidence.get('H1', 'unknown')} M15={evidence.get('M15', 'unknown')} "
+            f"previous_day_background={_yes_no(evidence.get('previous_day_context'))} "
+            f"agreement={_yes_no(confirmed)}"
+        )
     if name == "external_liquidity":
         zones = evidence.get("entry_side") or []
         return f"external_liquidity_found={_yes_no(zones)} count={len(zones)} sources={_sources(zones)}"
