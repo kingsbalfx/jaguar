@@ -111,6 +111,10 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
   const activityRegisteredRef = useRef(false);
   const recorderRef = useRef(null);
   const recordingChunksRef = useRef([]);
+  const recordingSessionIdRef = useRef("");
+  const recordingChunkIndexRef = useRef(0);
+  const recordingChunkBytesRef = useRef(0);
+  const recordingStoppingRef = useRef(false);
   const recordingTimerRef = useRef(null);
   const recordingRenderCleanupRef = useRef(null);
   const lastRecordingUrlRef = useRef("");
@@ -415,6 +419,11 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
           setConnectionStatus("reconnecting");
         } else if (status === "CLOSED") {
           if (intentionalLeaveRef.current) return;
+          if (recorderRef.current?.state === "recording") {
+            setConnectionStatus("reconnecting");
+            setRecordingStatus("Network connection changed, but local recording is still running. Keep this page open.");
+            return;
+          }
           setConnectionStatus("disconnected");
           channelRef.current = null;
           setJoined(false);
@@ -691,7 +700,13 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       return;
     }
     try {
+      const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      recordingSessionIdRef.current = sessionId;
+      recordingChunkIndexRef.current = 0;
+      recordingChunkBytesRef.current = 0;
+      recordingStoppingRef.current = false;
       recordingChunksRef.current = [];
+      await clearRecordingChunksFromIndexedDb(sessionId).catch(() => {});
       const stream = await createReliableRecordingStream({
         presentationStream,
         screenStream: recordingScreenStream || screenStreamRef.current,
@@ -707,7 +722,17 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       });
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
-        if (event.data?.size) recordingChunksRef.current.push(event.data);
+        if (!event.data?.size) return;
+        recordingChunksRef.current.push(event.data);
+        recordingChunkBytesRef.current += event.data.size;
+        const index = recordingChunkIndexRef.current;
+        recordingChunkIndexRef.current += 1;
+        saveRecordingChunkToIndexedDb({
+          sessionId: recordingSessionIdRef.current,
+          index,
+          blob: event.data,
+          mimeType: recorder.mimeType || "video/webm",
+        }).catch(() => {});
       };
       (stream.sourceTrack || stream.mediaStream.getVideoTracks()[0])?.addEventListener("ended", () => {
         if (recorder.state === "recording") {
@@ -721,10 +746,14 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
         recordingRenderCleanupRef.current?.();
         recordingScreenStream?.getTracks().forEach((track) => track.stop());
         recordingRenderCleanupRef.current = null;
-        const rawBlob = new Blob(recordingChunksRef.current, { type: recorder.mimeType || "video/webm" });
+        setRecordingStatus(`Finalizing ${formatUploadSize(recordingChunkBytesRef.current)} local recording. Keep this page open.`);
+        const storedChunks = await loadRecordingChunksFromIndexedDb(recordingSessionIdRef.current).catch(() => []);
+        const sourceChunks = storedChunks.length >= recordingChunksRef.current.length ? storedChunks.map((chunk) => chunk.blob) : recordingChunksRef.current;
+        const rawBlob = new Blob(sourceChunks, { type: recorder.mimeType || storedChunks[0]?.mimeType || "video/webm" });
         if (!rawBlob.size) {
           recordingChunksRef.current = [];
           recorderRef.current = null;
+          recordingStoppingRef.current = false;
           setRecording(false);
           setRecordingStatus("The browser returned an empty recording. Keep the room open, start recording again, and make sure the shared screen or camera stays active.");
           return;
@@ -748,21 +777,28 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
         const name = `KINGSBALFX_${safeRoom}_${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
         recordingChunksRef.current = [];
         recorderRef.current = null;
+        recordingStoppingRef.current = false;
         setRecording(false);
         if (lastRecordingUrlRef.current) URL.revokeObjectURL(lastRecordingUrlRef.current);
         const url = URL.createObjectURL(finalBlob);
         lastRecordingUrlRef.current = url;
         setLastRecording({ url, name, size: finalBlob.size, watermarked: finalWatermarked });
         saveRecordingBackupToIndexedDb({ blob: finalBlob, name, watermarked: finalWatermarked }).catch(() => {});
+        clearRecordingChunksFromIndexedDb(recordingSessionIdRef.current).catch(() => {});
         setRecordingStatus(!finalWatermarked
           ? "Recording is ready. Browser did not support live watermark capture, so upload is starting with the raw copy."
           : "Watermarked recording is ready. Upload is starting now; keep this page open.");
         void publishRecording(finalBlob);
       };
-      recorder.start(10000);
+      recorder.start(5000);
       setRecording(true);
       setRecordingSeconds(0);
-      recordingTimerRef.current = window.setInterval(() => setRecordingSeconds((current) => current + 1), 1000);
+      recordingTimerRef.current = window.setInterval(() => {
+        setRecordingSeconds((current) => current + 1);
+        if (recorderRef.current?.state === "recording") {
+          try { recorderRef.current.requestData(); } catch {}
+        }
+      }, 1000);
       setRecordingStatus("Recording in progress. If you selected Entire Screen, it will follow any window/app you move to. KINGSBALFX watermark is applied live.");
     } catch (err) {
       recordingScreenStream?.getTracks().forEach((track) => track.stop());
@@ -771,8 +807,13 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
   }, [applyScreenShareStream, isHost, publishRecording, roomName]);
 
   const stopRecording = useCallback(() => {
+    if (recordingStoppingRef.current) {
+      setRecordingStatus(`Already finalizing ${formatUploadSize(recordingChunkBytesRef.current)} recording. Keep this page open.`);
+      return;
+    }
     if (recorderRef.current?.state === "recording") {
-      setRecordingStatus("Finalizing recording before publishing...");
+      recordingStoppingRef.current = true;
+      setRecordingStatus(`Finalizing ${formatUploadSize(recordingChunkBytesRef.current)} recording before publishing...`);
       try { recorderRef.current.requestData(); } catch {}
       recorderRef.current.stop();
     }
@@ -1253,6 +1294,67 @@ async function saveRecordingBackupToIndexedDb(recording) {
       watermarked: recording.watermarked,
       savedAt: new Date().toISOString(),
     }, "last-live-recording");
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+  db.close();
+}
+
+async function saveRecordingChunkToIndexedDb({ sessionId, index, blob, mimeType }) {
+  const db = await openRecordingBackupDb();
+  if (!db || !sessionId || !blob?.size) return;
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction("recordings", "readwrite");
+    transaction.objectStore("recordings").put({
+      sessionId,
+      index,
+      blob,
+      mimeType,
+      size: blob.size,
+      savedAt: new Date().toISOString(),
+    }, `chunk:${sessionId}:${String(index).padStart(8, "0")}`);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+  db.close();
+}
+
+async function loadRecordingChunksFromIndexedDb(sessionId) {
+  const db = await openRecordingBackupDb();
+  if (!db || !sessionId) return [];
+  const chunks = await new Promise((resolve, reject) => {
+    const transaction = db.transaction("recordings", "readonly");
+    const store = transaction.objectStore("recordings");
+    const request = store.openCursor();
+    const results = [];
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve(results.sort((a, b) => a.index - b.index));
+        return;
+      }
+      if (String(cursor.key).startsWith(`chunk:${sessionId}:`)) results.push(cursor.value);
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return chunks;
+}
+
+async function clearRecordingChunksFromIndexedDb(sessionId) {
+  const db = await openRecordingBackupDb();
+  if (!db || !sessionId) return;
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction("recordings", "readwrite");
+    const store = transaction.objectStore("recordings");
+    const request = store.openCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      if (String(cursor.key).startsWith(`chunk:${sessionId}:`)) cursor.delete();
+      cursor.continue();
+    };
     transaction.oncomplete = resolve;
     transaction.onerror = () => reject(transaction.error);
   });
