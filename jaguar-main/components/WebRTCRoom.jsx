@@ -115,6 +115,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
   const recordingChunkIndexRef = useRef(0);
   const recordingChunkBytesRef = useRef(0);
   const recordingStoppingRef = useRef(false);
+  const recordingStartedAtRef = useRef(0);
   const recordingTimerRef = useRef(null);
   const recordingRenderCleanupRef = useRef(null);
   const lastRecordingUrlRef = useRef("");
@@ -705,6 +706,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       recordingChunkIndexRef.current = 0;
       recordingChunkBytesRef.current = 0;
       recordingStoppingRef.current = false;
+      recordingStartedAtRef.current = Date.now();
       recordingChunksRef.current = [];
       await clearRecordingChunksFromIndexedDb(sessionId).catch(() => {});
       const stream = await createReliableRecordingStream({
@@ -758,21 +760,6 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
           setRecordingStatus("The browser returned an empty recording. Keep the room open, start recording again, and make sure the shared screen or camera stays active.");
           return;
         }
-        let finalBlob = rawBlob;
-        let finalWatermarked = stream.watermarked !== false;
-        if (stream.needsWatermark) {
-          try {
-            setRecordingStatus("Full screen recording captured. Applying KINGSBALFX watermark before backup/upload...");
-            finalBlob = await createWatermarkedRecordingBlob(rawBlob, (progress) => {
-              setRecordingStatus(`Applying KINGSBALFX watermark: ${progress}%. Keep this page open.`);
-            });
-            finalWatermarked = true;
-          } catch (watermarkError) {
-            finalBlob = rawBlob;
-            finalWatermarked = false;
-            setRecordingStatus(`${watermarkError.message || "Unable to apply watermark after recording."} Full raw screen recording is still available for download.`);
-          }
-        }
         const safeRoom = String(roomName || "live-session").replace(/[^a-zA-Z0-9_-]/g, "_");
         const name = `KINGSBALFX_${safeRoom}_${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
         recordingChunksRef.current = [];
@@ -780,10 +767,38 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
         recordingStoppingRef.current = false;
         setRecording(false);
         if (lastRecordingUrlRef.current) URL.revokeObjectURL(lastRecordingUrlRef.current);
-        const url = URL.createObjectURL(finalBlob);
-        lastRecordingUrlRef.current = url;
-        setLastRecording({ url, name, size: finalBlob.size, watermarked: finalWatermarked });
-        saveRecordingBackupToIndexedDb({ blob: finalBlob, name, watermarked: finalWatermarked }).catch(() => {});
+        const rawUrl = URL.createObjectURL(rawBlob);
+        lastRecordingUrlRef.current = rawUrl;
+        setLastRecording({ url: rawUrl, name, size: rawBlob.size, watermarked: stream.watermarked !== false });
+        saveRecordingBackupToIndexedDb({ blob: rawBlob, name, watermarked: stream.watermarked !== false }).catch(() => {});
+        setRecordingStatus("Full local recording backup is ready. Preparing watermark/upload; you can download the backup now.");
+
+        let finalBlob = rawBlob;
+        let finalWatermarked = stream.watermarked !== false;
+        const maxWatermarkMb = Number(process.env.NEXT_PUBLIC_MAX_WATERMARK_PROCESS_MB || 900);
+        const elapsedMinutes = recordingStartedAtRef.current ? (Date.now() - recordingStartedAtRef.current) / 60000 : 0;
+        const shouldSkipPostWatermark = stream.needsWatermark && ((rawBlob.size / 1024 / 1024) > maxWatermarkMb || elapsedMinutes > 90);
+        if (stream.needsWatermark && !shouldSkipPostWatermark) {
+          try {
+            setRecordingStatus("Full screen recording captured. Applying KINGSBALFX watermark before backup/upload...");
+            finalBlob = await createWatermarkedRecordingBlob(rawBlob, (progress) => {
+              setRecordingStatus(`Applying KINGSBALFX watermark: ${progress}%. Keep this page open.`);
+            });
+            finalWatermarked = true;
+            if (lastRecordingUrlRef.current) URL.revokeObjectURL(lastRecordingUrlRef.current);
+            const watermarkedUrl = URL.createObjectURL(finalBlob);
+            lastRecordingUrlRef.current = watermarkedUrl;
+            setLastRecording({ url: watermarkedUrl, name, size: finalBlob.size, watermarked: true });
+            saveRecordingBackupToIndexedDb({ blob: finalBlob, name, watermarked: true }).catch(() => {});
+          } catch (watermarkError) {
+            finalBlob = rawBlob;
+            finalWatermarked = false;
+            setRecordingStatus(`${watermarkError.message || "Unable to apply watermark after recording."} Full raw screen recording is still available for download.`);
+          }
+        } else if (shouldSkipPostWatermark) {
+          finalWatermarked = false;
+          setRecordingStatus(`Full recording is too large/long for safe browser watermark processing. Uploading the complete raw backup to avoid stop/finalize failure.`);
+        }
         clearRecordingChunksFromIndexedDb(recordingSessionIdRef.current).catch(() => {});
         setRecordingStatus(!finalWatermarked
           ? "Recording is ready. Browser did not support live watermark capture, so upload is starting with the raw copy."
