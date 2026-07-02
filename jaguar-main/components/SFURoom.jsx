@@ -18,6 +18,51 @@ function hasConfiguredSfu() {
   return false;
 }
 
+function waitForVideoReady(video) {
+  if (video.videoWidth && video.videoHeight && video.readyState >= 2) return Promise.resolve();
+  return Promise.race([
+    new Promise((resolve) => {
+      const done = () => resolve();
+      video.addEventListener("loadedmetadata", done, { once: true });
+      video.addEventListener("loadeddata", done, { once: true });
+      video.addEventListener("playing", done, { once: true });
+    }),
+    new Promise((resolve) => window.setTimeout(resolve, 1500)),
+  ]);
+}
+
+function waitForImage(image) {
+  if (image.complete) return Promise.resolve();
+  return new Promise((resolve) => {
+    image.onload = resolve;
+    image.onerror = resolve;
+  });
+}
+
+function drawSnapshotWatermark(context, logo, width, height) {
+  const padding = Math.max(18, Math.round(width * 0.018));
+  const logoSize = Math.max(56, Math.round(width * 0.065));
+  const boxWidth = Math.max(250, Math.round(width * 0.24));
+  const boxHeight = logoSize + padding;
+  const x = width - boxWidth - padding;
+  const y = padding;
+  context.fillStyle = "rgba(0, 0, 0, 0.72)";
+  context.fillRect(x, y, boxWidth, boxHeight);
+  if (logo.complete) context.drawImage(logo, x + padding / 2, y + padding / 2, logoSize, logoSize);
+  context.fillStyle = "#ffffff";
+  context.font = `800 ${Math.max(22, Math.round(width * 0.025))}px sans-serif`;
+  context.fillText("KINGSBALFX", x + logoSize + padding, y + boxHeight * 0.62);
+  context.save();
+  context.globalAlpha = 0.13;
+  context.translate(width / 2, height / 2);
+  context.rotate(-Math.PI / 8);
+  context.fillStyle = "#ffffff";
+  context.font = `800 ${Math.max(44, Math.round(width * 0.055))}px sans-serif`;
+  context.textAlign = "center";
+  context.fillText("KINGSBALFX", 0, 0);
+  context.restore();
+}
+
 function VideoTile({ stream, label, muted = false }) {
   const videoRef = useRef(null);
   const [zoom, setZoom] = useState(1);
@@ -80,6 +125,9 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
   const [requestStatus, setRequestStatus] = useState("");
   const [micEnabled, setMicEnabled] = useState(true);
   const [cameraEnabled, setCameraEnabled] = useState(true);
+  const [sharingScreen, setSharingScreen] = useState(false);
+  const [sendingScreenshot, setSendingScreenshot] = useState(false);
+  const [screenshotStatus, setScreenshotStatus] = useState("");
 
   const sfuConfigured = hasConfiguredSfu();
 
@@ -181,11 +229,64 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
       localStreamRef.current = stream;
       setLocalStream(stream);
       setCameraEnabled(true);
+      setSharingScreen(true);
+      stream.getVideoTracks()[0].onended = () => setSharingScreen(false);
       await publishTracks(stream, "screen");
     } catch (err) {
       setError(err.message || "Unable to share screen.");
     }
   }, [publishTracks]);
+
+  const sendScreenSnapshot = useCallback(async () => {
+    if (!isHost || sendingScreenshot) return;
+    const track = localStreamRef.current?.getVideoTracks?.()[0];
+    if (!sharingScreen || !track || track.readyState !== "live") {
+      setScreenshotStatus("Start screen sharing first, then send the screenshot to selected users.");
+      return;
+    }
+    setSendingScreenshot(true);
+    setScreenshotStatus("Preparing KINGSBALFX screen screenshot...");
+    const video = document.createElement("video");
+    video.srcObject = new MediaStream([track]);
+    video.muted = true;
+    video.playsInline = true;
+    video.autoplay = true;
+    try {
+      await video.play().catch(() => {});
+      await waitForVideoReady(video);
+      const settings = track.getSettings?.() || {};
+      const canvas = document.createElement("canvas");
+      canvas.width = settings.width || video.videoWidth || 1280;
+      canvas.height = settings.height || video.videoHeight || 720;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("This browser cannot prepare the screen screenshot.");
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const logo = new Image();
+      logo.src = "/jaguar.png";
+      await Promise.race([waitForImage(logo), new Promise((resolve) => window.setTimeout(resolve, 1200))]);
+      drawSnapshotWatermark(context, logo, canvas.width, canvas.height);
+      const response = await fetch("/api/admin/live-session/screenshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomName,
+          note: `Admin shared a live screen screenshot from ${roomTitle || roomName}.`,
+          imageData: canvas.toDataURL("image/jpeg", 0.78),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to send screen screenshot.");
+      const notified = data.notifications?.notified || 0;
+      const emailed = data.notifications?.emailed || 0;
+      setScreenshotStatus(`Screenshot sent. ${notified} in-app alert${notified === 1 ? "" : "s"} created; ${emailed} email${emailed === 1 ? "" : "s"} sent.`);
+    } catch (err) {
+      setScreenshotStatus(err.message || "Unable to send screen screenshot.");
+    } finally {
+      video.pause();
+      video.srcObject = null;
+      setSendingScreenshot(false);
+    }
+  }, [isHost, roomName, roomTitle, sendingScreenshot, sharingScreen]);
 
   const toggleMic = useCallback(() => {
     setMicEnabled((current) => {
@@ -333,6 +434,7 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
     setLocalStream(null);
+    setSharingScreen(false);
     recvTransportRef.current?.close();
     sendTransportRef.current?.close();
     recvTransportRef.current = null;
@@ -396,6 +498,21 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
 
       {error && <div className="mt-3"><FeedbackMessage message={error} type="error" /></div>}
       {requestStatus && <div className="mt-3"><FeedbackMessage message={requestStatus} type={/approved/i.test(requestStatus) ? "success" : "info"} /></div>}
+      {screenshotStatus && <div className="mt-3"><FeedbackMessage message={screenshotStatus} type={/unable|failed|first|large/i.test(screenshotStatus) ? "error" : "success"} /></div>}
+      {isHost && sharingScreen && (
+        <div className="fixed bottom-24 right-4 z-[160] max-w-[calc(100vw-2rem)] rounded-2xl border border-cyan-300/40 bg-slate-950/95 p-3 text-white shadow-2xl shadow-cyan-950/40 backdrop-blur">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200">Screen Share</div>
+          <button
+            type="button"
+            onClick={sendScreenSnapshot}
+            disabled={sendingScreenshot}
+            className="rounded-xl bg-cyan-600 px-4 py-3 text-sm font-black shadow-lg disabled:opacity-60"
+          >
+            {sendingScreenshot ? "Sending screenshot..." : "Send screenshot to selected users"}
+          </button>
+          <div className="mt-2 text-[11px] text-gray-300">Visible while this app tab is open. Browser security cannot draw this over other apps.</div>
+        </div>
+      )}
 
       {isHost && stageRequests.length > 0 && (
         <div className="fixed inset-x-3 top-20 z-[120] mx-auto max-w-3xl rounded-2xl border border-sky-300/30 bg-slate-950/95 p-3 text-white shadow-2xl shadow-black/50 backdrop-blur">

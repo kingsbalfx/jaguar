@@ -1001,6 +1001,20 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
           </label>
         </div>
       )}
+      {isHost && sharingScreen && (
+        <div className="fixed bottom-24 right-4 z-[160] max-w-[calc(100vw-2rem)] rounded-2xl border border-cyan-300/40 bg-slate-950/95 p-3 text-white shadow-2xl shadow-cyan-950/40 backdrop-blur">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200">Screen Share</div>
+          <button
+            type="button"
+            onClick={sendScreenSnapshot}
+            disabled={sendingScreenshot}
+            className="rounded-xl bg-cyan-600 px-4 py-3 text-sm font-black shadow-lg disabled:opacity-60"
+          >
+            {sendingScreenshot ? "Sending screenshot..." : "Send screenshot to selected users"}
+          </button>
+          <div className="mt-2 text-[11px] text-gray-300">Visible while this app tab is open. Browser security cannot draw this over other apps.</div>
+        </div>
+      )}
       <FeedbackMessage
         message={error || recordingStatus}
         type={error || /unable|requires|could not|above|failed|recovery/i.test(recordingStatus) ? "error" : "info"}
