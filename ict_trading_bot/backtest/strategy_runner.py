@@ -14,10 +14,15 @@ from backtest.metrics import calculate_metrics
 from config.symbol_mappings import candidates_for
 from ict_concepts.fvg import detect_fvg_from_df
 from ict_concepts.liquidity import detect_liquidity_zones
+from market_structure.structure import analyze_market_structure
 from strategy.pre_trade_analysis import (
     _external_liquidity as _live_external_liquidity,
+    _background_reference_levels as _live_background_reference_levels,
     _h1_m15_candle_alignment as _live_h1_m15_candle_alignment,
-    _previous_day_context as _live_previous_day_context,
+    _opening_gap_from_state as _live_opening_gap_from_state,
+    _select_background_context as _live_select_background_context,
+    _standard_fetch_bars as _live_standard_fetch_bars,
+    _visual_live_concepts as _live_visual_concepts,
 )
 from strategy.unified_strategy import evaluate_unified_setup
 from utils.sessions import in_london_session, in_newyork_session
@@ -49,7 +54,7 @@ def _env_int(name, default, minimum=1, maximum=None):
 
 def _concept_candle_windows():
     return {
-        "fetch_per_timeframe": _env_int("CANDLE_FETCH_PER_TIMEFRAME", 500, minimum=120, maximum=2000),
+        "fetch_per_timeframe": _env_int("CANDLE_FETCH_PER_TIMEFRAME", 1000, minimum=500, maximum=5000),
         "htf_context": _env_int("HTF_CONTEXT_CANDLES", 120, minimum=50, maximum=500),
         "external_liquidity": _env_int("EXTERNAL_LIQUIDITY_CANDLES", 200, minimum=50, maximum=500),
         "structure": _env_int("STRUCTURE_CANDLES", 80, minimum=20, maximum=250),
@@ -81,6 +86,7 @@ def _tf_to_mt5(tf):
         "M30": mt5.TIMEFRAME_M30,
         "H1": mt5.TIMEFRAME_H1,
         "H4": mt5.TIMEFRAME_H4,
+        "W1": mt5.TIMEFRAME_W1,
         "D1": mt5.TIMEFRAME_D1,
     }
     return mapping[tf]
@@ -88,6 +94,9 @@ def _tf_to_mt5(tf):
 
 def _profile_snapshot():
     profile = {
+        "weekly_timeframe": os.getenv("WEEKLY_TIMEFRAME", "W1"),
+        "daily_timeframe": os.getenv("DAILY_TIMEFRAME", "D1"),
+        "daily_context_fallback_timeframe": os.getenv("DAILY_CONTEXT_FALLBACK_TIMEFRAME", os.getenv("D1_CONTEXT_FALLBACK_TIMEFRAME", "H4")),
         "htf_timeframe": os.getenv("HTF_TIMEFRAME", "H1"),
         "mtf_timeframe": os.getenv("MTF_TIMEFRAME", "M15"),
         "ltf_timeframe": os.getenv("LTF_TIMEFRAME", "M5"),
@@ -272,24 +281,85 @@ def _atr_from_df(df, period=14):
     return sum(window) / len(window)
 
 
+def _empty_timeframe_state(timeframe):
+    return {
+        "timeframe": timeframe,
+        "trend": "neutral",
+        "fib": {},
+        "fvgs": [],
+        "order_blocks": [],
+        "liquidity": {"EQH": [], "EQL": []},
+        "swings": [],
+        "market_structure": {
+            "timeframe": timeframe,
+            "trend": "range",
+            "events": [],
+            "last_event": None,
+            "bos": False,
+            "choch": False,
+            "mss": False,
+        },
+        "recent_candles": [],
+        "concept_windows": {
+            "htf_context": [],
+            "external_liquidity": [],
+            "structure": [],
+            "true_fvg_ob_context": [],
+            "smt": [],
+            "sweep": [],
+            "displacement": [],
+            "execution_confirmation": [],
+        },
+        "candle_window_lengths": {
+            "fetched": 0,
+            "htf_context": 0,
+            "external_liquidity": 0,
+            "structure": 0,
+            "true_fvg_ob_context": 0,
+            "smt": 0,
+            "sweep": 0,
+            "displacement": 0,
+            "execution_confirmation": 0,
+        },
+        "atr": 0.0,
+    }
+
+
 def _analysis_from_frames(symbol, price, frames, profile):
+    weekly_tf = str(profile.get("weekly_timeframe", "W1")).upper()
+    daily_tf = str(profile.get("daily_timeframe", "D1")).upper()
+    daily_fallback_tf = str(profile.get("daily_context_fallback_timeframe", "H4")).upper()
     htf = profile["htf_timeframe"]
     mtf = profile["mtf_timeframe"]
     ltf = profile["ltf_timeframe"]
+    required_timeframes = {str(htf), str(mtf), str(ltf)}
+    background_timeframes = {daily_tf, weekly_tf}
+    if daily_fallback_tf:
+        background_timeframes.add(daily_fallback_tf)
 
     analysis = {}
     entry_profile = get_entry_profile(symbol)
     candle_windows = _concept_candle_windows()
-    recent_candle_count = max(int(entry_profile["recent_candles"]), candle_windows["fetch_per_timeframe"])
+    base_recent_candle_count = max(int(entry_profile["recent_candles"]), candle_windows["fetch_per_timeframe"])
     atr_period = max(5, int(profile.get("entry_atr_period", 14)))
     for timeframe, df in frames.items():
         if df is None or len(df) < 20:
-            return None
+            if timeframe in required_timeframes:
+                return None
+            if timeframe in background_timeframes:
+                analysis[timeframe] = _empty_timeframe_state(timeframe)
+                continue
+            continue
         swings = _swings_from_df(df)
         timeframe_trend = _trend_from_swings(swings)
-        recent_candles = _recent_candles_from_df(df, bars=recent_candle_count)
+        market_structure = analyze_market_structure(swings, direction=timeframe_trend, timeframe=timeframe)
+        if timeframe_trend not in ("bullish", "bearish") and market_structure.get("trend") in ("bullish", "bearish"):
+            timeframe_trend = market_structure["trend"]
+        timeframe_fetch_bars = _live_standard_fetch_bars(timeframe, base_recent_candle_count)
+        recent_candles = _recent_candles_from_df(df, bars=timeframe_fetch_bars)
         analysis[timeframe] = {
             "trend": timeframe_trend,
+            "fetch_bars": timeframe_fetch_bars,
             "fib": _fib_from_df(df),
             "fvgs": [
                 {**fvg, "timeframe": timeframe}
@@ -298,6 +368,7 @@ def _analysis_from_frames(symbol, price, frames, profile):
             "order_blocks": _order_blocks_from_df(symbol, timeframe, df),
             "liquidity": detect_liquidity_zones(swings),
             "swings": swings,
+            "market_structure": market_structure,
             "recent_candles": recent_candles,
             "concept_windows": {
                 "htf_context": _candle_window(recent_candles, candle_windows["htf_context"]),
@@ -311,6 +382,7 @@ def _analysis_from_frames(symbol, price, frames, profile):
             },
             "candle_window_lengths": {
                 "fetched": len(recent_candles),
+                "requested_fetch": timeframe_fetch_bars,
                 "htf_context": len(_candle_window(recent_candles, candle_windows["htf_context"])),
                 "external_liquidity": len(_candle_window(recent_candles, candle_windows["external_liquidity"])),
                 "structure": len(_candle_window(recent_candles, candle_windows["structure"])),
@@ -322,6 +394,9 @@ def _analysis_from_frames(symbol, price, frames, profile):
             },
             "atr": _atr_from_df(df, period=atr_period),
         }
+
+    for timeframe in background_timeframes:
+        analysis.setdefault(timeframe, _empty_timeframe_state(timeframe))
 
     overall_trend = analysis[htf]["trend"]
     if overall_trend not in ("bullish", "bearish"):
@@ -339,22 +414,53 @@ def _analysis_from_frames(symbol, price, frames, profile):
     h1_m15_alignment = _live_h1_m15_candle_alignment(analysis[htf], analysis[mtf])
     if h1_m15_alignment.get("confirmed") and h1_m15_alignment.get("direction"):
         overall_trend = "bullish" if h1_m15_alignment["direction"] == "buy" else "bearish"
-    previous_day_context = _live_previous_day_context(analysis.get("D1", {}), price)
+    background_state, previous_day_context = _live_select_background_context(
+        analysis.get(daily_tf, _empty_timeframe_state(daily_tf)),
+        analysis.get(daily_fallback_tf, _empty_timeframe_state(daily_fallback_tf)),
+        price,
+        primary_timeframe=daily_tf,
+        fallback_timeframe=daily_fallback_tf,
+    )
+    opening_gaps = {
+        "NDOG": _live_opening_gap_from_state(analysis.get(daily_tf, _empty_timeframe_state(daily_tf)), price, "NDOG", daily_tf),
+        "NWOG": _live_opening_gap_from_state(analysis.get(weekly_tf, _empty_timeframe_state(weekly_tf)), price, "NWOG", weekly_tf),
+    }
+    visual_concepts = _live_visual_concepts(
+        symbol,
+        price,
+        overall_trend,
+        ((htf, analysis[htf]), (mtf, analysis[mtf]), (ltf, analysis[ltf])),
+        reference_levels=_live_background_reference_levels(background_state),
+    )
     return {
         "overall_trend": overall_trend,
-        "daily_trend": analysis.get("D1", {}).get("trend"),
+        "daily_trend": analysis.get(daily_tf, {}).get("trend"),
         "topdown": {
             "trend": overall_trend,
             "context_alignment": "aligned" if h1_m15_alignment.get("confirmed") else "mixed",
+            "daily_trend": analysis.get(daily_tf, {}).get("trend"),
+            "background_trend": background_state.get("trend"),
+            "background_timeframe": previous_day_context.get("source_timeframe"),
             "h1_trend": analysis[htf].get("trend"),
             "m15_trend": analysis[mtf].get("trend") if str(mtf).upper() == "M15" else "not_used",
             "m5_trend": analysis[ltf].get("trend") if str(ltf).upper() == "M5" else "not_used",
             "execution_trend": analysis[ltf].get("trend"),
             "h1_m15_alignment": h1_m15_alignment,
             "previous_day_context": previous_day_context,
+            "opening_gaps": opening_gaps,
+            "visual_concepts": visual_concepts,
         },
         "price": price,
-        "timeframes": {"DAILY": "D1", "HTF": htf, "MTF": mtf, "LTF": ltf, "EXECUTION": ltf},
+        "timeframes": {
+            "WEEKLY": weekly_tf,
+            "DAILY": daily_tf,
+            "DAILY_CONTEXT_FALLBACK": daily_fallback_tf,
+            "BACKGROUND_CONTEXT": previous_day_context.get("source_timeframe"),
+            "HTF": htf,
+            "MTF": mtf,
+            "LTF": ltf,
+            "EXECUTION": ltf,
+        },
         "candle_windows": candle_windows,
         "candle_window_usage": {
             "fetch_per_timeframe": recent_candle_count,
@@ -373,11 +479,16 @@ def _analysis_from_frames(symbol, price, frames, profile):
         "EXECUTION": analysis[ltf],
         "m5_candles": analysis[ltf].get("recent_candles", []),
         "m1_candles": [],
-        "DAILY": analysis.get("D1", {}),
-        "D1": analysis.get("D1", {}),
+        "WEEKLY": analysis.get(weekly_tf, _empty_timeframe_state(weekly_tf)),
+        "DAILY": analysis.get(daily_tf, _empty_timeframe_state(daily_tf)),
+        "DAILY_CONTEXT": background_state,
+        "DAILY_CONTEXT_FALLBACK": analysis.get(daily_fallback_tf, _empty_timeframe_state(daily_fallback_tf)),
+        "D1": analysis.get(daily_tf, _empty_timeframe_state(daily_tf)),
         "external_liquidity": external_liquidity,
         "h1_m15_alignment": h1_m15_alignment,
         "previous_day_context": previous_day_context,
+        "opening_gaps": opening_gaps,
+        "visual_concepts": visual_concepts,
         "correlated": {},
     }
 
@@ -434,12 +545,19 @@ def run_strategy_backtest(symbols):
         htf = profile["htf_timeframe"]
         mtf = profile["mtf_timeframe"]
         ltf = profile["ltf_timeframe"]
+        weekly_tf = str(profile.get("weekly_timeframe", "W1")).upper()
+        daily_tf = str(profile.get("daily_timeframe", "D1")).upper()
+        daily_fallback_tf = str(profile.get("daily_context_fallback_timeframe", "H4")).upper()
+        base_fetch = _concept_candle_windows()["fetch_per_timeframe"]
         frames_full = {
-            htf: _fetch_rates(symbol, htf, history_bars),
-            mtf: _fetch_rates(symbol, mtf, history_bars),
-            ltf: _fetch_rates(symbol, ltf, history_bars),
-            "D1": _fetch_rates(symbol, "D1", max(400, history_bars // 4)),
+            htf: _fetch_rates(symbol, htf, max(history_bars, _live_standard_fetch_bars(htf, base_fetch))),
+            mtf: _fetch_rates(symbol, mtf, max(history_bars, _live_standard_fetch_bars(mtf, base_fetch))),
+            ltf: _fetch_rates(symbol, ltf, max(history_bars, _live_standard_fetch_bars(ltf, base_fetch))),
+            weekly_tf: _fetch_rates(symbol, weekly_tf, max(260, _live_standard_fetch_bars(weekly_tf, base_fetch), history_bars // 24)),
+            daily_tf: _fetch_rates(symbol, daily_tf, max(370, _live_standard_fetch_bars(daily_tf, base_fetch), history_bars // 4)),
         }
+        if daily_fallback_tf and daily_fallback_tf not in frames_full:
+            frames_full[daily_fallback_tf] = _fetch_rates(symbol, daily_fallback_tf, max(720, _live_standard_fetch_bars(daily_fallback_tf, base_fetch), history_bars // 2))
         ltf_df = frames_full[ltf]
         if ltf_df.empty or len(ltf_df) <= warmup_bars + lookahead_bars:
             continue

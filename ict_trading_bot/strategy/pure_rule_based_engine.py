@@ -3,19 +3,19 @@
 # =====================================================
 """
 Reads the actual output of liquidity_sweep_or_swing() and bos_setup()
-and makes a deterministic GO / NO‑GO decision.
+and makes a deterministic GO / NOâ€‘GO decision.
 
 Required core rules (must be true):
 1. Liquidity Sweep OR confirmed swing structure
 2. Break of Structure (MTF or LTF)
-3. Displacement (body ≥ 55% of range, or flag from liquidity state)
+3. Displacement (body â‰¥ 55% of range, or flag from liquidity state)
 4. Price in discount (for buy) or premium (for sell)
-5. (Advisory) FVG or Order Block present – if both missing, still OK
+5. (Advisory) FVG or Order Block present â€“ if both missing, still OK
    if the first 4 are clean.
-6. (Advisory) SMT divergence – if present, even stronger.
-7. Kill Zone – not required, but increases confidence (via separate sizing).
+6. (Advisory) SMT divergence â€“ if present, even stronger.
+7. Kill Zone â€“ not required, but increases confidence (via separate sizing).
 
-If the first 4 rules pass → TRADE.
+If the first 4 rules pass â†’ TRADE.
 """
 
 import logging
@@ -102,6 +102,27 @@ class ICTBinaryEvaluator:
 
         # 6. SMT (advisory)
         if smt_ok:
-            self.reasons.append("SMT divergence confirmed – extra confidence")
+            self.reasons.append("SMT divergence confirmed â€“ extra confidence")
 
         return True, "ICT core rules satisfied"
+
+
+class PureRuleBasedEngine:
+    """Compatibility facade around the deterministic ICT binary evaluator."""
+
+    def __init__(self):
+        self.evaluator = ICTBinaryEvaluator()
+
+    def evaluate(self, symbol, direction, analysis):
+        confirmed, reason = self.evaluator.evaluate(symbol, direction, analysis or {})
+        return {
+            "confirmed": confirmed,
+            "executable": confirmed,
+            "decision": "EXECUTE" if confirmed else "SKIP",
+            "reason": reason,
+            "reasons": list(self.evaluator.reasons),
+        }
+
+    def should_trade(self, symbol, direction, analysis):
+        result = self.evaluate(symbol, direction, analysis)
+        return bool(result["confirmed"]), result["reason"]

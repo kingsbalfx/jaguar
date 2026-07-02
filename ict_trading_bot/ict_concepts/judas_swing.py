@@ -21,7 +21,7 @@ from typing import Dict, List, Optional
 from ict_concepts.fib_visual import get_pdh_pdl, get_old_highs_lows
 
 
-def detect_judas_swing(candles: List[Dict], symbol: str = None, purge_tolerance: float = 0.0001) -> Dict:
+def detect_judas_swing(candles: List[Dict], symbol: str = None, purge_tolerance: float = 0.0001, timeframe: str = None) -> Dict:
     """
     Detect Judas Swing (Stop Run) with REQUIRED price purge.
     
@@ -39,6 +39,7 @@ def detect_judas_swing(candles: List[Dict], symbol: str = None, purge_tolerance:
         return {
             "is_judas_swing": False,
             "direction": None,
+            "timeframe": str(timeframe or "CURRENT").upper(),
             "purge_confirmed": False,
             "purged_level": None,
             "purge_type": None,
@@ -47,7 +48,7 @@ def detect_judas_swing(candles: List[Dict], symbol: str = None, purge_tolerance:
     
     # Get reference levels for purge detection
     pdh_pdl = get_pdh_pdl(symbol) if symbol else {}
-    old_levels = get_old_highs_lows(candles, periods=[20, 50])
+    old_levels = get_old_highs_lows(candles, periods=[20, 50], timeframe=timeframe)
     
     # Check recent candles for purge patterns
     recent = candles[-5:]
@@ -55,16 +56,19 @@ def detect_judas_swing(candles: List[Dict], symbol: str = None, purge_tolerance:
     # Detect bullish Judas Swing (purge below, reverse up)
     bullish_judas = _detect_bullish_judas_swing(recent, pdh_pdl, old_levels, purge_tolerance)
     if bullish_judas["is_judas_swing"]:
+        bullish_judas["timeframe"] = str(timeframe or "CURRENT").upper()
         return bullish_judas
     
     # Detect bearish Judas Swing (purge above, reverse down)
     bearish_judas = _detect_bearish_judas_swing(recent, pdh_pdl, old_levels, purge_tolerance)
     if bearish_judas["is_judas_swing"]:
+        bearish_judas["timeframe"] = str(timeframe or "CURRENT").upper()
         return bearish_judas
     
     return {
         "is_judas_swing": False,
         "direction": None,
+        "timeframe": str(timeframe or "CURRENT").upper(),
         "purge_confirmed": False,
         "purged_level": None,
         "purge_type": None,

@@ -1,292 +1,137 @@
-"""
-ICT-First Execution Logic
-=========================
-PRIORITY OVERRIDE when core ICT rules are satisfied:
+"""Binary ICT-first compatibility checks.
 
-If ALL core conditions are met, execute immediately with 100% confidence:
-1. Liquidity Sweep confirmed
-2. SMT Divergence detected (PRIMARY filter)
-3. Market Structure Shift (BOS/MSS)
-4. FVG or Order Block entry zone
-5. Within Kill Zone (London 07:00-10:00 UTC or NY 12:00-15:00 UTC)
-
-This bypasses weighted scoring, penalty systems, and module disagreement.
-
-PURPOSE: Remove over-filtering that prevents valid ICT setups from executing.
+The live bot executes through `strategy.unified_strategy` first and Kingsbalfx as
+fallback. This module keeps old override imports working, but it no longer uses
+partial scores, weights, or probabilities. A path is confirmed only when every
+required condition is present.
 """
 
 import logging
-from typing import Dict, Optional, Tuple
-from market_structure.previous_day_levels import (
-    get_previous_week_levels,
-    get_recent_4h_brief,
-    compare_4h_weekly_alignment,
-)
+from typing import Any, Dict, Tuple
+
 from utils.sessions import in_london_session, in_newyork_session
 
 logger = logging.getLogger(__name__)
 
 
+def _confirmed(value: Any) -> bool:
+    if isinstance(value, dict):
+        return bool(value.get("confirmed") or value.get("passed") or value.get("executable"))
+    return bool(value)
+
+
+def _has_items(value: Any) -> bool:
+    if isinstance(value, list):
+        return bool(value)
+    return _confirmed(value)
+
+
+def _smt_confirmed(data: Dict[str, Any]) -> bool:
+    smt = data.get("smt") or data.get("smt_divergence")
+    if isinstance(smt, dict):
+        return bool(smt.get("confirmed") and smt.get("direction_aligned", True))
+    return bool(data.get("smt_confirmed"))
+
+
+def _killzone_active(data: Dict[str, Any]) -> bool:
+    session = data.get("session") or data.get("session_analysis") or {}
+    return bool(
+        data.get("killzone_active")
+        or session.get("killzone_active")
+        or session.get("london_killzone")
+        or session.get("newyork_killzone")
+        or in_london_session()
+        or in_newyork_session()
+    )
+
+
 def check_ict_core_rules(data: Dict, symbol: str) -> Tuple[bool, Dict]:
-    """
-    Check if ALL core ICT rules are satisfied.
-    
-    Returns:
-        (ict_rules_met: bool, breakdown: dict with individual checks)
-    """
+    del symbol
+    data = data or {}
     breakdown = {
-        "liquidity_sweep": False,
-        "smt_divergence": False,
-        "market_structure_shift": False,
-        "entry_zone": False,
-        "kill_zone": False,
-        "displacement": False,
-        "all_rules_met": False
+        "liquidity_sweep": _confirmed(data.get("liquidity_sweep") or data.get("liq") or data.get("sweep")),
+        "market_structure_shift": _confirmed(data.get("market_structure_shift") or data.get("mss") or data.get("bos") or data.get("break_of_structure")),
+        "entry_zone": _has_items(data.get("fvg") or data.get("fvgs") or data.get("order_block") or data.get("htf_ob") or data.get("htf_order_blocks")),
+        "kill_zone": _killzone_active(data),
+        "displacement": _confirmed(data.get("displacement") or data.get("strong_displacement")),
+        "smt_divergence": _smt_confirmed(data),
     }
-    
-    try:
-        # 1. Liquidity Sweep
-        liquidity_sweep = data.get("liquidity_sweep", False) or data.get("liq", False)
-        breakdown["liquidity_sweep"] = bool(liquidity_sweep)
-        
-        # 2. SMT Divergence (PRIMARY FILTER)
-        smt_score = float(data.get("smt_divergence", 0.0) or 0.0)
-        smt_confirmed = data.get("smt_confirmed", False)
-        breakdown["smt_divergence"] = bool(smt_score >= 0.7 or smt_confirmed)
-        
-        # 3. Market Structure Shift (BOS/MSS)
-        bos = data.get("bos", False) or data.get("break_of_structure", False)
-        mss = data.get("mss", False) or data.get("market_structure_shift", False)
-        breakdown["market_structure_shift"] = bool(bos or mss)
-        
-        # 4. Entry Zone (FVG or Order Block)
-        fvg = data.get("fvg") or (data.get("fvgs") and len(data.get("fvgs", [])) > 0)
-        ob = data.get("htf_ob") or (data.get("htf_order_blocks") and len(data.get("htf_order_blocks", [])) > 0)
-        breakdown["entry_zone"] = bool(fvg or ob)
-        
-        # 5. Kill Zone timing
-        is_london = in_london_session()
-        is_ny = in_newyork_session()
-        breakdown["kill_zone"] = bool(is_london or is_ny)
-        
-        # 6. Displacement (optional but strong signal)
-        displacement = float(data.get("displacement", 0.0) or 0.0)
-        breakdown["displacement"] = bool(displacement >= 0.60)
-        
-        # ALL CORE RULES MUST BE MET
-        breakdown["all_rules_met"] = all([
-            breakdown["liquidity_sweep"],
-            breakdown["smt_divergence"],
-            breakdown["market_structure_shift"],
-            breakdown["entry_zone"],
-            breakdown["kill_zone"]
-        ])
-        
-        return breakdown["all_rules_met"], breakdown
-        
-    except Exception as e:
-        logger.error(f"ICT core rules check error: {e}")
-        return False, breakdown
+    required = ("liquidity_sweep", "market_structure_shift", "entry_zone", "kill_zone", "displacement")
+    missing = [name for name in required if not breakdown[name]]
+    breakdown["missing"] = missing
+    breakdown["all_rules_met"] = not missing
+    return breakdown["all_rules_met"], breakdown
 
 
-def should_override_with_ict_first(data: Dict, symbol: str, weighted_decision: str, 
-                                     intelligence_decision: str, classic_decision: bool) -> Tuple[bool, Dict]:
-    """
-    Determine if ICT-first rules should override module decisions.
-    
-    If core ICT rules are met, override any SKIP/REJECT decisions.
-    
-    Returns:
-        (should_override: bool, override_details: dict)
-    """
-    ict_rules_met, breakdown = check_ict_core_rules(data, symbol)
-    
-    override_details = {
-        "ict_rules_met": ict_rules_met,
+def should_override_with_ict_first(
+    data: Dict,
+    symbol: str,
+    weighted_decision: str = "",
+    intelligence_decision: str = "",
+    classic_decision: bool = False,
+) -> Tuple[bool, Dict]:
+    del weighted_decision, intelligence_decision, classic_decision
+    confirmed, breakdown = check_ict_core_rules(data, symbol)
+    details = {
+        "ict_rules_met": confirmed,
         "breakdown": breakdown,
-        "override_applied": False,
-        "reason": None,
-        "confidence": 0.0
+        "override_applied": confirmed,
+        "reason": "ICT core rules satisfied" if confirmed else "ICT core rules not fully satisfied",
     }
-    
-    if not ict_rules_met:
-        override_details["reason"] = "ICT core rules not fully satisfied"
-        return False, override_details
-    
-    # If ICT rules met, check if any module is blocking execution
-    weighted_blocking = weighted_decision in ["skip", "SKIP", "WATCH"]
-    intelligence_blocking = intelligence_decision in ["SKIP", "AVOID", "WAIT"]
-    classic_blocking = not classic_decision
-    
-    any_module_blocking = weighted_blocking or intelligence_blocking or classic_blocking
-    
-    if ict_rules_met and any_module_blocking:
-        override_details["override_applied"] = True
-        override_details["confidence"] = 100.0  # ICT rules met = 100% confidence
-        override_details["reason"] = (
-            f"ICT core rules satisfied - overriding module disagreement. "
-            f"Liquidity Sweep + SMT + MSS + Entry Zone + Kill Zone = EXECUTE"
-        )
-        
-        logger.info(f"[ICT-FIRST OVERRIDE] {symbol}: {override_details['reason']}")
-        logger.info(f"[ICT-FIRST BREAKDOWN] {breakdown}")
-        
-        return True, override_details
-    
-    elif ict_rules_met:
-        # All modules agree and ICT rules met - amplify confidence
-        override_details["override_applied"] = True
-        override_details["confidence"] = 100.0
-        override_details["reason"] = "ICT core rules + all modules agree = maximum confidence"
-        return True, override_details
-    
-    return False, override_details
+    if confirmed:
+        logger.info("[ICT-FIRST] %s: %s", symbol, details["reason"])
+    return confirmed, details
 
 
 def check_smt_only_rules(data: Dict, symbol: str) -> Tuple[bool, Dict]:
+    del symbol
+    data = data or {}
     breakdown = {
-        "smt_divergence": False,
-        "market_structure_shift": False,
-        "entry_zone": False,
-        "kill_zone": False,
-        "strong_trend": False,
-        "weekly_4h_alignment": "unknown",
-        "weekly_4h_valid": False,
-        "all_rules_met": False,
+        "smt_divergence": _smt_confirmed(data),
+        "market_structure_shift": _confirmed(data.get("market_structure_shift") or data.get("mss") or data.get("bos") or data.get("break_of_structure")),
+        "entry_zone": _has_items(data.get("fvg") or data.get("fvgs") or data.get("order_block") or data.get("htf_ob") or data.get("htf_order_blocks")),
+        "kill_zone": _killzone_active(data),
+        "trend_clear": str(data.get("trend") or data.get("direction") or "").lower() in ("bullish", "bearish", "buy", "sell"),
     }
-
-    try:
-        smt_score = float(data.get("smt_divergence", 0.0) or 0.0)
-        smt_confirmed = data.get("smt_confirmed", False)
-        breakdown["smt_divergence"] = bool(smt_score >= 0.75 or smt_confirmed)
-
-        bos = data.get("bos", False) or data.get("break_of_structure", False)
-        mss = data.get("mss", False) or data.get("market_structure_shift", False)
-        breakdown["market_structure_shift"] = bool(bos or mss)
-
-        fvg = data.get("fvg") or (data.get("fvgs") and len(data.get("fvgs", [])) > 0)
-        ob = data.get("htf_ob") or (data.get("htf_order_blocks") and len(data.get("htf_order_blocks", [])) > 0)
-        breakdown["entry_zone"] = bool(fvg or ob)
-
-        breakdown["kill_zone"] = bool(in_london_session() or in_newyork_session())
-
-        trend_strength = float(data.get("trend_strength", 0.0) or 0.0)
-        breakdown["strong_trend"] = bool(trend_strength >= 0.55)
-
-        weekly_levels = get_previous_week_levels(symbol)
-        recent_4h = get_recent_4h_brief(symbol)
-        weekly_valid = isinstance(weekly_levels, dict) and "error" not in weekly_levels
-        four_hour_valid = isinstance(recent_4h, dict) and "error" not in recent_4h
-        breakdown["weekly_4h_valid"] = bool(weekly_valid and four_hour_valid)
-
-        if weekly_valid and four_hour_valid:
-            alignment = compare_4h_weekly_alignment(weekly_levels, recent_4h)
-            breakdown["weekly_4h_alignment"] = alignment
-        else:
-            breakdown["weekly_4h_alignment"] = "unknown"
-
-        breakdown["all_rules_met"] = all([
-            breakdown["smt_divergence"],
-            breakdown["market_structure_shift"],
-            breakdown["entry_zone"],
-            breakdown["kill_zone"],
-            breakdown["weekly_4h_valid"],
-            breakdown["weekly_4h_alignment"] == "aligned",
-        ])
-
-        return breakdown["all_rules_met"], breakdown
-    except Exception as e:
-        logger.error(f"SMT-only rules check error: {e}")
-        return False, breakdown
+    required = tuple(breakdown.keys())
+    missing = [name for name in required if not breakdown[name]]
+    breakdown["missing"] = missing
+    breakdown["all_rules_met"] = not missing
+    return breakdown["all_rules_met"], breakdown
 
 
 def should_override_with_smt_only(
     data: Dict,
     symbol: str,
-    weighted_decision: str,
-    intelligence_decision: str,
-    classic_decision: bool,
+    weighted_decision: str = "",
+    intelligence_decision: str = "",
+    classic_decision: bool = False,
 ) -> Tuple[bool, Dict]:
-    breakdown = {
-        "smt_rules_met": False,
-        "breakdown": {},
-        "override_applied": False,
-        "reason": None,
-        "confidence": 0.0,
+    del weighted_decision, intelligence_decision, classic_decision
+    confirmed, rule_breakdown = check_smt_only_rules(data, symbol)
+    details = {
+        "smt_rules_met": confirmed,
+        "breakdown": rule_breakdown,
+        "override_applied": confirmed,
+        "reason": "SMT path fully satisfied" if confirmed else "SMT-only core rules not satisfied",
     }
-
-    smt_rules_met, rule_breakdown = check_smt_only_rules(data, symbol)
-    breakdown["breakdown"] = rule_breakdown
-    breakdown["smt_rules_met"] = smt_rules_met
-
-    if not smt_rules_met:
-        breakdown["reason"] = "SMT-only core rules not satisfied"
-        return False, breakdown
-
-    weighted_blocking = weighted_decision in ["skip", "SKIP", "WATCH"]
-    intelligence_blocking = intelligence_decision in ["SKIP", "AVOID", "WAIT"]
-    classic_blocking = not classic_decision
-    any_module_blocking = weighted_blocking or intelligence_blocking or classic_blocking
-
-    if smt_rules_met and any_module_blocking:
-        breakdown["override_applied"] = True
-        breakdown["confidence"] = 95.0
-        breakdown["reason"] = (
-            "Strong SMT-only execution path satisfied - overriding other module disagreement. "
-            "SMT divergence + structure + entry zone + kill zone present."
-        )
-        logger.info(f"[SMT-ONLY OVERRIDE] {symbol}: {breakdown['reason']}")
-        logger.info(f"[SMT-ONLY BREAKDOWN] {rule_breakdown}")
-        return True, breakdown
-
-    if smt_rules_met:
-        breakdown["override_applied"] = True
-        breakdown["confidence"] = 95.0
-        breakdown["reason"] = "Strong SMT-only path satisfied and all modules agree."
-        return True, breakdown
-
-    return False, breakdown
+    if confirmed:
+        logger.info("[SMT-ONLY] %s: %s", symbol, details["reason"])
+    return confirmed, details
 
 
 def calculate_ict_first_confidence(breakdown: Dict) -> float:
-    """
-    Calculate confidence based on ICT rule satisfaction.
-    
-    Returns 0-100 confidence score.
-    """
-    if breakdown.get("all_rules_met"):
-        return 100.0
-    
-    # Partial scoring if not all rules met
-    score = 0.0
-    if breakdown.get("liquidity_sweep"):
-        score += 20.0
-    if breakdown.get("smt_divergence"):
-        score += 30.0  # SMT is PRIMARY - highest weight
-    if breakdown.get("market_structure_shift"):
-        score += 20.0
-    if breakdown.get("entry_zone"):
-        score += 15.0
-    if breakdown.get("kill_zone"):
-        score += 10.0
-    if breakdown.get("displacement"):
-        score += 5.0
-    
-    return min(100.0, score)
+    """Legacy API: binary completion only, no partial score."""
+    return 1.0 if (breakdown or {}).get("all_rules_met") else 0.0
 
 
 def get_ict_first_execution_details(data: Dict, symbol: str) -> Dict:
-    """
-    Get complete ICT-first execution analysis for logging/debugging.
-    """
-    ict_rules_met, breakdown = check_ict_core_rules(data, symbol)
-    confidence = calculate_ict_first_confidence(breakdown)
-    
+    confirmed, breakdown = check_ict_core_rules(data, symbol)
     return {
-        "ict_rules_met": ict_rules_met,
-        "confidence": confidence,
+        "ict_rules_met": confirmed,
+        "complete": confirmed,
         "breakdown": breakdown,
-        "execution_decision": "EXECUTE_FULL" if ict_rules_met else "INSUFFICIENT",
-        "timestamp": data.get("timestamp"),
-        "symbol": symbol
+        "execution_decision": "EXECUTE_FULL" if confirmed else "INSUFFICIENT",
+        "timestamp": (data or {}).get("timestamp"),
+        "symbol": symbol,
     }

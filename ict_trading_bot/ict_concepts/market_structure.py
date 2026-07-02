@@ -3,6 +3,13 @@ try:
 except Exception:
     mt5 = None
 
+from market_structure.structure import (
+    analyze_market_structure,
+    detect_structure_events,
+    detect_structure_trend,
+    structure_confirms_direction,
+)
+
 
 def _require_mt5():
     if mt5 is None:
@@ -21,6 +28,7 @@ def _tf_to_mt5(tf):
         "M30": mt5.TIMEFRAME_M30,
         "H1": mt5.TIMEFRAME_H1,
         "H4": mt5.TIMEFRAME_H4,
+        "W1": mt5.TIMEFRAME_W1,
         "D1": mt5.TIMEFRAME_D1,
     }
     return mapping.get(tf, tf)
@@ -63,41 +71,25 @@ def get_swings(symbol, timeframe, bars=200):
     return swings
 
 
-def analyze_structure(swings):
-    highs = [s for s in swings if s["type"] == "high"]
-    lows = [s for s in swings if s["type"] == "low"]
-    result = {
-        "trend": "range",
-        "bos": False,
-        "choch": False,
-        "last_event": None,
-    }
-
-    if len(highs) >= 2 and len(lows) >= 2:
-        higher_high = float(highs[-1]["price"]) > float(highs[-2]["price"])
-        higher_low = float(lows[-1]["price"]) > float(lows[-2]["price"])
-        lower_high = float(highs[-1]["price"]) < float(highs[-2]["price"])
-        lower_low = float(lows[-1]["price"]) < float(lows[-2]["price"])
-
-        if higher_high and higher_low:
-            result.update({"trend": "bullish", "bos": True, "last_event": "bullish_bos"})
-        elif lower_high and lower_low:
-            result.update({"trend": "bearish", "bos": True, "last_event": "bearish_bos"})
-        elif higher_high or higher_low:
-            result.update({"trend": "bullish", "choch": True, "last_event": "bullish_choch"})
-        elif lower_high or lower_low:
-            result.update({"trend": "bearish", "choch": True, "last_event": "bearish_choch"})
-
-    return result
+def analyze_structure(swings, candles=None, direction=None, timeframe=None):
+    return analyze_market_structure(swings, candles=candles, direction=direction, timeframe=timeframe)
 
 
 def detect_structure(swings):
-    return analyze_structure(swings)["trend"]
+    return detect_structure_trend(swings)
 
 
-def get_market_trend(symbol, timeframe):
-    swings = get_swings(symbol, timeframe)
-    return detect_structure(swings)
+def detect_structure_breaks(swings, timeframe=None):
+    return detect_structure_events(swings, timeframe=timeframe)
+
+
+def get_market_structure(symbol, timeframe, bars=200, direction=None):
+    swings = get_swings(symbol, timeframe, bars=bars)
+    return analyze_structure(swings, direction=direction, timeframe=timeframe)
+
+
+def get_market_trend(symbol, timeframe, bars=200):
+    return get_market_structure(symbol, timeframe, bars=bars).get("trend", "range")
 
 
 def get_daily_trend(symbol):

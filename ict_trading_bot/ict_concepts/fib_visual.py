@@ -23,13 +23,43 @@ from datetime import datetime, timedelta
 import pytz
 
 
-def get_recent_swing_zones(candles: List[Dict], lookback: int = 50) -> Dict:
+def _tf_label(timeframe: str = None) -> str:
+    return str(timeframe or "CURRENT").upper()
+
+
+def _price_zone(low: float, high: float, label: str, timeframe: str, source: str) -> Dict:
+    low_value = float(min(low, high))
+    high_value = float(max(low, high))
+    midpoint = (low_value + high_value) / 2.0
+    return {
+        "low": low_value,
+        "high": high_value,
+        "midpoint": midpoint,
+        "label": label,
+        "timeframe": _tf_label(timeframe),
+        "source": source,
+        "levels": {
+            "25": low_value + (high_value - low_value) * 0.25,
+            "50": midpoint,
+            "75": low_value + (high_value - low_value) * 0.75,
+        },
+    }
+
+
+def get_recent_swing_zones(candles: List[Dict], lookback: int = 50, timeframe: str = None) -> Dict:
     """
     Identify swing highs and lows visually from recent price action.
     Returns visual zones where price historically reacted.
     """
     if not candles or len(candles) < 3:
-        return {"premium_zone": None, "discount_zone": None, "equilibrium": None}
+        return {
+            "timeframe": _tf_label(timeframe),
+            "premium_zone": None,
+            "discount_zone": None,
+            "equilibrium": None,
+            "swing_high": None,
+            "swing_low": None,
+        }
     
     # Get recent swing high and low
     highs = [c["high"] for c in candles[-lookback:]]
@@ -42,11 +72,12 @@ def get_recent_swing_zones(candles: List[Dict], lookback: int = 50) -> Dict:
     equilibrium = (swing_high + swing_low) / 2
     
     return {
+        "timeframe": _tf_label(timeframe),
         "swing_high": swing_high,
         "swing_low": swing_low,
         "equilibrium": equilibrium,
-        "premium_zone": {"high": swing_high, "low": equilibrium},
-        "discount_zone": {"high": equilibrium, "low": swing_low}
+        "premium_zone": _price_zone(equilibrium, swing_high, "visual_premium", timeframe, "recent_swing_range"),
+        "discount_zone": _price_zone(swing_low, equilibrium, "visual_discount", timeframe, "recent_swing_range"),
     }
 
 
@@ -76,7 +107,7 @@ def get_pdh_pdl(symbol: str, current_time: datetime = None) -> Dict:
         return {"pdh": None, "pdl": None}
 
 
-def get_old_highs_lows(candles: List[Dict], periods: List[int] = [20, 50, 100]) -> Dict:
+def get_old_highs_lows(candles: List[Dict], periods: List[int] = [20, 50, 100], timeframe: str = None) -> Dict:
     """
     Track old highs and lows at different periods.
     These act as visual magnets for price and liquidity pools.
@@ -98,12 +129,16 @@ def get_old_highs_lows(candles: List[Dict], periods: List[int] = [20, 50, 100]) 
             old_levels["old_highs"].append({
                 "price": old_high,
                 "period": period,
-                "label": f"{period}-bar high"
+                "label": f"{_tf_label(timeframe)} {period}-bar high",
+                "timeframe": _tf_label(timeframe),
+                "source": "visual_old_high",
             })
             old_levels["old_lows"].append({
                 "price": old_low,
                 "period": period,
-                "label": f"{period}-bar low"
+                "label": f"{_tf_label(timeframe)} {period}-bar low",
+                "timeframe": _tf_label(timeframe),
+                "source": "visual_old_low",
             })
     
     return old_levels
@@ -143,7 +178,14 @@ def is_price_in_premium_visual(price: float, zones: Dict) -> bool:
     return equilibrium <= price <= premium_zone["high"]
 
 
-def get_visual_entry_zones(candles: List[Dict], trend: str, symbol: str = None) -> Dict:
+def get_visual_entry_zones(
+    candles: List[Dict],
+    trend: str,
+    symbol: str = None,
+    timeframe: str = None,
+    reference_levels: Dict = None,
+    include_pdh_pdl: bool = True,
+) -> Dict:
     """
     Identify visual entry zones based on price action (not mathematics).
     
@@ -157,15 +199,19 @@ def get_visual_entry_zones(candles: List[Dict], trend: str, symbol: str = None) 
     - PDH area
     - Old highs that held
     """
-    swing_zones = get_recent_swing_zones(candles)
-    pdh_pdl = get_pdh_pdl(symbol) if symbol else {}
-    old_levels = get_old_highs_lows(candles)
+    timeframe_label = _tf_label(timeframe)
+    swing_zones = get_recent_swing_zones(candles, timeframe=timeframe_label)
+    pdh_pdl = reference_levels if reference_levels is not None else get_pdh_pdl(symbol) if symbol and include_pdh_pdl else {}
+    old_levels = get_old_highs_lows(candles, timeframe=timeframe_label)
     
     entry_zones = {
+        "timeframe": timeframe_label,
+        "trend": trend,
         "swing_zones": swing_zones,
         "pdh_pdl": pdh_pdl,
         "old_levels": old_levels,
-        "recommended_entry": None
+        "recommended_entry": None,
+        "model": "visual_price_action",
     }
     
     # Recommend entry zone based on trend
@@ -173,24 +219,53 @@ def get_visual_entry_zones(candles: List[Dict], trend: str, symbol: str = None) 
         # For buys, look for discount/support areas
         entry_zones["recommended_entry"] = {
             "type": "discount",
+            "timeframe": timeframe_label,
             "zones": [
                 swing_zones.get("discount_zone"),
                 {"price": pdh_pdl.get("pdl"), "label": "PDL"} if pdh_pdl.get("pdl") else None,
+                *old_levels.get("old_lows", [])[:2],
             ],
-            "description": "Look for price to react at discount zones or PDL"
+            "description": f"Look for price to react at {timeframe_label} visual discount zones, old lows, or PDL"
         }
     elif trend and trend.lower() in ["bearish", "sell", "short"]:
         # For sells, look for premium/resistance areas
         entry_zones["recommended_entry"] = {
             "type": "premium",
+            "timeframe": timeframe_label,
             "zones": [
                 swing_zones.get("premium_zone"),
                 {"price": pdh_pdl.get("pdh"), "label": "PDH"} if pdh_pdl.get("pdh") else None,
+                *old_levels.get("old_highs", [])[:2],
             ],
-            "description": "Look for price to react at premium zones or PDH"
+            "description": f"Look for price to react at {timeframe_label} visual premium zones, old highs, or PDH"
         }
     
     return entry_zones
+
+
+def visual_price_position(price: float, zones: Dict, direction: str = None, tolerance: float = 0.0005) -> Dict:
+    """
+    Summarize whether price is in the correct visual half for the current direction.
+    This works on H1/M15/M5 visual zones, not only daily references.
+    """
+    in_discount = is_price_in_discount_visual(price, zones.get("swing_zones") or zones)
+    in_premium = is_price_in_premium_visual(price, zones.get("swing_zones") or zones)
+    at_visual_zone = check_price_at_visual_zone(price, zones, tolerance=tolerance)
+    context = str(direction or "").lower()
+    correct_half = (
+        in_discount if context in ("buy", "bullish", "long")
+        else in_premium if context in ("sell", "bearish", "short")
+        else False
+    )
+    return {
+        "price": float(price),
+        "timeframe": zones.get("timeframe"),
+        "in_discount": bool(in_discount),
+        "in_premium": bool(in_premium),
+        "correct_visual_half": bool(correct_half),
+        "at_visual_zone": bool(at_visual_zone.get("at_zone")),
+        "zones": at_visual_zone.get("zones", []),
+    }
 
 
 def check_price_at_visual_zone(price: float, zones: Dict, tolerance: float = 0.0005) -> Dict:

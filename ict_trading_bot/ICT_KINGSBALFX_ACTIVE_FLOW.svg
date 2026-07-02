@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200">
+  <style>
+    .title{font:700 34px Arial;fill:#102033}.sub{font:600 20px Arial;fill:#24364a}.box{fill:#ffffff;stroke:#1f4e79;stroke-width:2;rx:14}.ict{fill:#eaf4ff;stroke:#1769aa}.king{fill:#fff7e6;stroke:#b66a00}.exec{fill:#eefbea;stroke:#2c7a2c}.skip{fill:#ffecec;stroke:#b32d2e}.note{font:16px Arial;fill:#263238}.small{font:14px Arial;fill:#263238}.gate{font:600 15px Arial;fill:#0b2035}.arrow{stroke:#34495e;stroke-width:3;marker-end:url(#arrow)}.dash{stroke:#9a6b00;stroke-width:3;stroke-dasharray:8 6;marker-end:url(#arrow)}
+  </style>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#34495e"/></marker></defs>
+  <rect width="1600" height="1200" fill="#f6f8fb"/>
+  <text x="800" y="48" text-anchor="middle" class="title">Verified Live Flow: ICT 12-Gate State Machine + Kingsbalfx Fallback</text>
+  <text x="800" y="82" text-anchor="middle" class="sub">Raw code path: main.py → pre_trade_analysis.py → unified_strategy.py → Kingsbalfx only after ICT SKIP → broker-safe execution</text>
+
+  <rect x="60" y="120" width="300" height="80" class="box"/><text x="210" y="150" text-anchor="middle" class="gate">1. main.py</text><text x="210" y="177" text-anchor="middle" class="small">MT5 connect, symbol universe, scan batches</text>
+  <rect x="420" y="120" width="340" height="80" class="box"/><text x="590" y="150" text-anchor="middle" class="gate">2. pre_trade_analysis.py</text><text x="590" y="177" text-anchor="middle" class="small">Build D1/H4 context, H1, M15, M5, M1 data</text>
+  <rect x="820" y="120" width="300" height="80" class="box"/><text x="970" y="150" text-anchor="middle" class="gate">3. SMT + News Advisory</text><text x="970" y="177" text-anchor="middle" class="small">SMT not mandatory; news can block live entry</text>
+  <rect x="1180" y="120" width="340" height="80" class="ict"/><text x="1350" y="150" text-anchor="middle" class="gate">4. unified_strategy.py</text><text x="1350" y="177" text-anchor="middle" class="small">Strict ICT 12 ordered gates</text>
+  <line x1="360" y1="160" x2="420" y2="160" class="arrow"/><line x1="760" y1="160" x2="820" y2="160" class="arrow"/><line x1="1120" y1="160" x2="1180" y2="160" class="arrow"/>
+
+  <text x="390" y="260" text-anchor="middle" class="sub">ICT Core: every gate must pass in order</text>
+  <g transform="translate(60,290)">
+    <rect width="660" height="610" class="ict"/>
+    <text x="24" y="38" class="gate">G1 Narrative: H1 trend aligns with current-H1 M15 candles</text>
+    <text x="24" y="82" class="gate">G2 External liquidity: H1/M15/M5 liquidity exists</text>
+    <text x="24" y="126" class="gate">G3 Sweep: price trades beyond liquidity and closes back inside</text>
+    <text x="24" y="170" class="gate">G4 Displacement: body ≥ 60% and range ≥ ATR</text>
+    <text x="24" y="214" class="gate">G5 MSS/BOS: opposing swing break or structure confirms</text>
+    <text x="24" y="258" class="gate">G6 True FVG: displacement creates 3-candle FVG</text>
+    <text x="24" y="302" class="gate">G7 True OB: final opposing candle before displacement</text>
+    <text x="24" y="346" class="gate">G8 Premium/discount: FVG or OB in correct half</text>
+    <text x="24" y="390" class="gate">G9 Target: opposing liquidity gives minimum 1.5R</text>
+    <text x="24" y="434" class="gate">G10 Retracement: FVG or OB or OTE touched</text>
+    <text x="24" y="478" class="gate">G11 LTF confirmation: M1/M5 rejection/engulf/momentum</text>
+    <text x="24" y="522" class="gate">G12 Plan: market entry, structural SL, liquidity TP</text>
+    <text x="24" y="575" class="note">If any gate fails: ICT returns SKIP immediately with failed_step and reason.</text>
+  </g>
+
+  <text x="1180" y="260" text-anchor="middle" class="sub">Kingsbalfx Fallback: runs only after ICT SKIP</text>
+  <g transform="translate(820,290)">
+    <rect width="700" height="610" class="king"/>
+    <text x="24" y="38" class="gate">K1 Context: previous-day D1/H4 background + H1/M15/M5 states</text>
+    <text x="24" y="82" class="gate">K2 Bias: H1 and M15 alignment or recoverable state direction</text>
+    <text x="24" y="126" class="gate">K3 Target: liquidity, FVG, OB, or OTE target/zone</text>
+    <text x="24" y="170" class="gate">K4 H1 setup: continuation or reversal signal</text>
+    <text x="24" y="214" class="gate">K5 M15 refinement: sweep, FVG/OB, Sweet Zone, or Judas</text>
+    <text x="24" y="258" class="gate">K6 M5 trigger: two strong candles or one engulf/breakout candle</text>
+    <text x="24" y="302" class="gate">K7 Risk: SL beyond swing/structure, TP at target, RR ≥ 1.5</text>
+    <text x="24" y="346" class="gate">K8 Broker sizing: mt5_connector.calculate_volume_for_risk()</text>
+    <text x="24" y="390" class="gate">K9 Return request: strategy='kingsbalfx' for main.py execution</text>
+    <text x="24" y="448" class="note">If any required fallback condition fails: Kingsbalfx returns SKIP reason.</text>
+    <text x="24" y="492" class="note">It does not replace ICT. It gives one second binary chance after strict ICT rejects.</text>
+  </g>
+  <line x1="1350" y1="200" x2="1350" y2="260" class="arrow"/>
+  <line x1="720" y1="595" x2="820" y2="595" class="dash"/>
+  <text x="770" y="575" text-anchor="middle" class="small">ICT SKIP</text>
+
+  <rect x="260" y="965" width="330" height="90" class="exec"/><text x="425" y="998" text-anchor="middle" class="gate">Broker Safety</text><text x="425" y="1025" text-anchor="middle" class="small">spread, stop distance, margin, duplicate, max trades</text>
+  <rect x="645" y="965" width="310" height="90" class="exec"/><text x="800" y="998" text-anchor="middle" class="gate">Execution</text><text x="800" y="1025" text-anchor="middle" class="small">trade_executor.execute_trade()</text>
+  <rect x="1010" y="965" width="330" height="90" class="exec"/><text x="1175" y="998" text-anchor="middle" class="gate">Trade Management</text><text x="1175" y="1025" text-anchor="middle" class="small">partials, breakeven, trailing, Friday close</text>
+  <line x1="390" y1="900" x2="425" y2="965" class="arrow"/><line x1="1170" y1="900" x2="425" y2="965" class="arrow"/><line x1="590" y1="1010" x2="645" y2="1010" class="arrow"/><line x1="955" y1="1010" x2="1010" y2="1010" class="arrow"/>
+
+  <text x="800" y="1130" text-anchor="middle" class="note">Validation: whole project compile PASS • strategy imports PASS • tests PASS 31/31 • git diff --check PASS</text>
+</svg>

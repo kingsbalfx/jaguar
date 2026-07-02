@@ -17,9 +17,11 @@ _SETUP_REJECTION_CACHE: Dict[Tuple[str, str], Dict[str, object]] = {}
 
 def build_strategy_profile() -> Dict[str, object]:
     profile = {
-        "htf_timeframe": os.getenv("HTF_TIMEFRAME", "H4"),
-        "mtf_timeframe": os.getenv("MTF_TIMEFRAME", "H1"),
-        "ltf_timeframe": os.getenv("LTF_TIMEFRAME", "M15"),
+        "daily_timeframe": os.getenv("DAILY_TIMEFRAME", "D1"),
+        "daily_context_fallback_timeframe": os.getenv("DAILY_CONTEXT_FALLBACK_TIMEFRAME", os.getenv("D1_CONTEXT_FALLBACK_TIMEFRAME", "H4")),
+        "htf_timeframe": os.getenv("HTF_TIMEFRAME", "H1"),
+        "mtf_timeframe": os.getenv("MTF_TIMEFRAME", "M15"),
+        "ltf_timeframe": os.getenv("LTF_TIMEFRAME", "M5"),
         "min_extra_confirmations": max(3, int(os.getenv("MIN_EXTRA_CONFIRMATIONS", "3"))),
         "count_fundamentals_as_confirmation": os.getenv("COUNT_FUNDAMENTALS_AS_CONFIRMATION", "false").lower() in ("1", "true", "yes"),
         "default_rr_ratio": float(os.getenv("DEFAULT_RR_RATIO", "3.0")),
@@ -224,6 +226,10 @@ def ensure_backtest_approval(symbols=None, report_path: str = None) -> Tuple[boo
     approval, details = evaluate_backtest_approval(report_path=report_path)
     approved = approval in ("full", "partial")
     if auto_generate and details.get("reason") == "profile_mismatch":
+        generate_latest_approval(symbols=symbols, report_path=report_path)
+        approval, details = evaluate_backtest_approval(report_path=report_path)
+        approved = approval in ("full", "partial")
+    if auto_generate and not approved and int(details.get("occurrences", 0) or 0) == 0 and symbols:
         generate_latest_approval(symbols=symbols, report_path=report_path)
         approval, details = evaluate_backtest_approval(report_path=report_path)
         approved = approval in ("full", "partial")

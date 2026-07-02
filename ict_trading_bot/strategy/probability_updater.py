@@ -1,60 +1,90 @@
-"""
-PROBABILITY UPDATER – Live learning from trade outcomes.
-Syncs to Supabase after every update.
+"""Legacy outcome recorder for completed ICT setups.
+
+This module is kept only for backward compatibility with older imports. It does
+not feed live trade decisions, does not produce probabilities, and does not
+change the strict ICT/Kingsbalfx state machines. It records transparent win/loss
+counts by rule signature for audit only.
 """
 
 import json
 from pathlib import Path
-from strategy.ict_setup_quality import PROBABILITY_FILE, _default_table
+from typing import Any, Dict
+
+OUTCOME_FILE = Path(__file__).resolve().parents[1] / "data" / "rule_outcomes.json"
+PROBABILITY_FILE = OUTCOME_FILE
+
+
+def _confirmed(value: Any) -> bool:
+    if isinstance(value, dict):
+        return bool(value.get("confirmed") or value.get("passed") or value.get("executable"))
+    return bool(value)
+
+
+def _default_table() -> Dict[str, Any]:
+    return {"version": 2, "purpose": "audit_only_rule_outcomes", "regimes": {}}
+
+
+def _load_table(path: Path = OUTCOME_FILE) -> Dict[str, Any]:
+    if not path.exists():
+        return _default_table()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return _default_table()
+    if not isinstance(data, dict):
+        return _default_table()
+    data.setdefault("version", 2)
+    data.setdefault("purpose", "audit_only_rule_outcomes")
+    data.setdefault("regimes", {})
+    return data
+
+
+def _signature(features: Dict[str, Any]) -> str:
+    ordered = (
+        "sweep",
+        "displacement",
+        "bos",
+        "fvg_exists",
+        "ob_exists",
+        "premium_discount",
+        "target_liquidity",
+        "retracement",
+        "lower_timeframe_confirmation",
+    )
+    parts = [f"{name}:{'yes' if _confirmed(features.get(name)) else 'no'}" for name in ordered]
+    return "|".join(parts)
+
 
 def update_probability_table(regime, features, win):
-    path = PROBABILITY_FILE
-    if path.exists():
-        try:
-            with open(path, 'r') as f:
-                table = json.load(f)
-        except:
-            table = _default_table()
-    else:
-        table = _default_table()
+    """Backward-compatible name that records outcomes for audit only.
 
-    regime_table = table.setdefault(regime, {"default": 0.45, "count": 0})
-    regime_table["count"] = regime_table.get("count", 0) + 1
+    The returned table is never used by the live strategy. The function name is
+    retained so old scripts importing it keep working.
+    """
+    features = features or {}
+    regime_key = str(regime or "unknown")
+    table = _load_table()
+    regimes = table.setdefault("regimes", {})
+    regime_table = regimes.setdefault(regime_key, {"total": 0, "wins": 0, "signatures": {}})
 
-    sweep = features.get("sweep", False)
-    displacement = features.get("displacement", False)
-    ob = features.get("ob_exists", False)
-    if sweep and displacement and ob:
-        key = "sweep_yes_displacement_yes_ob_yes"
-    elif sweep and displacement and not ob:
-        key = "sweep_yes_displacement_yes_ob_no"
-    elif sweep and not displacement and ob:
-        key = "sweep_yes_displacement_no_ob_yes"
-    else:
-        key = "default"
+    regime_table["total"] = int(regime_table.get("total", 0)) + 1
+    if bool(win):
+        regime_table["wins"] = int(regime_table.get("wins", 0)) + 1
 
-    sub = regime_table.get(key)
-    if not isinstance(sub, dict):
-        sub = {"wins": 0, "total": 0}
-        regime_table[key] = sub
-    sub["total"] = sub.get("total", 0) + 1
-    if win:
-        sub["wins"] = sub.get("wins", 0) + 1
-    if sub["total"] > 0:
-        sub["probability"] = round(sub["wins"] / sub["total"], 4)
+    key = _signature(features)
+    signatures = regime_table.setdefault("signatures", {})
+    record = signatures.setdefault(key, {"total": 0, "wins": 0, "features": {}})
+    record["total"] = int(record.get("total", 0)) + 1
+    if bool(win):
+        record["wins"] = int(record.get("wins", 0)) + 1
+    record["features"] = {name: _confirmed(value) for name, value in features.items()}
 
-    total_wins = sum(v.get("wins", 0) for v in regime_table.values() if isinstance(v, dict))
-    total_trades = sum(v.get("total", 0) for v in regime_table.values() if isinstance(v, dict))
-    if total_trades > 0:
-        regime_table["default"] = round(total_wins / total_trades, 4)
+    OUTCOME_FILE.parent.mkdir(parents=True, exist_ok=True)
+    OUTCOME_FILE.write_text(json.dumps(table, indent=2, sort_keys=True), encoding="utf-8")
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, 'w') as f:
-        json.dump(table, f, indent=2)
-
-    # Sync to Supabase (best‑effort)
     try:
         from strategy.probability_sync import sync_probability_table_to_supabase
-        sync_probability_table_to_supabase(table)
-    except Exception:
-        pass
+    except ImportError:
+        return table
+    sync_probability_table_to_supabase(table)
+    return table

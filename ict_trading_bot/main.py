@@ -110,6 +110,10 @@ def _state_reasoning(state: dict) -> str:
                 f"H1={evidence.get('H1', 'unknown')} M15={evidence.get('M15', 'unknown')} "
                 f"h1_bias={evidence.get('h1_bias', 'unknown')} "
                 f"m15_current_h1_bias={evidence.get('m15_current_h1_bias', 'unknown')} "
+                f"structural={_yes_no(evidence.get('structural_alignment'))} "
+                f"conflict={_yes_no(evidence.get('structural_opposition'))} "
+                f"mode={evidence.get('alignment_mode', 'unknown')} "
+                f"reason={evidence.get('alignment_reason', 'none')} "
                 f"agreement={_yes_no(confirmed)}"
             )
         return (
@@ -133,17 +137,22 @@ def _state_reasoning(state: dict) -> str:
         )
     if name == "market_structure_shift":
         return f"MSS_BOS={_yes_no(evidence.get('confirmed'))} detail={evidence.get('reason', 'opposing swing broken')}"
-    if name == "displacement_fvg":
+    if name in ("displacement_fvg", "displacement_fvg_or_order_block"):
         fvg = evidence.get("fvg") or {}
-        return (
-            f"FVG_created_by_displacement={_yes_no(fvg)} type={fvg.get('type', 'none')} "
-            f"timeframe={fvg.get('timeframe', 'none')} fresh={_yes_no(fvg.get('fresh'))} active={_yes_no(fvg.get('active'))}"
-        )
-    if name == "true_order_block":
         block = evidence.get("order_block") or {}
         return (
-            f"true_OB_found={_yes_no(block)} type={block.get('type', 'none')} timeframe={block.get('timeframe', 'none')} "
-            f"final_opposing_candle={_yes_no(block.get('final_opposing_candle'))} fresh={_yes_no(block.get('fresh'))}"
+            f"FVG_created_by_displacement={_yes_no(fvg)} type={fvg.get('type', 'none')} "
+            f"timeframe={fvg.get('timeframe', 'none')} fresh={_yes_no(fvg.get('fresh'))} active={_yes_no(fvg.get('active'))} "
+            f"OB_available={_yes_no(block)} accepted={','.join(evidence.get('accepted_models') or []) or 'none'}"
+        )
+    if name in ("true_order_block", "true_fvg_or_order_block"):
+        block = evidence.get("order_block") or {}
+        fvg = evidence.get("fvg") or {}
+        return (
+            f"true_FVG_or_OB_found={_yes_no(fvg or block)} "
+            f"fvg={_yes_no(fvg)} ob={_yes_no(block)} "
+            f"ob_type={block.get('type', 'none')} timeframe={block.get('timeframe', fvg.get('timeframe', 'none'))} "
+            f"final_opposing_candle={_yes_no(block.get('final_opposing_candle'))} fresh={_yes_no(block.get('fresh') or fvg.get('fresh'))}"
         )
     if name == "premium_discount":
         return f"correct_premium_discount_zone={_yes_no(confirmed)}"
@@ -183,6 +192,148 @@ def _trend_reasoning(advisories: dict) -> str:
     return " ".join(
         f"{timeframe}={trend.get(timeframe, 'unknown')}"
         for timeframe in ("D1_context", "H1", "M15", "M5", "session")
+    )
+
+
+def _event_label(event: dict) -> str:
+    if not isinstance(event, dict) or not event:
+        return "none"
+    name = event.get("event") or event.get("type") or "event"
+    direction = event.get("direction") or "none"
+    return f"{name}:{direction}"
+
+
+def _liquidity_counts(liquidity: dict) -> dict:
+    liquidity = liquidity if isinstance(liquidity, dict) else {}
+    return {
+        "EQH": len(liquidity.get("EQH") or []),
+        "EQL": len(liquidity.get("EQL") or []),
+    }
+
+
+def _timeframe_validation(analysis: dict, key: str) -> dict:
+    state = analysis.get(key) or {}
+    structure = state.get("market_structure") or {}
+    return {
+        "timeframe": state.get("timeframe") or (analysis.get("timeframes") or {}).get(key) or key,
+        "candles": len(state.get("recent_candles") or []),
+        "swings": len(state.get("swings") or []),
+        "fvgs": len(state.get("fvgs") or []),
+        "order_blocks": len(state.get("order_blocks") or []),
+        "liquidity": _liquidity_counts(state.get("liquidity") or state.get("external_liquidity") or {}),
+        "trend": structure.get("trend") or state.get("trend") or "unknown",
+        "bos": bool(structure.get("bos")),
+        "mss": bool(structure.get("mss")),
+        "choch": bool(structure.get("choch") or structure.get("choc") or structure.get("change_of_character")),
+        "last_event": _event_label(structure.get("last_event") or {}),
+        "windows": state.get("candle_window_lengths") or {},
+    }
+
+
+def _build_validation_snapshot(symbol: str, analysis: dict, setup: dict) -> dict:
+    states = setup.get("states") or []
+    failed = next((state for state in states if not state.get("confirmed")), None)
+    failed_step = setup.get("failed_step") or (failed or {}).get("name")
+    blocked = []
+    if setup.get("strategy") != "kingsbalfx":
+        observed = [state.get("name") for state in states]
+        blocked = [name for name in SEQUENCE if name not in observed]
+    liquidity = analysis.get("external_liquidity") or (analysis.get("HTF") or {}).get("external_liquidity") or {}
+    return {
+        "symbol": symbol,
+        "strategy": setup.get("strategy") or "ict_state_machine",
+        "price": analysis.get("price"),
+        "timeframes": analysis.get("timeframes") or {},
+        "candle_windows": analysis.get("candle_window_usage") or analysis.get("candle_windows") or {},
+        "timeframe_data": {
+            key: _timeframe_validation(analysis, key)
+            for key in ("WEEKLY", "DAILY", "DAILY_CONTEXT", "HTF", "MTF", "LTF", "EXECUTION")
+            if analysis.get(key)
+        },
+        "alignment": analysis.get("h1_m15_alignment") or (analysis.get("topdown") or {}).get("h1_m15_alignment") or {},
+        "external_liquidity": _liquidity_counts(liquidity),
+        "opening_gaps": analysis.get("opening_gaps") or (analysis.get("topdown") or {}).get("opening_gaps") or {},
+        "visual_concepts": analysis.get("visual_concepts") or (analysis.get("topdown") or {}).get("visual_concepts") or {},
+        "first_failed_step": failed_step,
+        "first_failed_reason": setup.get("reason") or (failed or {}).get("reason"),
+        "first_failed_evidence": (failed or {}).get("evidence") or {},
+        "blocked_steps": blocked,
+        "rules_reached": [state.get("name") for state in states],
+        "rules_passed": sum(1 for state in states if state.get("confirmed")),
+        "rules_total": int(setup.get("total_steps") or len(SEQUENCE)),
+        "validation_rule": "Bot validates MT5 OHLC data and stops trading sequence at first failed mandatory gate; blocked later rules are not trade-valid until earlier gates pass.",
+    }
+
+
+def _gap_summary(gap: dict) -> str:
+    if not isinstance(gap, dict) or not gap:
+        return "missing"
+    if not gap.get("available"):
+        return f"unavailable:{gap.get('reason', 'no_data')}"
+    return (
+        f"{gap.get('direction', 'none')}"
+        f"/active={_yes_no(gap.get('active'))}"
+        f"/in_gap={_yes_no(gap.get('price_in_gap'))}"
+        f"/filled={_yes_no(gap.get('filled'))}"
+    )
+
+
+def _console_validation_report(symbol: str, setup: dict) -> None:
+    validation = setup.get("validation") or {}
+    if not validation:
+        return
+
+    primary = setup.get("primary_ict_validation") or validation.get("primary_ict")
+    if isinstance(primary, dict) and primary:
+        primary_alignment = primary.get("alignment") or {}
+        primary_liquidity = primary.get("external_liquidity") or {}
+        primary_gaps = primary.get("opening_gaps") or {}
+        LOGGER.info(
+            "[%s] PRIMARY ICT VALIDATION | align_confirmed=%s mode=%s reason=%s | liq_EQH=%s liq_EQL=%s | NDOG=%s NWOG=%s | stopped_at=%s | reason=%s | blocked=%s",
+            symbol,
+            _yes_no(primary_alignment.get("confirmed")),
+            primary_alignment.get("alignment_mode", "none"),
+            primary_alignment.get("alignment_reason", "none"),
+            primary_liquidity.get("EQH", 0),
+            primary_liquidity.get("EQL", 0),
+            _gap_summary(primary_gaps.get("NDOG") or {}),
+            _gap_summary(primary_gaps.get("NWOG") or {}),
+            primary.get("first_failed_step") or "none",
+            primary.get("first_failed_reason") or "none",
+            ",".join((primary.get("blocked_steps") or [])[:7]) if primary.get("blocked_steps") else "none",
+        )
+
+    alignment = validation.get("alignment") or {}
+    gaps = validation.get("opening_gaps") or {}
+    timeframe_data = validation.get("timeframe_data") or {}
+    tf_parts = []
+    for key in ("HTF", "MTF", "LTF", "EXECUTION"):
+        item = timeframe_data.get(key) or {}
+        if not item:
+            continue
+        tf_parts.append(
+            f"{key}:{item.get('timeframe')} c={item.get('candles')} sw={item.get('swings')} "
+            f"fvg={item.get('fvgs')} ob={item.get('order_blocks')} "
+            f"trend={item.get('trend')} bos={_yes_no(item.get('bos'))} mss={_yes_no(item.get('mss'))} choch={_yes_no(item.get('choch'))} "
+            f"event={item.get('last_event')}"
+        )
+    liquidity = validation.get("external_liquidity") or {}
+    blocked = validation.get("blocked_steps") or []
+    LOGGER.info(
+        "[%s] VALIDATION PROOF | strategy=%s | data=%s | align_confirmed=%s mode=%s reason=%s | liq_EQH=%s liq_EQL=%s | NDOG=%s NWOG=%s | stopped_at=%s | reason=%s | blocked=%s",
+        symbol,
+        validation.get("strategy", "unknown"),
+        " ; ".join(tf_parts) if tf_parts else "no_timeframe_data",
+        _yes_no(alignment.get("confirmed")),
+        alignment.get("alignment_mode", "none"),
+        alignment.get("alignment_reason", "none"),
+        liquidity.get("EQH", 0),
+        liquidity.get("EQL", 0),
+        _gap_summary(gaps.get("NDOG") or {}),
+        _gap_summary(gaps.get("NWOG") or {}),
+        validation.get("first_failed_step") or "none",
+        validation.get("first_failed_reason") or "none",
+        ",".join(blocked[:7]) if blocked else "none",
     )
 
 
@@ -262,6 +413,8 @@ def _console_compact_report(symbol: str, setup: dict, safety: dict = None, reque
 
 
 def _report_setup(symbol: str, setup: dict, safety: dict = None, request: dict = None) -> None:
+    if _truthy("VALIDATION_LOGS", "true"):
+        _console_validation_report(symbol, setup)
     if setup.get("strategy") == "kingsbalfx":
         _console_compact_report(symbol, setup, safety, request)
         return
@@ -422,6 +575,34 @@ def _canonical_symbol(symbol: str) -> str:
 
 def _correlated_symbols(symbol: str):
     return [item["symbol"] for item in correlated_markets(_canonical_symbol(symbol))]
+
+
+def _smt_direction_from_analysis(analysis: dict) -> str:
+    alignment = analysis.get("h1_m15_alignment") or (analysis.get("topdown") or {}).get("h1_m15_alignment") or {}
+    direction = str(alignment.get("direction") or "").lower()
+    if direction in ("buy", "sell", "bullish", "bearish"):
+        return direction
+
+    for value in (
+        analysis.get("overall_trend"),
+        (analysis.get("HTF") or {}).get("trend"),
+        (analysis.get("topdown") or {}).get("h1_trend"),
+    ):
+        normalized = str(value or "").lower()
+        if normalized in ("buy", "bullish", "long"):
+            return "buy"
+        if normalized in ("sell", "bearish", "short"):
+            return "sell"
+    return ""
+
+
+def _killzone_active_from_analysis(analysis: dict) -> bool:
+    session = analysis.get("session_analysis") or {}
+    return bool(
+        session.get("killzone_active")
+        or session.get("london_killzone")
+        or session.get("newyork_killzone")
+    )
 
 
 def _smt_snapshot(symbol: str, analysis: dict, trend: str) -> dict:
@@ -604,6 +785,12 @@ def _evaluate_kingsbalfx_fallback(symbol: str, direction: str, analysis: dict, t
         "total_steps": len(SEQUENCE),
     }
     fallback_setup.setdefault("evidence", {})["primary_ict_skip"] = fallback_setup["primary_ict_skip"]
+    if (ict_setup or {}).get("validation"):
+        fallback_setup["primary_ict_validation"] = ict_setup["validation"]
+        fallback_setup.setdefault("evidence", {})["primary_ict_validation"] = ict_setup["validation"]
+    fallback_setup["validation"] = _build_validation_snapshot(symbol, analysis, fallback_setup)
+    if fallback_setup.get("primary_ict_validation"):
+        fallback_setup["validation"]["primary_ict"] = fallback_setup["primary_ict_validation"]
     request = result.get("request")
     if not request:
         return None, fallback_setup, {"reason": result.get("reason") or "kingsbalfx_rejected"}
@@ -636,11 +823,13 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
     tick = get_tick_snapshot(symbol)
     price = (tick["bid"] + tick["ask"]) / 2.0
     analysis = analyze_market_top_down(symbol, price)
-    setup = evaluate_strategy(symbol, price, analysis)
+    smt_direction = _smt_direction_from_analysis(analysis)
     try:
-        smt = _smt_snapshot(symbol, analysis, setup.get("trend") or analysis.get("overall_trend"))
+        smt = _smt_snapshot(symbol, analysis, smt_direction or analysis.get("overall_trend"))
     except Exception as exc:
         smt = {"confirmed": False, "direction": None, "reason": f"SMT unavailable: {exc}"}
+    killzone_active = _killzone_active_from_analysis(analysis)
+    setup = evaluate_strategy(symbol, price, analysis, smt=smt, killzone_active=killzone_active)
     try:
         news_allowed = news_allows_trade(symbol)
         news = {"allowed": news_allowed, "status": "clear" if news_allowed else "high-impact or manual news block"}
@@ -657,7 +846,9 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
             "M5": topdown.get("execution_trend", "unknown"),
             "session": (analysis.get("session_analysis") or {}).get("session", "unknown"),
         },
+        "visual_concepts": analysis.get("visual_concepts") or {},
     }
+    setup["validation"] = _build_validation_snapshot(symbol, analysis, setup)
     observed = tuple(state["name"] for state in setup.get("states", []))
     if observed != SEQUENCE[: len(observed)]:
         raise RuntimeError(f"State sequence violated: {observed}")

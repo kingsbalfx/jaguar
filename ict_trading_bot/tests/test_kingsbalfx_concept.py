@@ -103,3 +103,99 @@ def test_kingsbalfx_rejects_unclear_h1_context():
 
     assert result["valid"] is False
     assert result["reason"] == "h1_narrative_unclear"
+
+
+def test_kingsbalfx_can_execute_live_sweet_zone_mode(monkeypatch):
+    analysis = _analysis_for_valid_buy()
+    analysis["visual_concepts"] = {
+        "live": True,
+        "sweet_zone": {
+            "in_sweet_zone": True,
+            "direction": "bullish",
+            "strength": 0.82,
+            "enter_now": True,
+            "timeframe": "H1",
+        },
+        "judas_swing": {},
+        "visual_fib": {},
+    }
+    monkeypatch.setattr(kingsbalfx, "_continuation_signal", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(kingsbalfx, "_reversal_signal", lambda *_args, **_kwargs: False)
+
+    result = kingsbalfx.evaluate(
+        "TESTUSD",
+        "buy",
+        FakeMT5Connector,
+        analysis=analysis,
+        tick={"bid": 139.90, "ask": 140.00, "point": 0.01},
+        account={"balance": 10000.0},
+        risk_percent=1.0,
+        minimum_rr=1.5,
+    )
+
+    assert result["valid"] is True
+    assert result["setup"]["mode"] == "sweet_zone"
+
+
+def test_kingsbalfx_can_execute_live_judas_swing_mode(monkeypatch):
+    analysis = _analysis_for_valid_buy()
+    analysis["visual_concepts"] = {
+        "live": True,
+        "sweet_zone": {},
+        "judas_swing": {
+            "is_judas_swing": True,
+            "direction": "bullish",
+            "purge_confirmed": True,
+            "reversal_strength": 0.78,
+            "enter_now": True,
+            "timeframe": "M15",
+        },
+        "visual_fib": {},
+    }
+    monkeypatch.setattr(kingsbalfx, "_continuation_signal", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(kingsbalfx, "_reversal_signal", lambda *_args, **_kwargs: False)
+
+    result = kingsbalfx.evaluate(
+        "TESTUSD",
+        "buy",
+        FakeMT5Connector,
+        analysis=analysis,
+        tick={"bid": 139.90, "ask": 140.00, "point": 0.01},
+        account={"balance": 10000.0},
+        risk_percent=1.0,
+        minimum_rr=1.5,
+    )
+
+    assert result["valid"] is True
+    assert result["setup"]["mode"] == "judas_swing"
+
+
+def test_kingsbalfx_can_use_m15_market_structure_reversal(monkeypatch):
+    analysis = _analysis_for_valid_buy()
+    analysis["MTF"]["market_structure"] = {
+        "trend": "bullish",
+        "last_event": {"event": "MSS", "direction": "bullish", "price": 139.0, "index": 29},
+        "events": [{"event": "MSS", "direction": "bullish", "price": 139.0, "index": 29}],
+        "mss": True,
+        "bos": True,
+    }
+    monkeypatch.setattr(kingsbalfx, "_continuation_signal", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(kingsbalfx, "_reversal_signal", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(kingsbalfx, "_swept_liquidity", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(kingsbalfx, "_price_touched_zone", lambda *_args, **_kwargs: True)
+
+    result = kingsbalfx.evaluate(
+        "TESTUSD",
+        "buy",
+        FakeMT5Connector,
+        analysis=analysis,
+        tick={"bid": 139.90, "ask": 140.00, "point": 0.01},
+        account={"balance": 10000.0},
+        risk_percent=1.0,
+        minimum_rr=1.5,
+    )
+
+    assert result["valid"] is True
+    assert result["setup"]["mode"] == "reversal"
+    m15_state = next(state for state in result["setup"]["evidence"]["states"] if state["name"] == "m15_setup")
+    assert m15_state["evidence"]["m15_structure_confirms_direction"] is True

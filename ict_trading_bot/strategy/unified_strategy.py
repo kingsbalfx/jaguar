@@ -4,6 +4,7 @@ from ict_concepts.fib import ote_zone
 from ict_concepts.fvg import detect_displacement_fvg
 from ict_concepts.liquidity import rank_liquidity_zones
 from ict_concepts.order_blocks import find_true_order_block
+from market_structure.structure import analyze_market_structure, structure_confirms_direction
 from strategy.setup_confirmations import liquidity_sweep_or_swing, price_action_setup
 
 
@@ -13,8 +14,8 @@ SEQUENCE = (
     "liquidity_sweep",
     "strong_displacement",
     "market_structure_shift",
-    "displacement_fvg",
-    "true_order_block",
+    "displacement_fvg_or_order_block",
+    "true_fvg_or_order_block",
     "premium_discount",
     "opposing_liquidity_target",
     "fvg_or_order_block_retracement",
@@ -27,8 +28,70 @@ def _state(name, confirmed, evidence, reason):
     return {"name": name, "confirmed": bool(confirmed), "evidence": evidence or {}, "reason": reason}
 
 
-def _narrative(analysis):
+def _market_structure_context(analysis):
+    timeframes = analysis.get("timeframes") or {}
+    context = {}
+    for key, default_timeframe in (
+        ("HTF", "H1"),
+        ("MTF", "M15"),
+        ("LTF", "M5"),
+        ("EXECUTION", "M5"),
+    ):
+        state = analysis.get(key) or {}
+        structure = state.get("market_structure") or {}
+        context[key] = {
+            "timeframe": state.get("timeframe") or timeframes.get(key) or default_timeframe,
+            "trend": structure.get("trend") or state.get("trend"),
+            "bos": bool(structure.get("bos")),
+            "mss": bool(structure.get("mss")),
+            "choch": bool(structure.get("choch") or structure.get("choc") or structure.get("change_of_character")),
+            "last_event": structure.get("last_event"),
+            "bias_confirmed": structure.get("bias_confirmed"),
+        }
+    return context
+
+
+def _visual_concept_context(analysis):
+    visual = analysis.get("visual_concepts") or (analysis.get("topdown") or {}).get("visual_concepts") or {}
+    visual_fib = visual.get("visual_fib") or {}
+    return {
+        "live": bool(visual),
+        "trade_direction": visual.get("trade_direction"),
+        "timeframes": visual.get("timeframes") or list(visual_fib.keys()),
+        "active_visual_fib_timeframes": list(visual_fib.keys()),
+        "sweet_zone": visual.get("sweet_zone") or {},
+        "judas_swing": visual.get("judas_swing") or {},
+        "sweet_zone_candidates": visual.get("sweet_zone_candidates") or [],
+        "judas_swing_candidates": visual.get("judas_swing_candidates") or [],
+    }
+
+
+def _ict_concept_context(analysis, smt=None, killzone_active=False):
+    session = analysis.get("session_analysis") or {}
+    smt = smt if isinstance(smt, dict) else {}
+    opening_gaps = analysis.get("opening_gaps") or (analysis.get("topdown") or {}).get("opening_gaps") or {}
+    return {
+        "smt": smt,
+        "smt_confirmed": bool(smt.get("confirmed")),
+        "smt_direction": smt.get("direction"),
+        "smt_pair": smt.get("pair"),
+        "killzone_active": bool(
+            killzone_active
+            or session.get("killzone_active")
+            or session.get("london_killzone")
+            or session.get("newyork_killzone")
+        ),
+        "session": session,
+        "opening_gaps": opening_gaps,
+        "visual_concepts": _visual_concept_context(analysis),
+        "market_structure": _market_structure_context(analysis),
+    }
+
+
+def _narrative(analysis, concept_context=None):
     intraday_alignment = analysis.get("h1_m15_alignment") or (analysis.get("topdown") or {}).get("h1_m15_alignment")
+    previous_day_context = analysis.get("previous_day_context") or (analysis.get("topdown") or {}).get("previous_day_context") or {}
+    concept_context = concept_context or _ict_concept_context(analysis)
     if isinstance(intraday_alignment, dict):
         evidence = {
             "H1": intraday_alignment.get("h1_trend"),
@@ -37,8 +100,21 @@ def _narrative(analysis):
             "m15_current_h1_bias": intraday_alignment.get("m15_current_h1_bias"),
             "h1_candles_used": intraday_alignment.get("h1_candles_used"),
             "m15_candles_used": intraday_alignment.get("m15_candles_used"),
+            "structural_alignment": intraday_alignment.get("structural_alignment"),
+            "structural_opposition": intraday_alignment.get("structural_opposition"),
+            "candle_alignment": intraday_alignment.get("candle_alignment"),
+            "candle_fallback": intraday_alignment.get("candle_fallback"),
+            "current_bias_agrees_with_trend": intraday_alignment.get("current_bias_agrees_with_trend"),
+            "alignment_mode": intraday_alignment.get("alignment_mode"),
+            "alignment_reason": intraday_alignment.get("alignment_reason"),
             "alignment_rule": intraday_alignment.get("rule"),
-            "previous_day_context": analysis.get("previous_day_context") or (analysis.get("topdown") or {}).get("previous_day_context"),
+            "previous_day_context": previous_day_context,
+            "opening_gaps": concept_context.get("opening_gaps", {}),
+            "background_context_source_timeframe": previous_day_context.get("source_timeframe"),
+            "background_context_fallback_used": bool(previous_day_context.get("fallback_used")),
+            "h1_market_structure": concept_context.get("market_structure", {}).get("HTF", {}),
+            "m15_market_structure": concept_context.get("market_structure", {}).get("MTF", {}),
+            "ict_concepts": concept_context,
         }
         if intraday_alignment.get("confirmed") and intraday_alignment.get("direction") in ("buy", "sell"):
             return intraday_alignment["direction"], evidence
@@ -51,8 +127,14 @@ def _narrative(analysis):
     evidence = {
         "H1": h1,
         "M15": m15,
-        "previous_day_context": analysis.get("previous_day_context") or (analysis.get("topdown") or {}).get("previous_day_context"),
+        "previous_day_context": previous_day_context,
+        "opening_gaps": concept_context.get("opening_gaps", {}),
+        "background_context_source_timeframe": previous_day_context.get("source_timeframe"),
+        "background_context_fallback_used": bool(previous_day_context.get("fallback_used")),
         "alignment_rule": "H1 trend must align with M15 trend when explicit H1/M15 candle alignment is unavailable",
+        "h1_market_structure": concept_context.get("market_structure", {}).get("HTF", {}),
+        "m15_market_structure": concept_context.get("market_structure", {}).get("MTF", {}),
+        "ict_concepts": concept_context,
     }
     if h1 == m15 == "bullish":
         return "buy", evidence
@@ -108,7 +190,7 @@ def _ote_retracement_zone(price, fib, direction):
         "midpoint": (low + high) / 2.0,
         "kind": "ote",
         "timeframe": "H1",
-        "source": "optimal_trade_entry_62_79_retracement",
+        "source": "quarter_fib_retracement",
     }
     if not _touches(price, zone):
         return {"confirmed": False, **zone}
@@ -121,6 +203,31 @@ def _ote_retracement_zone(price, fib, direction):
         "levels": levels,
         "nearest_reference_level": nearest,
     }
+
+
+def _visual_fib_context(analysis):
+    visual_concepts = analysis.get("visual_concepts") or (analysis.get("topdown") or {}).get("visual_concepts") or {}
+    visual_by_timeframe = visual_concepts.get("visual_fib") or {}
+    htf = str((analysis.get("timeframes") or {}).get("HTF") or "H1").upper()
+    return (
+        visual_by_timeframe.get(htf)
+        or visual_by_timeframe.get("H1")
+        or (analysis.get("HTF") or {}).get("visual_fib")
+        or {}
+    )
+
+
+def _zone_in_visual_half(zone, visual_context, direction):
+    if not zone or not visual_context:
+        return False
+    swing_zones = visual_context.get("swing_zones") or {}
+    half = swing_zones.get("discount_zone") if direction == "buy" else swing_zones.get("premium_zone")
+    if not isinstance(half, dict):
+        return False
+    midpoint = float(zone.get("midpoint", (float(zone.get("low", 0.0)) + float(zone.get("high", 0.0))) / 2.0) or 0.0)
+    low = float(half.get("low", 0.0) or 0.0)
+    high = float(half.get("high", 0.0) or 0.0)
+    return min(low, high) <= midpoint <= max(low, high)
 
 
 def _external_liquidity(analysis):
@@ -179,7 +286,24 @@ def _atr(candles, end_index, period=14):
     return sum(window) / len(window) if window else 0.0
 
 
-def _market_structure_shift(candles, displacement_index, direction):
+def _swings_from_candles(candles, width=2):
+    swings = []
+    if not candles or len(candles) < width * 2 + 1:
+        return swings
+    for index in range(width, len(candles) - width):
+        candle = candles[index]
+        left = candles[index - width:index]
+        right = candles[index + 1:index + 1 + width]
+        high = float(candle["high"])
+        low = float(candle["low"])
+        if all(high > float(item["high"]) for item in left + right):
+            swings.append({"type": "high", "price": high, "index": index, "time": candle.get("time")})
+        if all(low < float(item["low"]) for item in left + right):
+            swings.append({"type": "low", "price": low, "index": index, "time": candle.get("time")})
+    return swings
+
+
+def _market_structure_shift(candles, displacement_index, direction, supplied_structure=None):
     displacement_index = int(displacement_index)
     prior = candles[max(1, displacement_index - 30) : displacement_index]
     opposing = []
@@ -190,13 +314,47 @@ def _market_structure_shift(candles, displacement_index, direction):
         if direction == "sell" and float(candle["low"]) < float(prior[index - 1]["low"]) and float(candle["low"]) < float(prior[index + 1]["low"]):
             opposing.append(float(candle["low"]))
     if not opposing:
-        return {"confirmed": False, "reason": "no_last_opposing_swing"}
-    level = opposing[-1]
-    for index in range(displacement_index, min(len(candles), displacement_index + 6)):
-        close = float(candles[index]["close"])
-        if (direction == "buy" and close > level) or (direction == "sell" and close < level):
-            return {"confirmed": True, "level": level, "break_index": index}
-    return {"confirmed": False, "level": level, "reason": "opposing_swing_not_broken"}
+        opposing_break = {"confirmed": False, "reason": "no_last_opposing_swing"}
+    else:
+        level = opposing[-1]
+        opposing_break = {"confirmed": False, "level": level, "reason": "opposing_swing_not_broken"}
+        for index in range(displacement_index, min(len(candles), displacement_index + 6)):
+            close = float(candles[index]["close"])
+            if (direction == "buy" and close > level) or (direction == "sell" and close < level):
+                opposing_break = {"confirmed": True, "level": level, "break_index": index, "reason": "opposing_swing_broken"}
+                break
+
+    local_structure = analyze_market_structure(
+        _swings_from_candles(candles, width=2),
+        direction=direction,
+        timeframe="M5",
+    )
+    supplied_structure = supplied_structure if isinstance(supplied_structure, dict) else {}
+    supplied_confirms = structure_confirms_direction(supplied_structure, direction, require_event=True)
+    local_confirms = structure_confirms_direction(local_structure, direction, require_event=True)
+    confirmed = bool(opposing_break.get("confirmed") or supplied_confirms or local_confirms)
+    if confirmed:
+        return {
+            "confirmed": True,
+            "structure_signal": "mss_bos",
+            "opposing_break": opposing_break,
+            "supplied_structure": supplied_structure,
+            "local_structure": local_structure,
+            "reason": (
+                "opposing_swing_broken"
+                if opposing_break.get("confirmed")
+                else "supplied_market_structure_confirms_direction"
+                if supplied_confirms
+                else "local_market_structure_confirms_direction"
+            ),
+        }
+    return {
+        "confirmed": False,
+        "opposing_break": opposing_break,
+        "supplied_structure": supplied_structure,
+        "local_structure": local_structure,
+        "reason": opposing_break.get("reason") or "market_structure_not_confirmed",
+    }
 
 
 def _result(symbol, direction, states, plan=None):
@@ -220,15 +378,15 @@ def _result(symbol, direction, states, plan=None):
 
 def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=False):
     """Reject immediately on the first failed state. SMT and killzones are informational only."""
-    del smt, killzone_active
     states = []
+    concept_context = _ict_concept_context(analysis, smt=smt, killzone_active=killzone_active)
 
     def require(name, condition, evidence, reason):
         states.append(_state(name, condition, evidence, reason))
         return bool(condition)
 
-    direction, narrative = _narrative(analysis)
-    if not require(SEQUENCE[0], direction is not None, narrative, "H1 trend and current-H1 M15 candles must agree"):
+    direction, narrative = _narrative(analysis, concept_context=concept_context)
+    if not require(SEQUENCE[0], direction is not None, narrative, "H1 and M15 structural trend must align; candle bias is only fallback when structure is incomplete"):
         return _result(symbol, direction, states)
 
     htf = analysis.get("HTF") or {}
@@ -236,11 +394,26 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
     entry_side = "EQL" if direction == "buy" else "EQH"
     entry_liquidity = list(liquidity.get(entry_side, []))
     targets = rank_liquidity_zones(liquidity, price, direction)
-    if not require(SEQUENCE[1], bool(entry_liquidity), {"entry_side": entry_liquidity}, "H1/M15/M5 external liquidity is required"):
+    if not require(
+        SEQUENCE[1],
+        bool(entry_liquidity),
+        {
+            "entry_side": entry_liquidity,
+            "external_liquidity": liquidity,
+            "market_structure": concept_context.get("market_structure", {}),
+        },
+        "H1/M15/M5 external liquidity is required",
+    ):
         return _result(symbol, direction, states)
 
     sweep = liquidity_sweep_or_swing(price, analysis, direction, external_liquidity=liquidity)
-    if not require(SEQUENCE[2], sweep.get("confirmed"), sweep, "Price must trade beyond external liquidity and close back inside"):
+    sweep_evidence = {
+        **sweep,
+        "session": concept_context.get("session", {}),
+        "killzone_active": concept_context.get("killzone_active"),
+        "smt": concept_context.get("smt", {}),
+    }
+    if not require(SEQUENCE[2], sweep.get("confirmed"), sweep_evidence, "Price must trade beyond external liquidity and close back inside"):
         return _result(symbol, direction, states)
 
     candles = (analysis.get("EXECUTION") or {}).get("recent_candles") or []
@@ -258,26 +431,55 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
     if not require(SEQUENCE[3], displacement, {**sweep, "impulse_range": impulse_range, "atr": _atr(candles, displacement_index)}, "Post-sweep candle must be ATR-normalized displacement with body at least 60%"):
         return _result(symbol, direction, states)
 
-    structure = _market_structure_shift(candles, displacement_index, direction)
-    if not require(SEQUENCE[4], structure.get("confirmed"), structure, "Displacement must break the last opposing swing"):
+    execution_structure = (analysis.get("EXECUTION") or {}).get("market_structure") or {}
+    structure = _market_structure_shift(candles, displacement_index, direction, supplied_structure=execution_structure)
+    if not require(
+        SEQUENCE[4],
+        structure.get("confirmed"),
+        {**structure, "all_timeframe_market_structure": concept_context.get("market_structure", {})},
+        "Displacement must break the last opposing swing",
+    ):
         return _result(symbol, direction, states)
 
     fvg = detect_displacement_fvg(candles, displacement_index, direction, timeframe="M5") if displacement_index is not None else None
-    if not require(SEQUENCE[5], bool(fvg), {"fvg": fvg}, "The displacement candle must create a three-candle M5 FVG"):
-        return _result(symbol, direction, states)
-
     order_block = find_true_order_block(candles, displacement_index, direction, timeframe="M5") if displacement_index is not None else None
-    if not require(SEQUENCE[6], bool(order_block), {"order_block": order_block}, "The final opposing M5 candle before displacement is required"):
+    true_zone_available = bool(fvg or order_block)
+    zone_model_evidence = {
+        "fvg": fvg,
+        "order_block": order_block,
+        "accepted_models": [name for name, zone in (("fvg", fvg), ("order_block", order_block)) if zone],
+        "rule": "A true displacement FVG or the final opposing order block can qualify the setup; both are not required together",
+    }
+    if not require(SEQUENCE[5], true_zone_available, zone_model_evidence, "Displacement must create either a true M5 FVG or a true M5 order block"):
+        return _result(symbol, direction, states)
+    if not require(SEQUENCE[6], true_zone_available, zone_model_evidence, "At least one true FVG or true order block is required"):
         return _result(symbol, direction, states)
 
     fib = htf.get("fib") or {}
     equilibrium = float(fib.get("0.5", 0.0) or 0.0)
-    fvg_midpoint = float(fvg["midpoint"])
-    order_block_midpoint = float(order_block["midpoint"])
-    fvg_correct_half = equilibrium > 0 and (fvg_midpoint <= equilibrium if direction == "buy" else fvg_midpoint >= equilibrium)
-    order_block_correct_half = equilibrium > 0 and (order_block_midpoint <= equilibrium if direction == "buy" else order_block_midpoint >= equilibrium)
-    correct_half = fvg_correct_half or order_block_correct_half
-    if not require(SEQUENCE[7], correct_half, {"equilibrium": equilibrium, "fvg_valid": fvg_correct_half, "order_block_valid": order_block_correct_half}, "At least one executable FVG or order block must be in discount for buys or premium for sells"):
+    fvg_midpoint = float(fvg["midpoint"]) if fvg else 0.0
+    order_block_midpoint = float(order_block["midpoint"]) if order_block else 0.0
+    fvg_correct_half = bool(fvg and equilibrium > 0 and (fvg_midpoint <= equilibrium if direction == "buy" else fvg_midpoint >= equilibrium))
+    order_block_correct_half = bool(order_block and equilibrium > 0 and (order_block_midpoint <= equilibrium if direction == "buy" else order_block_midpoint >= equilibrium))
+    visual_context = _visual_fib_context(analysis)
+    visual_fvg_correct_half = _zone_in_visual_half(fvg, visual_context, direction)
+    visual_order_block_correct_half = _zone_in_visual_half(order_block, visual_context, direction)
+    correct_half = fvg_correct_half or order_block_correct_half or visual_fvg_correct_half or visual_order_block_correct_half
+    if not require(
+        SEQUENCE[7],
+        correct_half,
+        {
+            "equilibrium": equilibrium,
+            "fvg_valid": fvg_correct_half,
+            "order_block_valid": order_block_correct_half,
+            "visual_fib_timeframe": visual_context.get("timeframe"),
+            "visual_fvg_valid": visual_fvg_correct_half,
+            "visual_order_block_valid": visual_order_block_correct_half,
+            "visual_price_position": visual_context.get("price_position"),
+            "visual_concepts": concept_context.get("visual_concepts", {}),
+        },
+        "At least one executable FVG or order block must be in discount for buys or premium for sells by H1 Fib or live Visual Fib",
+    ):
         return _result(symbol, direction, states)
 
     stop = float(sweep["sweep_extreme"])
@@ -286,17 +488,38 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
     if not require(SEQUENCE[8], target is not None and risk > 0, {"target": target, "risk": risk}, "Opposing external liquidity must provide at least 1.5R"):
         return _result(symbol, direction, states)
 
-    eligible_fvg = fvg if fvg_correct_half else None
-    eligible_order_block = order_block if order_block_correct_half else None
+    eligible_fvg = fvg if fvg_correct_half or visual_fvg_correct_half else None
+    eligible_order_block = order_block if order_block_correct_half or visual_order_block_correct_half else None
     retracement = _retracement_zone(price, eligible_fvg, eligible_order_block)
     ote_retracement = _ote_retracement_zone(price, fib, direction)
     executable_retracement = retracement if retracement.get("confirmed") else ote_retracement
-    if not require(SEQUENCE[9], executable_retracement.get("confirmed"), {"fvg": eligible_fvg, "order_block": eligible_order_block, "ote": ote_retracement, "zone": executable_retracement}, "Price must retrace into either the true FVG, the true order block, or the H1 OTE zone"):
+    if not require(
+        SEQUENCE[9],
+        executable_retracement.get("confirmed"),
+        {
+            "fvg": eligible_fvg,
+            "order_block": eligible_order_block,
+            "ote": ote_retracement,
+            "zone": executable_retracement,
+            "visual_concepts": concept_context.get("visual_concepts", {}),
+        },
+        "Price must retrace into either the true FVG, the true order block, or the H1 OTE zone",
+    ):
         return _result(symbol, direction, states)
 
     confirmation = price_action_setup(analysis, direction)
     ltf_confirmed = bool(confirmation.get("execution_confirmed"))
-    if not require(SEQUENCE[10], ltf_confirmed, confirmation, "M1 or M5 rejection/engulfing confirmation is required"):
+    confirmation_evidence = {
+        **confirmation,
+        "smt": concept_context.get("smt", {}),
+        "smt_confirmed": concept_context.get("smt_confirmed"),
+        "killzone_active": concept_context.get("killzone_active"),
+        "session": concept_context.get("session", {}),
+        "sweet_zone": concept_context.get("visual_concepts", {}).get("sweet_zone", {}),
+        "judas_swing": concept_context.get("visual_concepts", {}).get("judas_swing", {}),
+        "market_structure": concept_context.get("market_structure", {}),
+    }
+    if not require(SEQUENCE[10], ltf_confirmed, confirmation_evidence, "M1 or M5 rejection/engulfing confirmation is required"):
         return _result(symbol, direction, states)
 
     market_order = {"order_type": "market", "entry": float(price), "sl": stop, "tp": float(target["level"])}
@@ -310,6 +533,7 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
         "confluence_zone": executable_retracement,
         "swept_liquidity": sweep,
         "target_liquidity": target,
+        "ict_concepts": concept_context,
     }
     return _result(symbol, direction, states, plan)
 

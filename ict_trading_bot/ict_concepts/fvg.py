@@ -18,6 +18,7 @@ def _tf_to_mt5(timeframe):
         "M30": mt5.TIMEFRAME_M30,
         "H1": mt5.TIMEFRAME_H1,
         "H4": mt5.TIMEFRAME_H4,
+        "W1": mt5.TIMEFRAME_W1,
         "D1": mt5.TIMEFRAME_D1,
     }.get(str(timeframe).upper())
 

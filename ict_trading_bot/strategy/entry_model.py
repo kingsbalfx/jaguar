@@ -15,6 +15,7 @@ def _timeframe(value):
     return {
         "M1": mt5.TIMEFRAME_M1,
         "M5": mt5.TIMEFRAME_M5,
+        "M15": mt5.TIMEFRAME_M15,
         "H1": mt5.TIMEFRAME_H1,
         "H4": mt5.TIMEFRAME_H4,
         "D1": mt5.TIMEFRAME_D1,
@@ -67,19 +68,21 @@ def _trend(candles):
     return None
 
 
-def _external_liquidity(h1, d1, w1):
+def _external_liquidity(h1, m15=None):
     levels = []
-    for label, candles in (("previous_day", d1), ("previous_week", w1)):
+    for label, candles in (("H1_previous", h1), ("M15_previous", m15 or [])):
         if candles:
             candle = candles[-1]
             levels.extend(
                 (
-                    {"type": "high", "level": candle["high"], "source": f"{label}_high"},
-                    {"type": "low", "level": candle["low"], "source": f"{label}_low"},
+                    {"type": "high", "level": candle["high"], "source": f"{label}_high", "timeframe": label.split("_")[0]},
+                    {"type": "low", "level": candle["low"], "source": f"{label}_low", "timeframe": label.split("_")[0]},
                 )
             )
     for swing in _swings(h1)[-12:]:
-        levels.append({"type": swing["type"], "level": swing["price"], "source": "H1_major_swing"})
+        levels.append({"type": swing["type"], "level": swing["price"], "source": "H1_major_swing", "timeframe": "H1"})
+    for swing in _swings(m15 or [])[-12:]:
+        levels.append({"type": swing["type"], "level": swing["price"], "source": "M15_major_swing", "timeframe": "M15"})
     return levels
 
 
@@ -149,23 +152,28 @@ def _dealing_range(candles, sweep_index, direction):
     if high <= low:
         return None
     if direction == "buy":
-        return {"low": low + (high - low) * 0.21, "high": low + (high - low) * 0.38, "equilibrium": (low + high) / 2.0}
-    return {"low": low + (high - low) * 0.62, "high": low + (high - low) * 0.79, "equilibrium": (low + high) / 2.0}
+        return {"low": low + (high - low) * 0.25, "high": low + (high - low) * 0.5, "equilibrium": (low + high) / 2.0}
+    return {"low": low + (high - low) * 0.5, "high": low + (high - low) * 0.75, "equilibrium": (low + high) / 2.0}
 
 
 def _select_retracement_zone(candle, fvg, order_block):
     for kind, zone in (("FVG", fvg), ("ORDER_BLOCK", order_block)):
+        if not isinstance(zone, dict):
+            continue
         if candle["low"] <= float(zone["high"]) and candle["high"] >= float(zone["low"]):
             low, high = float(zone["low"]), float(zone["high"])
             distance = high - low
+            levels = {
+                "25": low + distance * 0.25,
+                "50": low + distance * 0.50,
+                "75": low + distance * 0.75,
+            }
+            nearest = min(levels, key=lambda key: abs(float(candle["close"]) - levels[key]))
             return {
                 **zone,
                 "kind": kind,
-                "levels": {
-                    "25": low + distance * 0.25,
-                    "50": low + distance * 0.50,
-                    "75": low + distance * 0.75,
-                },
+                "levels": levels,
+                "nearest_reference_level": nearest,
             }
     return None
 
@@ -217,13 +225,15 @@ def get_lower_timeframe_entry(symbol, direction, tf="M5"):
     direction = str(direction or "").lower()
     if direction not in ("buy", "sell"):
         return None
-    d1, h4, h1 = _rates(symbol, "D1", 160), _rates(symbol, "H4", 240), _rates(symbol, "H1", 300)
+    h1, m15 = _rates(symbol, "H1", 300), _rates(symbol, "M15", 300)
     lower, m1 = _rates(symbol, tf, 500), _rates(symbol, "M1", 300)
-    if min(len(d1), len(h4), len(h1), len(lower), len(m1)) < 20:
+    if min(len(h1), len(m15), len(lower)) < 20 or len(m1) < 10:
         return None
-    if _trend(d1) != direction or _trend(h4) != direction:
+    h1_trend = _trend(h1)
+    m15_trend = _trend(m15)
+    if h1_trend != direction or m15_trend != direction:
         return None
-    levels = _external_liquidity(h1, d1, _rates(symbol, "W1", 80))
+    levels = _external_liquidity(h1, m15)
     if not levels:
         return None
     sweep = _find_sweep(lower, levels, direction)
@@ -236,7 +246,7 @@ def get_lower_timeframe_entry(symbol, direction, tf="M5"):
         return None
     fvg = detect_displacement_fvg(lower, displacement_index, direction, timeframe=tf)
     order_block = find_true_order_block(lower, displacement_index, direction, timeframe=tf)
-    if not fvg or not order_block:
+    if not fvg and not order_block:
         return None
     zone = _select_retracement_zone(lower[-1], fvg, order_block)
     if not zone:
@@ -266,6 +276,7 @@ def get_lower_timeframe_entry(symbol, direction, tf="M5"):
         "order_block": order_block,
         "confluence_zone": zone,
         "swept_liquidity": sweep,
+        "alignment": {"H1": h1_trend, "M15": m15_trend},
     }
 
 
@@ -277,6 +288,30 @@ def hybrid_entry_model(data):
     return {key: data[key] for key in required} if all(key in data for key in required) else None
 
 
+
+
+def explain_hybrid_failure(data):
+    if not isinstance(data, dict):
+        return "entry data is not a dictionary"
+    if not data.get("strict_sequence_confirmed"):
+        return "strict sequence is not confirmed"
+    missing = [key for key in ("direction", "entry", "sl", "tp", "type") if key not in data]
+    if missing:
+        return "missing entry fields: " + ", ".join(missing)
+    return "entry model accepted"
+
+
+def entry_debug_snapshot(data):
+    data = data or {}
+    return {
+        "strict_sequence_confirmed": bool(data.get("strict_sequence_confirmed")),
+        "direction": data.get("direction"),
+        "entry": data.get("entry"),
+        "sl": data.get("sl"),
+        "tp": data.get("tp"),
+        "type": data.get("type"),
+        "reason": explain_hybrid_failure(data),
+    }
 def explain_entry_failure(trend, price, fib_levels, fvgs, htf_order_blocks, symbol=None, atr=None):
     del trend, price, fib_levels, fvgs, htf_order_blocks, symbol, atr
     return "strict_sequence_not_confirmed"

@@ -21,13 +21,8 @@ def fib_dealing_range(high, low):
     spread = high - low
     return {
         "0.0": low,
-        "0.21": low + 0.21 * spread,
         "0.25": low + 0.25 * spread,
-        "0.382": low + 0.382 * spread,
         "0.5": low + 0.5 * spread,
-        "0.62": low + 0.62 * spread,
-        "0.705": low + 0.705 * spread,
-        "0.79": low + 0.79 * spread,
         "0.75": low + 0.75 * spread,
         "1.0": high,
         "range": spread,
@@ -51,13 +46,15 @@ def premium_zone(fib):
 
 
 def ote_zone(fib, direction):
-    """Return the directional 62%-79% optimal-trade-entry retracement."""
-    low = float(fib["0.0"])
-    high = float(fib["1.0"])
-    spread = high - low
+    """Return the directional quarter-based retracement zone.
+
+    The bot uses only five Fib references: 0, 0.25, 0.5, 0.75, and 1.
+    Buy retracements use discount between 0.25 and 0.5. Sell retracements
+    use premium between 0.5 and 0.75.
+    """
     if str(direction or "").lower() in ("buy", "bullish", "long"):
-        return high - (spread * 0.79), high - (spread * 0.62)
-    return low + (spread * 0.62), low + (spread * 0.79)
+        return float(fib["0.25"]), float(fib["0.5"])
+    return float(fib["0.5"]), float(fib["0.75"])
 
 
 def price_zone(price, fib):
@@ -93,6 +90,7 @@ def _tf_to_mt5(tf):
         'M30': mt5.TIMEFRAME_M30,
         'H1': mt5.TIMEFRAME_H1,
         'H4': mt5.TIMEFRAME_H4,
+        'W1': mt5.TIMEFRAME_W1,
         'D1': mt5.TIMEFRAME_D1,
     }
     return mapping.get(tf, tf)

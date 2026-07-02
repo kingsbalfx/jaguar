@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from market_structure.structure import structure_confirms_direction
 
 Direction = str
 Candle = Dict[str, float]
@@ -414,16 +415,18 @@ def _ote_zone(candles: Sequence[Candle], direction: Direction, timeframe: str) -
         impulse_high = max(float(swing["price"]) for swing in highs if int(swing["index"]) > int(last_low["index"]) or swing == last_high)
         if impulse_high <= impulse_low:
             return None
-        low = impulse_high - (impulse_high - impulse_low) * 0.79
-        high = impulse_high - (impulse_high - impulse_low) * 0.62
-        return _make_zone("ote", "buy", low, high, timeframe, "optimal_trade_entry_62_79_retracement", int(last_high["index"]))
+        distance = impulse_high - impulse_low
+        low = impulse_low + distance * 0.25
+        high = impulse_low + distance * 0.50
+        return _make_zone("ote", "buy", low, high, timeframe, "quarter_fib_discount_retracement", int(last_high["index"]))
     impulse_high = float(last_high["price"])
     impulse_low = min(float(swing["price"]) for swing in lows if int(swing["index"]) > int(last_high["index"]) or swing == last_low)
     if impulse_high <= impulse_low:
         return None
-    low = impulse_low + (impulse_high - impulse_low) * 0.62
-    high = impulse_low + (impulse_high - impulse_low) * 0.79
-    return _make_zone("ote", "sell", low, high, timeframe, "optimal_trade_entry_62_79_retracement", int(last_low["index"]))
+    distance = impulse_high - impulse_low
+    low = impulse_low + distance * 0.50
+    high = impulse_low + distance * 0.75
+    return _make_zone("ote", "sell", low, high, timeframe, "quarter_fib_premium_retracement", int(last_low["index"]))
 
 
 def _target_from_zones(zones: Sequence[Zone], direction: Direction, price: float, timeframe: str) -> List[Target]:
@@ -605,7 +608,7 @@ def _decision_dict(decision: KingsbalfxDecision) -> Dict[str, Any]:
 
 
 def _build_analysis_context(analysis: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
-    daily = analysis.get("DAILY") or {}
+    daily = analysis.get("DAILY_CONTEXT") or analysis.get("DAILY") or {}
     h1 = analysis.get("HTF") or {}
     m15 = analysis.get("MTF") or {}
     m5_context = analysis.get("LTF") or {}
@@ -616,6 +619,19 @@ def _build_analysis_context(analysis: Dict[str, Any]) -> Tuple[Dict[str, Any], D
 def _h1_m15_alignment(analysis: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     alignment = analysis.get("h1_m15_alignment") or (analysis.get("topdown") or {}).get("h1_m15_alignment")
     return alignment if isinstance(alignment, dict) else None
+
+
+def _live_visual_concepts(analysis: Dict[str, Any]) -> Dict[str, Any]:
+    concepts = analysis.get("visual_concepts") or (analysis.get("topdown") or {}).get("visual_concepts") or {}
+    return concepts if isinstance(concepts, dict) else {}
+
+
+def _live_concept_matches_direction(concept: Dict[str, Any], direction: Direction) -> bool:
+    return bool(concept and _normalize_direction(concept.get("direction")) == direction)
+
+
+def _structure_confirms(structure: Dict[str, Any], direction: Direction, require_event: bool = False) -> bool:
+    return structure_confirms_direction(structure if isinstance(structure, dict) else {}, direction, require_event=require_event)
 
 
 def evaluate(
@@ -661,6 +677,8 @@ def evaluate(
         "states": [],
         "candle_windows": analysis.get("candle_window_usage") or analysis.get("candle_windows") or {},
         "previous_day_context": analysis.get("previous_day_context") or {},
+        "opening_gaps": analysis.get("opening_gaps") or (analysis.get("topdown") or {}).get("opening_gaps") or {},
+        "visual_concepts": _live_visual_concepts(analysis),
         "session_analysis": analysis.get("session_analysis") or {},
     }
 
@@ -668,8 +686,14 @@ def evaluate(
         decision = KingsbalfxDecision(False, "h1_narrative_unclear", None, None, None, None, None, 0.0, None, None, evidence)
         return {"valid": False, "request": None, "setup": _decision_dict(decision), "reason": decision.reason}
 
-    daily_fvgs = _fvg_zones(d1_fvg_ob, "D1", price)
-    daily_obs = _ob_zones(d1_fvg_ob, "D1")
+    background_context = analysis.get("previous_day_context") or {}
+    background_timeframe = str(
+        background_context.get("source_timeframe")
+        or daily_state.get("timeframe")
+        or "D1"
+    ).upper()
+    daily_fvgs = _fvg_zones(d1_fvg_ob, background_timeframe, price)
+    daily_obs = _ob_zones(d1_fvg_ob, background_timeframe)
     previous_shift = _previous_day_shift(d1, trade_direction)
     evidence["states"].append(
         _state(
@@ -677,8 +701,12 @@ def evaluate(
             True,
             {
                 "role": "background_only",
-                "previous_day_context": analysis.get("previous_day_context") or {},
+                "previous_day_context": background_context,
                 "previous_day_shift": previous_shift,
+                "background_timeframe": background_timeframe,
+                "background_fallback_used": bool(background_context.get("fallback_used")),
+                "background_fvg_count": len(daily_fvgs),
+                "background_order_block_count": len(daily_obs),
                 "d1_fvg_count": len(daily_fvgs),
                 "d1_order_block_count": len(daily_obs),
                 "context_candles": len(d1),
@@ -687,11 +715,14 @@ def evaluate(
     )
 
     h1_trend = _trend_from_candles(h1)
+    h1_structure = h1_state.get("market_structure") or {}
+    h1_structure_confirms = _structure_confirms(h1_structure, trade_direction, require_event=False)
     h1_clear = (
         bool(h1_m15_alignment.get("confirmed") and h1_m15_alignment.get("direction") == trade_direction)
         if h1_m15_alignment
         else h1_trend in ("bullish", "bearish") and _normalize_direction(h1_trend) == trade_direction
     )
+    h1_clear = bool(h1_clear or (_bias_from_state(h1_state, h1) == trade_direction and h1_structure_confirms))
     h1_fvgs_for_targets = _fvg_zones(h1_fvg_ob, "H1", price)
     h1_obs_for_targets = _ob_zones(h1_fvg_ob, "H1")
     primary_targets = (
@@ -711,6 +742,8 @@ def evaluate(
                 "h1_trend": h1_trend,
                 "direction": trade_direction,
                 "h1_m15_alignment": h1_m15_alignment,
+                "h1_market_structure": h1_structure,
+                "h1_structure_confirms_direction": h1_structure_confirms,
                 "target": asdict(primary_target) if primary_target else None,
                 "fvg_count": len(h1_fvgs_for_targets),
                 "order_block_count": len(h1_obs_for_targets),
@@ -728,6 +761,21 @@ def evaluate(
     if not h1_context_pass:
         decision = KingsbalfxDecision(False, "h1_context_or_target_missing", trade_direction, None, None, None, None, 0.0, asdict(primary_target) if primary_target else None, None, evidence)
         return {"valid": False, "request": None, "setup": _decision_dict(decision), "reason": decision.reason}
+
+    live_visual = _live_visual_concepts(analysis)
+    sweet_zone = live_visual.get("sweet_zone") or {}
+    judas_swing = live_visual.get("judas_swing") or {}
+    sweet_zone_live = bool(
+        sweet_zone.get("in_sweet_zone")
+        and sweet_zone.get("enter_now")
+        and _live_concept_matches_direction(sweet_zone, trade_direction)
+    )
+    judas_swing_live = bool(
+        judas_swing.get("is_judas_swing")
+        and judas_swing.get("purge_confirmed")
+        and judas_swing.get("enter_now")
+        and _live_concept_matches_direction(judas_swing, trade_direction)
+    )
 
     m15_agrees = (
         bool(h1_m15_alignment.get("confirmed") and h1_m15_alignment.get("direction") == trade_direction)
@@ -753,15 +801,23 @@ def evaluate(
     h1_ote = _ote_zone(h1, trade_direction, "H1")
     h1_entry_zones = h1_fvgs_for_targets + h1_obs_for_targets + ([h1_ote] if h1_ote else [])
     h1_entry_zone = _nearest_entry_zone(h1_entry_zones, trade_direction, price)
+    m15_structure = m15_state.get("market_structure") or {}
+    m15_structure_confirms = _structure_confirms(m15_structure, trade_direction, require_event=True)
     m15_fvgs = _fvg_zones(m15_fvg_ob, "M15", price)
     m15_obs = _ob_zones(m15_fvg_ob, "M15")
     m15_ote = _ote_zone(m15, trade_direction, "M15")
     m15_entry_zones = m15_fvgs + m15_obs + ([m15_ote] if m15_ote else [])
     m15_zone = _nearest_entry_zone(m15_entry_zones, trade_direction, price) or h1_entry_zone
     continuation = _continuation_signal(m15, m15_zone, trade_direction, point)
-    reversal = _reversal_signal(m15, trade_direction)
-    m15_setup_pass = continuation or reversal
-    mode = "continuation" if continuation else "reversal" if reversal else None
+    reversal = _reversal_signal(m15, trade_direction) or (_swept_liquidity(m15_sweep, trade_direction) and m15_structure_confirms)
+    m15_setup_pass = continuation or reversal or sweet_zone_live or judas_swing_live
+    mode = (
+        "continuation" if continuation
+        else "reversal" if reversal
+        else "sweet_zone" if sweet_zone_live
+        else "judas_swing" if judas_swing_live
+        else None
+    )
     evidence["states"].append(
         _state(
             "m15_setup",
@@ -770,6 +826,12 @@ def evaluate(
                 "mode": mode,
                 "strong_reversal": reversal,
                 "continuation_retracement": continuation,
+                "m15_market_structure": m15_structure,
+                "m15_structure_confirms_direction": m15_structure_confirms,
+                "sweet_zone_continuation": sweet_zone_live,
+                "judas_swing_reversal": judas_swing_live,
+                "sweet_zone": sweet_zone,
+                "judas_swing": judas_swing,
                 "h1_entry_zone": asdict(h1_entry_zone) if h1_entry_zone else None,
                 "m15_entry_zone": asdict(m15_zone) if m15_zone else None,
                 "true_fvg_count": len(m15_fvgs),
@@ -791,6 +853,10 @@ def evaluate(
     m5_sweep = _candles(m5_context_state, "sweep", 20) or m5[-20:]
     if mode == "reversal":
         m5_condition = _swept_liquidity(m5_sweep, trade_direction) and _price_touched_zone(m5, m15_zone, tolerance=point * 5)
+    elif mode == "judas_swing":
+        m5_condition = bool(judas_swing_live and (_two_consecutive_directional(m5, trade_direction, body_ratio=0.55) or _large_engulfing_or_breakout(m5, trade_direction)))
+    elif mode == "sweet_zone":
+        m5_condition = bool(sweet_zone_live and (_two_consecutive_directional(m5, trade_direction, body_ratio=0.55) or _large_engulfing_or_breakout(m5, trade_direction)))
     else:
         m5_condition = bool(m15_zone and _price_touched_zone(m5, m15_zone, tolerance=point * 5))
     evidence["states"].append(
@@ -802,6 +868,8 @@ def evaluate(
                 "m15_zone": asdict(m15_zone) if m15_zone else None,
                 "liquidity_sweep": _swept_liquidity(m5_sweep, trade_direction),
                 "zone_retraced": _price_touched_zone(m5, m15_zone, tolerance=point * 5),
+                "sweet_zone_live": sweet_zone_live,
+                "judas_swing_live": judas_swing_live,
                 "sweep_candles": len(m5_sweep),
                 "execution_confirmation_candles": len(m5),
             },
