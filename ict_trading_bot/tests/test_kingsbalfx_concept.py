@@ -84,6 +84,45 @@ def test_kingsbalfx_returns_valid_fallback_buy_request():
     assert request["lot"] == 0.10
 
 
+def test_kingsbalfx_uses_m1_when_m5_refinement_fails(monkeypatch):
+    analysis = _analysis_for_valid_buy()
+    weak_m5 = _bullish_candles(20, start=134.0, step=0.05)
+    weak_m5[-2] = _candle(136.00, 136.20, 135.90, 136.03, 18)
+    weak_m5[-1] = _candle(136.03, 136.18, 135.95, 136.05, 19)
+    analysis["LTF"]["recent_candles"] = weak_m5
+    analysis["EXECUTION"]["recent_candles"] = weak_m5
+    analysis["m5_candles"] = weak_m5
+    m1 = _bullish_candles(50, start=136.0, step=0.08)
+    m1[-2] = _candle(138.80, 139.90, 138.75, 139.75, 48)
+    m1[-1] = _candle(139.76, 141.00, 139.70, 140.90, 49)
+    analysis["m1_candles"] = m1
+
+    def touch_all_except_m5(candles, *_args, **_kwargs):
+        return len(candles) != 20
+
+    monkeypatch.setattr(kingsbalfx, "_price_touched_zone", touch_all_except_m5)
+
+    result = kingsbalfx.evaluate(
+        "TESTUSD",
+        "buy",
+        FakeMT5Connector,
+        analysis=analysis,
+        tick={"bid": 139.90, "ask": 140.00, "point": 0.01},
+        account={"balance": 10000.0},
+        risk_percent=1.0,
+        minimum_rr=1.5,
+    )
+
+    assert result["valid"] is True
+    refinement_state = next(state for state in result["setup"]["evidence"]["states"] if state["name"] == "m5_refinement")
+    trigger_state = next(state for state in result["setup"]["evidence"]["states"] if state["name"] == "m5_final_trigger")
+    assert refinement_state["evidence"]["m5_confirmed"] is False
+    assert refinement_state["evidence"]["m1_fallback_confirmed"] is True
+    assert refinement_state["evidence"]["execution_timeframe_used"] == "M1"
+    assert trigger_state["evidence"]["execution_timeframe_used"] == "M1"
+    assert result["request"]["identity_context"]["execution_refinement_timeframe"] == "M1"
+
+
 def test_kingsbalfx_rejects_unclear_h1_context():
     analysis = _analysis_for_valid_buy()
     analysis["HTF"]["trend"] = "range"

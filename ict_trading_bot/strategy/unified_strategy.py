@@ -508,9 +508,21 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
         return _result(symbol, direction, states)
 
     confirmation = price_action_setup(analysis, direction)
-    ltf_confirmed = bool(confirmation.get("execution_confirmed"))
+    ltf_confirmed = bool(
+        confirmation.get("execution_confirmed")
+        or confirmation.get("m1_fallback_confirmed")
+    )
     confirmation_evidence = {
         **confirmation,
+        "execution_primary_timeframe": "M5",
+        "execution_fallback_timeframe": "M1",
+        "execution_timeframe_used": (
+            "M5"
+            if confirmation.get("execution_confirmed")
+            else "M1"
+            if confirmation.get("m1_fallback_confirmed")
+            else None
+        ),
         "smt": concept_context.get("smt", {}),
         "smt_confirmed": concept_context.get("smt_confirmed"),
         "killzone_active": concept_context.get("killzone_active"),

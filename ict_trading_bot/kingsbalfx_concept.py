@@ -634,6 +634,29 @@ def _structure_confirms(structure: Dict[str, Any], direction: Direction, require
     return structure_confirms_direction(structure if isinstance(structure, dict) else {}, direction, require_event=require_event)
 
 
+def _execution_refinement_condition(
+    candles: Sequence[Candle],
+    sweep_candles: Sequence[Candle],
+    mode: Optional[str],
+    direction: Direction,
+    entry_zone: Optional[Zone],
+    point: float,
+    sweet_zone_live: bool,
+    judas_swing_live: bool,
+) -> bool:
+    if mode == "reversal":
+        return _swept_liquidity(sweep_candles, direction) and _price_touched_zone(candles, entry_zone, tolerance=point * 5)
+    if mode == "judas_swing":
+        return bool(judas_swing_live and (_two_consecutive_directional(candles, direction, body_ratio=0.55) or _large_engulfing_or_breakout(candles, direction)))
+    if mode == "sweet_zone":
+        return bool(sweet_zone_live and (_two_consecutive_directional(candles, direction, body_ratio=0.55) or _large_engulfing_or_breakout(candles, direction)))
+    return bool(entry_zone and _price_touched_zone(candles, entry_zone, tolerance=point * 5))
+
+
+def _execution_final_trigger(candles: Sequence[Candle], direction: Direction) -> bool:
+    return _two_consecutive_directional(candles, direction, body_ratio=0.70) or _large_engulfing_or_breakout(candles, direction)
+
+
 def evaluate(
     symbol: str,
     direction: Optional[Direction],
@@ -660,6 +683,7 @@ def evaluate(
     m15_fvg_ob = _candles(m15_state, "true_fvg_ob_context", 100)
     m5_context_liquidity = _candles(m5_context_state, "external_liquidity", 200)
     m5 = _candles(execution_state, "execution_confirmation", 50) or _candles(m5_context_state, "execution_confirmation", 50) or list(analysis.get("m5_candles") or [])[-50:]
+    m1 = _candles(analysis.get("M1") or {}, "execution_confirmation", 50) or _raw_candles(analysis.get("m1_candles") or [])[-50:]
     h1_m15_alignment = _h1_m15_alignment(analysis)
     requested_direction = _normalize_direction(direction)
     h1_direction = (
@@ -851,48 +875,86 @@ def evaluate(
         return {"valid": False, "request": None, "setup": _decision_dict(decision), "reason": decision.reason}
 
     m5_sweep = _candles(m5_context_state, "sweep", 20) or m5[-20:]
-    if mode == "reversal":
-        m5_condition = _swept_liquidity(m5_sweep, trade_direction) and _price_touched_zone(m5, m15_zone, tolerance=point * 5)
-    elif mode == "judas_swing":
-        m5_condition = bool(judas_swing_live and (_two_consecutive_directional(m5, trade_direction, body_ratio=0.55) or _large_engulfing_or_breakout(m5, trade_direction)))
-    elif mode == "sweet_zone":
-        m5_condition = bool(sweet_zone_live and (_two_consecutive_directional(m5, trade_direction, body_ratio=0.55) or _large_engulfing_or_breakout(m5, trade_direction)))
-    else:
-        m5_condition = bool(m15_zone and _price_touched_zone(m5, m15_zone, tolerance=point * 5))
+    m1_sweep = m1[-20:]
+    m5_condition = _execution_refinement_condition(
+        m5,
+        m5_sweep,
+        mode,
+        trade_direction,
+        m15_zone,
+        point,
+        sweet_zone_live,
+        judas_swing_live,
+    )
+    m1_refinement_fallback = bool(
+        (not m5_condition)
+        and _execution_refinement_condition(
+            m1,
+            m1_sweep,
+            mode,
+            trade_direction,
+            m15_zone,
+            point,
+            sweet_zone_live,
+            judas_swing_live,
+        )
+    )
+    execution_refinement_pass = bool(m5_condition or m1_refinement_fallback)
+    execution_refinement_timeframe = "M5" if m5_condition else "M1" if m1_refinement_fallback else None
     evidence["states"].append(
         _state(
             "m5_refinement",
-            m5_condition,
+            execution_refinement_pass,
             {
                 "mode": mode,
+                "execution_primary_timeframe": "M5",
+                "execution_fallback_timeframe": "M1",
+                "execution_timeframe_used": execution_refinement_timeframe,
+                "m5_confirmed": m5_condition,
+                "m1_fallback_confirmed": m1_refinement_fallback,
                 "m15_zone": asdict(m15_zone) if m15_zone else None,
                 "liquidity_sweep": _swept_liquidity(m5_sweep, trade_direction),
+                "m1_liquidity_sweep": _swept_liquidity(m1_sweep, trade_direction),
                 "zone_retraced": _price_touched_zone(m5, m15_zone, tolerance=point * 5),
+                "m1_zone_retraced": _price_touched_zone(m1, m15_zone, tolerance=point * 5),
                 "sweet_zone_live": sweet_zone_live,
                 "judas_swing_live": judas_swing_live,
                 "sweep_candles": len(m5_sweep),
+                "m1_sweep_candles": len(m1_sweep),
                 "execution_confirmation_candles": len(m5),
+                "m1_execution_confirmation_candles": len(m1),
             },
         )
     )
-    if not m5_condition:
-        decision = KingsbalfxDecision(False, "m5_refinement_missing", trade_direction, mode, None, None, None, 0.0, asdict(primary_target), asdict(m15_zone) if m15_zone else None, evidence)
+    if not execution_refinement_pass:
+        decision = KingsbalfxDecision(False, "m5_m1_refinement_missing", trade_direction, mode, None, None, None, 0.0, asdict(primary_target), asdict(m15_zone) if m15_zone else None, evidence)
         return {"valid": False, "request": None, "setup": _decision_dict(decision), "reason": decision.reason}
 
-    final_trigger = _two_consecutive_directional(m5, trade_direction, body_ratio=0.70) or _large_engulfing_or_breakout(m5, trade_direction)
+    m5_final_trigger = _execution_final_trigger(m5, trade_direction)
+    m1_final_trigger = bool((not m5_final_trigger) and _execution_final_trigger(m1, trade_direction))
+    final_trigger = bool(m5_final_trigger or m1_final_trigger)
+    execution_trigger_timeframe = "M5" if m5_final_trigger else "M1" if m1_final_trigger else None
     evidence["states"].append(
         _state(
             "m5_final_trigger",
             final_trigger,
             {
+                "execution_primary_timeframe": "M5",
+                "execution_fallback_timeframe": "M1",
+                "execution_timeframe_used": execution_trigger_timeframe,
+                "m5_confirmed": m5_final_trigger,
+                "m1_fallback_confirmed": m1_final_trigger,
                 "two_strong_candles": _two_consecutive_directional(m5, trade_direction, body_ratio=0.70),
                 "large_engulfing_or_breakout": _large_engulfing_or_breakout(m5, trade_direction),
+                "m1_two_strong_candles": _two_consecutive_directional(m1, trade_direction, body_ratio=0.70),
+                "m1_large_engulfing_or_breakout": _large_engulfing_or_breakout(m1, trade_direction),
                 "execution_confirmation_candles": len(m5),
+                "m1_execution_confirmation_candles": len(m1),
             },
         )
     )
     if not final_trigger:
-        decision = KingsbalfxDecision(False, "m5_final_trigger_missing", trade_direction, mode, None, None, None, 0.0, asdict(primary_target), asdict(m15_zone) if m15_zone else None, evidence)
+        decision = KingsbalfxDecision(False, "m5_m1_final_trigger_missing", trade_direction, mode, None, None, None, 0.0, asdict(primary_target), asdict(m15_zone) if m15_zone else None, evidence)
         return {"valid": False, "request": None, "setup": _decision_dict(decision), "reason": decision.reason}
 
     entry = _to_float(tick.get("ask") if trade_direction == "buy" else tick.get("bid"))
@@ -946,6 +1008,8 @@ def evaluate(
         "identity_context": {
             "strategy": "kingsbalfx",
             "mode": mode,
+            "execution_refinement_timeframe": execution_refinement_timeframe,
+            "execution_trigger_timeframe": execution_trigger_timeframe,
             "entry_zone": asdict(m15_zone) if m15_zone else None,
             "target": asdict(selected_target),
         },

@@ -13,7 +13,7 @@ from market_structure.structure import analyze_market_structure, structure_confi
 from risk.backtest_engine import generate_setup_occurrence_report
 from strategy.ict_setup_quality import validate_setup
 from strategy.pre_trade_analysis import _h1_m15_candle_alignment, _opening_gap_from_state, _standard_fetch_bars
-from strategy.setup_confirmations import liquidity_sweep_or_swing
+from strategy.setup_confirmations import liquidity_sweep_or_swing, price_action_setup
 from strategy.unified_strategy import SEQUENCE, _external_liquidity, _retracement_zone, evaluate_strategy
 
 
@@ -115,10 +115,33 @@ def test_standard_fetch_bars_do_not_drop_below_structure_requirements(monkeypatc
     monkeypatch.delenv("H1_FETCH_CANDLES", raising=False)
     monkeypatch.delenv("M15_FETCH_CANDLES", raising=False)
     monkeypatch.delenv("M5_FETCH_CANDLES", raising=False)
+    monkeypatch.delenv("M1_FETCH_CANDLES", raising=False)
 
     assert _standard_fetch_bars("H1", 500) == 1000
     assert _standard_fetch_bars("M15", 500) == 1500
     assert _standard_fetch_bars("M5", 500) == 2000
+    assert _standard_fetch_bars("M1", 500) == 2000
+
+
+def test_price_action_setup_uses_m1_only_when_m5_execution_fails():
+    analysis = _analysis()
+    analysis["EXECUTION"]["recent_candles"] = [
+        {"open": 1.1000, "high": 1.1010, "low": 1.0990, "close": 1.1002, "volume": 100},
+        {"open": 1.1002, "high": 1.1008, "low": 1.0995, "close": 1.1001, "volume": 100},
+    ]
+    analysis["m1_candles"] = [
+        {"open": 1.1004, "high": 1.1006, "low": 1.0992, "close": 1.0996, "volume": 100},
+        {"open": 1.0995, "high": 1.1016, "low": 1.0993, "close": 1.1008, "volume": 150},
+    ]
+
+    confirmation = price_action_setup(analysis, "buy")
+
+    assert confirmation["execution_confirmed"] is False
+    assert confirmation["m1_confirmed"] is True
+    assert confirmation["m1_fallback_confirmed"] is True
+    assert confirmation["execution_or_m1_confirmed"] is True
+    assert confirmation["execution_timeframe"] == "M1"
+    assert confirmation["trigger"] == "m1_fallback"
 
 
 def test_visual_fib_uses_active_timeframe_label():

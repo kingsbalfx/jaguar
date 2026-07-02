@@ -168,9 +168,13 @@ def _state_reasoning(state: dict) -> str:
         )
     if name == "lower_timeframe_confirmation":
         patterns = evidence.get("execution_patterns") or []
+        m1_patterns = evidence.get("m1_patterns") or []
         return (
-            f"M1_M5_confirmation={_yes_no(evidence.get('execution_confirmed'))} "
-            f"patterns={','.join(patterns) if patterns else 'none'}"
+            f"M5_confirmed={_yes_no(evidence.get('execution_confirmed'))} "
+            f"M1_fallback={_yes_no(evidence.get('m1_fallback_confirmed'))} "
+            f"used={evidence.get('execution_timeframe_used') or evidence.get('execution_timeframe') or 'none'} "
+            f"M5_patterns={','.join(patterns) if patterns else 'none'} "
+            f"M1_patterns={','.join(m1_patterns) if m1_patterns else 'none'}"
         )
     if name == "market_order_execution":
         return f"market_order_ready={_yes_no(confirmed)}"
@@ -239,17 +243,23 @@ def _build_validation_snapshot(symbol: str, analysis: dict, setup: dict) -> dict
         observed = [state.get("name") for state in states]
         blocked = [name for name in SEQUENCE if name not in observed]
     liquidity = analysis.get("external_liquidity") or (analysis.get("HTF") or {}).get("external_liquidity") or {}
+    timeframe_data = {
+        key: _timeframe_validation(analysis, key)
+        for key in ("WEEKLY", "DAILY", "DAILY_CONTEXT", "HTF", "MTF", "LTF", "EXECUTION")
+        if analysis.get(key)
+    }
+    if analysis.get("M1") or analysis.get("m1_candles"):
+        timeframe_data["M1"] = _timeframe_validation(
+            {"M1": analysis.get("M1") or {"timeframe": "M1", "recent_candles": analysis.get("m1_candles") or []}},
+            "M1",
+        )
     return {
         "symbol": symbol,
         "strategy": setup.get("strategy") or "ict_state_machine",
         "price": analysis.get("price"),
         "timeframes": analysis.get("timeframes") or {},
         "candle_windows": analysis.get("candle_window_usage") or analysis.get("candle_windows") or {},
-        "timeframe_data": {
-            key: _timeframe_validation(analysis, key)
-            for key in ("WEEKLY", "DAILY", "DAILY_CONTEXT", "HTF", "MTF", "LTF", "EXECUTION")
-            if analysis.get(key)
-        },
+        "timeframe_data": timeframe_data,
         "alignment": analysis.get("h1_m15_alignment") or (analysis.get("topdown") or {}).get("h1_m15_alignment") or {},
         "external_liquidity": _liquidity_counts(liquidity),
         "opening_gaps": analysis.get("opening_gaps") or (analysis.get("topdown") or {}).get("opening_gaps") or {},
@@ -307,7 +317,7 @@ def _console_validation_report(symbol: str, setup: dict) -> None:
     gaps = validation.get("opening_gaps") or {}
     timeframe_data = validation.get("timeframe_data") or {}
     tf_parts = []
-    for key in ("HTF", "MTF", "LTF", "EXECUTION"):
+    for key in ("HTF", "MTF", "LTF", "EXECUTION", "M1"):
         item = timeframe_data.get(key) or {}
         if not item:
             continue

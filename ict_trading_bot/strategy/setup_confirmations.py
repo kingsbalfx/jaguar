@@ -435,37 +435,59 @@ def price_action_setup(analysis, trend):
     mtf = analysis.get("MTF") or {}
     ltf = analysis.get("LTF") or {}
     execution = analysis.get("EXECUTION") or {}
+    m1 = analysis.get("M1") or {"recent_candles": analysis.get("m1_candles") or []}
 
     mtf_state = _timeframe_price_action(_recent_candles(mtf), trend)
     ltf_state = _timeframe_price_action(_recent_candles(ltf), trend)
     execution_state = _timeframe_price_action(_recent_candles(execution), trend)
+    m1_state = _timeframe_price_action(_recent_candles(m1), trend)
 
-    confirmed = execution_state["confirmed"] or ltf_state["confirmed"] or mtf_state["confirmed"]
+    m1_fallback_confirmed = bool((not execution_state["confirmed"]) and m1_state["confirmed"])
+    execution_or_m1_confirmed = bool(execution_state["confirmed"] or m1_fallback_confirmed)
+    confirmed = execution_or_m1_confirmed or ltf_state["confirmed"] or mtf_state["confirmed"]
     trigger = (
-        "execution" if execution_state["confirmed"] else "ltf" if ltf_state["confirmed"] else "mtf" if mtf_state["confirmed"] else None
+        "execution"
+        if execution_state["confirmed"]
+        else "m1_fallback"
+        if m1_fallback_confirmed
+        else "ltf"
+        if ltf_state["confirmed"]
+        else "mtf"
+        if mtf_state["confirmed"]
+        else None
     )
+    execution_timeframe = "M5" if execution_state["confirmed"] else "M1" if m1_fallback_confirmed else None
 
     return {
         "confirmed": confirmed,
         "trigger": trigger,
+        "execution_timeframe": execution_timeframe,
         "mtf_confirmed": mtf_state["confirmed"],
         "ltf_confirmed": ltf_state["confirmed"],
         "execution_confirmed": execution_state["confirmed"],
+        "m1_confirmed": m1_state["confirmed"],
+        "m1_fallback_confirmed": m1_fallback_confirmed,
+        "execution_or_m1_confirmed": execution_or_m1_confirmed,
         "mtf_engulfing": mtf_state["engulfing"],
         "ltf_engulfing": ltf_state["engulfing"],
         "execution_engulfing": execution_state["engulfing"],
+        "m1_engulfing": m1_state["engulfing"],
         "mtf_rejection": mtf_state["rejection"],
         "ltf_rejection": ltf_state["rejection"],
         "execution_rejection": execution_state["rejection"],
+        "m1_rejection": m1_state["rejection"],
         "mtf_momentum": mtf_state["momentum"],
         "ltf_momentum": ltf_state["momentum"],
         "execution_momentum": execution_state["momentum"],
+        "m1_momentum": m1_state["momentum"],
         "mtf_volume_confirmed": mtf_state["volume_confirmed"],
         "ltf_volume_confirmed": ltf_state["volume_confirmed"],
         "execution_volume_confirmed": execution_state["volume_confirmed"],
+        "m1_volume_confirmed": m1_state["volume_confirmed"],
         "mtf_patterns": mtf_state["patterns"],
         "ltf_patterns": ltf_state["patterns"],
         "execution_patterns": execution_state["patterns"],
+        "m1_patterns": m1_state["patterns"],
     }
 
 
