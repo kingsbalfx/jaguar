@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../lib/supabaseClient";
+import { PRICING_TIERS } from "../../lib/pricing-config";
+import FeedbackMessage from "../../components/FeedbackMessage";
 
 export const getServerSideProps = async (ctx) => {
   try {
@@ -29,6 +31,19 @@ export default function BotLogs() {
   const [signals, setSignals] = useState([]);
   const [signalsError, setSignalsError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [sendingSignal, setSendingSignal] = useState(false);
+  const [signalStatus, setSignalStatus] = useState("");
+  const [signalDraft, setSignalDraft] = useState({
+    symbol: "",
+    direction: "BUY",
+    entryPrice: "",
+    stopLoss: "",
+    takeProfit: "",
+    confidence: "",
+    timeframe: "",
+    note: "",
+    targetPlans: ["premium", "vip", "pro"],
+  });
 
   const edgeView = useMemo(() => {
     const blocked = logs.filter((log) =>
@@ -81,11 +96,78 @@ export default function BotLogs() {
     })();
   }, []);
 
+  const toggleSignalPlan = (plan) => {
+    setSignalDraft((current) => {
+      const exists = current.targetPlans.includes(plan);
+      const targetPlans = exists
+        ? current.targetPlans.filter((item) => item !== plan)
+        : [...current.targetPlans, plan];
+      return { ...current, targetPlans };
+    });
+  };
+
+  const sendSignal = async (event) => {
+    event.preventDefault();
+    setSendingSignal(true);
+    setSignalStatus("");
+    try {
+      const response = await fetch("/api/admin/signals/deliver", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(signalDraft),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to deliver signal.");
+      setSignalStatus(`Signal delivered. Audience ${data.audience}; ${data.emailed} email${data.emailed === 1 ? "" : "s"} sent; ${data.notified} dashboard alert${data.notified === 1 ? "" : "s"} created; ${data.skippedQuota} skipped by daily quota.`);
+      setSignalDraft((current) => ({ ...current, symbol: "", entryPrice: "", stopLoss: "", takeProfit: "", confidence: "", note: "" }));
+      const refreshed = await fetch("/api/admin/bot-logs?limit=200&signalLimit=80");
+      const refreshedData = await refreshed.json();
+      setSignals(refreshedData.signals || []);
+      setLogs(refreshedData.logs || []);
+    } catch (error) {
+      setSignalStatus(error.message || "Unable to deliver signal.");
+    } finally {
+      setSendingSignal(false);
+    }
+  };
+
   if (loading) return <main className="container mx-auto p-4 sm:p-6">Loading...</main>;
 
   return (
     <main className="container mx-auto p-4 sm:p-6">
       <h1 className="text-2xl font-bold mb-4">Bot Logs</h1>
+      <section className="bg-white/5 rounded-lg p-4 mb-6">
+        <div className="mb-4">
+          <div className="text-xs uppercase tracking-widest text-emerald-200">Signal Delivery</div>
+          <h2 className="text-lg font-semibold">Send branded signal image by tier</h2>
+          <p className="text-sm text-gray-400">This saves the signal, generates a KINGSBALFX image, and sends it only to users inside their tier daily quota.</p>
+        </div>
+        <form onSubmit={sendSignal} className="grid gap-3 lg:grid-cols-6">
+          <input value={signalDraft.symbol} onChange={(e) => setSignalDraft((current) => ({ ...current, symbol: e.target.value }))} required placeholder="Symbol e.g. XAUUSD" className="rounded bg-black/40 p-2 text-sm lg:col-span-1" />
+          <select value={signalDraft.direction} onChange={(e) => setSignalDraft((current) => ({ ...current, direction: e.target.value }))} className="rounded bg-black/40 p-2 text-sm">
+            <option value="BUY">BUY</option>
+            <option value="SELL">SELL</option>
+          </select>
+          <input value={signalDraft.entryPrice} onChange={(e) => setSignalDraft((current) => ({ ...current, entryPrice: e.target.value }))} placeholder="Entry" className="rounded bg-black/40 p-2 text-sm" />
+          <input value={signalDraft.stopLoss} onChange={(e) => setSignalDraft((current) => ({ ...current, stopLoss: e.target.value }))} placeholder="Stop loss" className="rounded bg-black/40 p-2 text-sm" />
+          <input value={signalDraft.takeProfit} onChange={(e) => setSignalDraft((current) => ({ ...current, takeProfit: e.target.value }))} placeholder="Take profit" className="rounded bg-black/40 p-2 text-sm" />
+          <input value={signalDraft.confidence} onChange={(e) => setSignalDraft((current) => ({ ...current, confidence: e.target.value }))} placeholder="Confidence %" className="rounded bg-black/40 p-2 text-sm" />
+          <input value={signalDraft.timeframe} onChange={(e) => setSignalDraft((current) => ({ ...current, timeframe: e.target.value }))} placeholder="Timeframe e.g. M15" className="rounded bg-black/40 p-2 text-sm lg:col-span-1" />
+          <input value={signalDraft.note} onChange={(e) => setSignalDraft((current) => ({ ...current, note: e.target.value }))} placeholder="Signal note" className="rounded bg-black/40 p-2 text-sm lg:col-span-3" />
+          <div className="flex flex-wrap gap-2 rounded bg-black/30 p-2 lg:col-span-2">
+            {Object.values(PRICING_TIERS).filter((tier) => tier.features?.signals).map((tier) => (
+              <label key={tier.id} className="flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs">
+                <input type="checkbox" checked={signalDraft.targetPlans.includes(tier.id)} onChange={() => toggleSignalPlan(tier.id)} />
+                {tier.displayName}
+              </label>
+            ))}
+          </div>
+          <button disabled={sendingSignal || signalDraft.targetPlans.length === 0} className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold disabled:opacity-60 lg:col-span-6">
+            {sendingSignal ? "Sending signal..." : "Send signal to selected tiers"}
+          </button>
+        </form>
+        <FeedbackMessage message={signalStatus} type={/unable|failed|error|not installed/i.test(signalStatus) ? "error" : "success"} />
+      </section>
       <section id="market-edge" className="bg-white/5 rounded-lg p-4 mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>

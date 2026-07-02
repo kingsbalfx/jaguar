@@ -9,7 +9,7 @@ const USER_SELECT_BASE =
 
 const USER_SELECT_EXT = `${USER_SELECT_BASE},trading_profile`;
 
-const BOT_QUALITY_OPTIONS = new Set(["none", "basic", "standard", "premium", "vip", "pro", "elite"]);
+const BOT_QUALITY_OPTIONS = new Set(["none", "sample", "basic", "standard", "academy", "premium", "vip", "pro", "lifetime", "elite"]);
 const PAID_ROLES = new Set(["premium", "vip", "pro", "lifetime"]);
 
 function cleanBotTier(value) {

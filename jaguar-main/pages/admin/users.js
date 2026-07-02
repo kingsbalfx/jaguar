@@ -9,7 +9,7 @@ import FeedbackMessage from "../../components/FeedbackMessage";
 
 const ROLE_OPTIONS = ["user", "premium", "vip", "pro", "lifetime", "admin"];
 const SEGMENT_FILTERS = ["all", "user", "premium", "vip", "pro", "lifetime", "admin"];
-const QUALITY_OPTIONS = ["none", "basic", "standard", "premium", "vip", "pro", "elite"];
+const QUALITY_OPTIONS = ["none", "sample", "basic", "standard", "academy", "premium", "vip", "pro", "lifetime", "elite"];
 const TRADING_PROFILE_OPTIONS = ["aggressive", "balanced", "conservative"];
 const ROLE_TO_TIER = {
   user: "FREE",

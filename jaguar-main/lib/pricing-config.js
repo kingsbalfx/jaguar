@@ -10,6 +10,9 @@ export const PRICING_TIERS = {
     currency: "NGN",
     description: "Intro lessons, risk guidance, and sample academy content.",
     features: {
+      signals: true,
+      signalQuality: "sample",
+      maxSignalsPerDay: 1,
       mentorship: false,
       lessonAccess: true,
       sampleContent: true,
@@ -28,6 +31,10 @@ export const PRICING_TIERS = {
     billingCycle: "monthly",
     description: "Structured group learning for disciplined traders.",
     features: {
+      signals: true,
+      signalQuality: "academy",
+      maxSignalsPerDay: 3,
+      maxConcurrentTrades: 0,
       structuredLessons: true,
       pdfResources: true,
       communityAccess: "group",
@@ -50,6 +57,10 @@ export const PRICING_TIERS = {
     billingCycle: "monthly",
     description: "Group mentorship with assignment and journal review.",
     features: {
+      signals: true,
+      signalQuality: "vip",
+      maxSignalsPerDay: 8,
+      maxConcurrentTrades: 2,
       structuredLessons: true,
       pdfResources: true,
       communityAccess: "vip",
@@ -74,6 +85,10 @@ export const PRICING_TIERS = {
     billingCycle: "monthly",
     description: "Private mentorship, deeper strategy correction, and risk review.",
     features: {
+      signals: true,
+      signalQuality: "pro",
+      maxSignalsPerDay: 15,
+      maxConcurrentTrades: 5,
       structuredLessons: true,
       pdfResources: true,
       communityAccess: "pro",
@@ -100,6 +115,10 @@ export const PRICING_TIERS = {
     billingCycle: "one-time",
     description: "Lifetime access to recorded lessons, PDFs, course updates, and community.",
     features: {
+      signals: true,
+      signalQuality: "lifetime",
+      maxSignalsPerDay: 5,
+      maxConcurrentTrades: 1,
       recordedLessons: true,
       pdfResources: true,
       communityAccess: "lifetime",

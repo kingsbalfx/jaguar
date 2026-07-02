@@ -5,6 +5,7 @@ import { getSupabaseClient } from "../../lib/supabaseClient";
 import { getPaidAccess } from "../../lib/subscription-status";
 import ContentLibrary from "../../components/ContentLibrary";
 import LiveSessionPanel from "../../components/LiveSessionPanel";
+import SignalFeed from "../../components/SignalFeed";
 import { getMentorshipGroup, getMentorshipGroupLabel } from "../../lib/mentorship-groups";
 
 export async function getServerSideProps(ctx) {
@@ -81,6 +82,9 @@ export default function DashboardHome({ email, activePlan }) {
         </div>
         <div className="mx-auto mt-8 max-w-6xl">
           <LiveSessionPanel heading={activePlan ? `${planLabel} Live Room` : "Available Live Room"} />
+        </div>
+        <div className="mx-auto mt-8 max-w-6xl">
+          <SignalFeed />
         </div>
         <div id="mentorship-content" className="mx-auto mt-8 max-w-6xl">
           <ContentLibrary />
