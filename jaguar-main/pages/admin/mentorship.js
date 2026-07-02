@@ -81,8 +81,7 @@ export default function Mentorship({ adminName }) {
     });
   };
 
-  const save = async (event) => {
-    event.preventDefault();
+  const saveRoom = async ({ nextStatus = status, openLocalView = false } = {}) => {
     setMessage("");
     const nextRoomName = roomNameFromTitle(title);
     const response = await fetch("/api/admin/live-session", {
@@ -94,7 +93,7 @@ export default function Mentorship({ adminName }) {
         startsAt: startsAt || new Date().toISOString(),
         endsAt,
         timezone: "Africa/Lagos",
-        status,
+        status: nextStatus,
         segment: selectedSegments.includes("all") ? "all" : selectedSegments.join(","),
         roomName: nextRoomName,
         roomMode,
@@ -111,10 +110,24 @@ export default function Mentorship({ adminName }) {
     setDeliveryMode(data.session.media_type || deliveryMode);
     setStartsAt(data.session.starts_at?.slice(0, 16) || startsAt);
     setEndsAt(data.session.ends_at?.slice(0, 16) || endsAt);
-    setLive(data.session.status === "live");
+    setStatus(data.session.status || nextStatus);
+    setLive(openLocalView || data.session.status === "live");
     const notified = data.notifications?.notified || 0;
     const emailed = data.notifications?.emailed || 0;
     setMessage(`Mentorship room saved. ${notified} in-app alert${notified === 1 ? "" : "s"} created; ${emailed} email${emailed === 1 ? "" : "s"} sent.`);
+  };
+
+  const save = async (event) => {
+    event.preventDefault();
+    await saveRoom();
+  };
+
+  const openLiveRoom = async () => {
+    if (live) {
+      setLive(false);
+      return;
+    }
+    await saveRoom({ nextStatus: "live", openLocalView: true });
   };
 
   return (
@@ -180,7 +193,7 @@ export default function Mentorship({ adminName }) {
             </div>
           </div>
           <button className="w-full rounded bg-emerald-600 py-2">Save room</button>
-          <button type="button" onClick={() => setLive((value) => !value)} className="w-full rounded bg-indigo-600 py-2">{live ? "Close local room view" : "Open live room"}</button>
+          <button type="button" onClick={openLiveRoom} className="w-full rounded bg-indigo-600 py-2">{live ? "Close local room view" : "Open live room"}</button>
           <FeedbackMessage message={message} type={/unable|failed|error/i.test(message) ? "error" : "success"} />
         </form>
         <div className="space-y-5">

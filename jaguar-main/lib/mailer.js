@@ -66,14 +66,14 @@ function createTransporter() {
   return config ? nodemailer.createTransport(config) : null;
 }
 
-export async function sendEmail({ to, subject, text, html }) {
+export async function sendEmail({ to, subject, text, html, attachments }) {
   const transporter = createTransporter();
   if (!transporter) {
     console.warn("SMTP email skipped because Gmail/SMTP credentials are not configured.");
     return { sent: false, reason: "smtp_not_configured" };
   }
   const from = process.env.SMTP_FROM || process.env.GMAIL_USER || process.env.SMTP_USER;
-  const info = await transporter.sendMail({ from, to, subject, text, html });
+  const info = await transporter.sendMail({ from, to, subject, text, html, attachments });
   const accepted = (info.accepted || []).map(String);
   const rejected = (info.rejected || []).map(String);
   const sent = accepted.some((recipient) => recipient.toLowerCase() === String(to).toLowerCase());
@@ -100,7 +100,7 @@ export async function verifySmtpConnection() {
   }
 }
 
-export async function sendLifecycleEmail({ supabaseAdmin, email, type, subject, text, html, dedupeKey }) {
+export async function sendLifecycleEmail({ supabaseAdmin, email, type, subject, text, html, dedupeKey, attachments }) {
   if (!email) return { sent: false, reason: "missing_email" };
   if (dedupeKey && supabaseAdmin) {
     const { data } = await supabaseAdmin
@@ -113,7 +113,7 @@ export async function sendLifecycleEmail({ supabaseAdmin, email, type, subject, 
 
   let result;
   try {
-    result = await sendEmail({ to: email, subject, text, html });
+    result = await sendEmail({ to: email, subject, text, html, attachments });
   } catch (error) {
     const details = safeMailerError(error);
     console.error(`SMTP ${type || "email"} delivery failed:`, details);

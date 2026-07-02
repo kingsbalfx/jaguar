@@ -142,6 +142,8 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [publishingRecording, setPublishingRecording] = useState(false);
   const [recordingStatus, setRecordingStatus] = useState("");
+  const [screenshotStatus, setScreenshotStatus] = useState("");
+  const [sendingScreenshot, setSendingScreenshot] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
   const [lastRecording, setLastRecording] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState("ready");
@@ -522,6 +524,60 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       setError(message);
     }
   }, [applyScreenShareStream]);
+
+  const sendScreenSnapshot = useCallback(async () => {
+    if (!isHost || sendingScreenshot) return;
+    const track = screenStreamRef.current?.getVideoTracks?.()[0];
+    if (!track || track.readyState !== "live") {
+      setScreenshotStatus("Start screen sharing first, then send the screenshot to selected users.");
+      return;
+    }
+    setSendingScreenshot(true);
+    setScreenshotStatus("Preparing KINGSBALFX screen screenshot...");
+    const snapshotStream = new MediaStream([track]);
+    const video = document.createElement("video");
+    video.srcObject = snapshotStream;
+    video.muted = true;
+    video.playsInline = true;
+    video.autoplay = true;
+    try {
+      await video.play().catch(() => {});
+      await waitForVideoReady(video);
+      const settings = track.getSettings?.() || {};
+      const canvas = document.createElement("canvas");
+      canvas.width = settings.width || video.videoWidth || 1280;
+      canvas.height = settings.height || video.videoHeight || 720;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("This browser cannot prepare the screen screenshot.");
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const logo = new Image();
+      logo.src = "/jaguar.png";
+      await Promise.race([waitForImage(logo), new Promise((resolve) => window.setTimeout(resolve, 1200))]);
+      drawRecordingWatermark(context, logo, canvas.width, canvas.height);
+      const imageData = canvas.toDataURL("image/jpeg", 0.78);
+      setScreenshotStatus("Sending screenshot notification to selected users...");
+      const response = await fetch("/api/admin/live-session/screenshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomName,
+          note: `Admin shared a live screen screenshot from ${roomTitle || roomName}.`,
+          imageData,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to send screen screenshot.");
+      const notified = data.notifications?.notified || 0;
+      const emailed = data.notifications?.emailed || 0;
+      setScreenshotStatus(`Screenshot sent. ${notified} in-app alert${notified === 1 ? "" : "s"} created; ${emailed} email${emailed === 1 ? "" : "s"} sent.`);
+    } catch (err) {
+      setScreenshotStatus(err.message || "Unable to send screen screenshot.");
+    } finally {
+      video.pause();
+      video.srcObject = null;
+      setSendingScreenshot(false);
+    }
+  }, [isHost, roomName, roomTitle, sendingScreenshot]);
 
   const requestStage = async (kind) => {
     setRequestSent(kind);
@@ -922,6 +978,7 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
             <button onClick={toggleMic} className={`rounded-lg px-3 py-2 text-sm sm:px-4 ${micEnabled ? "bg-white/10" : "bg-amber-600"}`}>{micEnabled ? "Mute microphone" : "Unmute microphone"}</button>
             <button onClick={toggleCamera} className={`rounded-lg px-3 py-2 text-sm sm:px-4 ${cameraEnabled ? "bg-white/10" : "bg-amber-600"}`}>{cameraEnabled ? "Mute camera" : "Unmute camera"}</button>
             {isHost && <button onClick={sharingScreen ? stopScreenShare : shareScreen} className="rounded-lg bg-indigo-600 px-3 py-2 text-sm sm:px-4">{sharingScreen ? "Stop sharing" : "Share screen"}</button>}
+            {isHost && sharingScreen && <button onClick={sendScreenSnapshot} disabled={sendingScreenshot} className="rounded-lg bg-cyan-600 px-3 py-2 text-sm disabled:opacity-60 sm:px-4">{sendingScreenshot ? "Sending screenshot..." : "Send screenshot"}</button>}
             {isHost && <button onClick={recording ? stopRecording : startRecording} disabled={publishingRecording} className={`rounded-lg px-3 py-2 text-sm disabled:opacity-60 sm:px-4 ${recording ? "bg-red-600" : "bg-fuchsia-600"}`}>{publishingRecording ? "Publishing recording..." : recording ? `Stop recording (${formatDuration(recordingSeconds)})` : "Record session"}</button>}
             </>}
             <button onClick={leave} disabled={recording || publishingRecording} className="rounded-lg bg-red-600 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50 sm:px-4">{recording ? "Stop recording before leaving" : publishingRecording ? "Publishing before leaving" : "Leave room"}</button>
@@ -947,6 +1004,10 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       <FeedbackMessage
         message={error || recordingStatus}
         type={error || /unable|requires|could not|above|failed|recovery/i.test(recordingStatus) ? "error" : "info"}
+      />
+      <FeedbackMessage
+        message={screenshotStatus}
+        type={/unable|requires|failed|too large|first/i.test(screenshotStatus) ? "error" : "success"}
       />
       {uploadProgress && (
         <div className="mt-3 rounded-xl border border-emerald-300/20 bg-black/30 p-3 text-sm text-emerald-100">

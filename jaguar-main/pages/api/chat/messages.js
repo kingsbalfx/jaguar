@@ -2,6 +2,7 @@ import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 import { getPaidAccess, ROLE_RANK } from "../../../lib/subscription-status";
 import { parseMentorshipSegments } from "../../../lib/mentorship-groups";
+import { notifyMentorshipRoomUpdate } from "../../../lib/notifications";
 
 async function context(req, res) {
   const supabase = createPagesServerClient({ req, res });
@@ -39,14 +40,36 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     const content = String(req.body?.content || "").trim();
     if (!content || content.length > 10000) return res.status(400).json({ error: "Message must be between 1 and 10,000 characters." });
+    const senderIsAdmin = String(ctx.profile.role || "").toLowerCase() === "admin";
+    const senderName = senderIsAdmin ? "Admin" : ctx.profile.username || ctx.profile.name || "Subscriber";
     const { data, error } = await ctx.admin.from("mentorship_messages").insert({
       room_key: roomKey,
       sender_id: ctx.session.user.id,
-      sender_name: String(ctx.profile.role || "").toLowerCase() === "admin" ? "Admin" : ctx.profile.username || ctx.profile.name || "Subscriber",
+      sender_name: senderName,
       content,
       reply_to: req.body?.replyTo || null,
     }).select("*").single();
-    return error ? res.status(500).json({ error: error.message }) : res.status(200).json({ message: data });
+    if (error) return res.status(500).json({ error: error.message });
+    let notifications = { emailed: 0, notified: 0 };
+    if (senderIsAdmin) {
+      const { data: liveSession } = await ctx.admin
+        .from("live_sessions")
+        .select("*")
+        .eq("room_name", roomKey)
+        .eq("active", true)
+        .maybeSingle();
+      if (liveSession) {
+        notifications = await notifyMentorshipRoomUpdate({
+          supabaseAdmin: ctx.admin,
+          session: liveSession,
+          senderId: ctx.session.user.id,
+          senderName,
+          content,
+          kind: "chat",
+        });
+      }
+    }
+    return res.status(200).json({ message: data, notifications });
   }
   if (req.method === "PUT" || req.method === "DELETE") {
     const id = String(req.body?.id || "").trim();
