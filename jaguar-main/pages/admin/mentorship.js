@@ -197,8 +197,8 @@ export default function Mentorship({ adminName }) {
           <FeedbackMessage message={message} type={/unable|failed|error/i.test(message) ? "error" : "success"} />
         </form>
         <div className="space-y-5">
-          {live && deliveryMode === "webrtc" && <WebRTCRoom key={roomName} roomName={roomName} roomTitle={title} displayName={adminName} isHost recordingTitle={title} recordingSegment={segment} />}
-          {live && deliveryMode !== "webrtc" && <SFURoom key={roomName} roomName={roomName} roomTitle={title} displayName={adminName} isHost recordingTitle={title} recordingSegment={segment} />}
+          {live && deliveryMode === "webrtc" && <WebRTCRoom key={roomName} roomName={roomName} roomTitle={title} displayName={adminName} isHost autoJoin recordingTitle={title} recordingSegment={segment} />}
+          {live && deliveryMode !== "webrtc" && <SFURoom key={roomName} roomName={roomName} roomTitle={title} displayName={adminName} isHost autoJoin recordingTitle={title} recordingSegment={segment} />}
           <Chat key={`chat-${roomName}`} channel={segment} roomId={roomName} />
         </div>
       </div>

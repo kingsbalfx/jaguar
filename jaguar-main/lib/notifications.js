@@ -50,8 +50,25 @@ export async function getUsersForMentorshipSegments({ supabaseAdmin, segmentValu
     console.error("notification audience load failed:", error.message);
     return [];
   }
+  const mergedUsers = [...(data || [])];
+  try {
+    const { data: authData } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    const existingIds = new Set(mergedUsers.map((user) => user.id));
+    for (const authUser of authData?.users || []) {
+      if (!authUser?.email || existingIds.has(authUser.id)) continue;
+      mergedUsers.push({
+        id: authUser.id,
+        email: authUser.email,
+        name: authUser.user_metadata?.full_name || authUser.user_metadata?.name || "",
+        username: authUser.user_metadata?.username || "",
+        role: authUser.app_metadata?.role || "user",
+      });
+    }
+  } catch (error) {
+    console.warn("auth audience fallback failed:", error?.message || error);
+  }
   const users = [];
-  for (const user of data || []) {
+  for (const user of mergedUsers) {
     if (!user.email) continue;
     if (Array.isArray(targetUserIds) && targetUserIds.length) {
       users.push(user);
@@ -103,8 +120,13 @@ export async function notifyMentorshipAudience({ supabaseAdmin, session, phase =
   );
   let emailed = 0;
   let notified = 0;
+  const liveStamp = isLive
+    ? String(session.updated_at || session.starts_at || Date.now()).replace(/[^0-9A-Za-z_-]/g, "_")
+    : "";
   for (const user of users) {
-    const dedupeKey = `mentorship_${phase}:${session.id}:${user.id}`;
+    const dedupeKey = isLive
+      ? `mentorship_${phase}:${session.id}:${liveStamp}:${user.id}`
+      : `mentorship_${phase}:${session.id}:${user.id}`;
     const emailResult = await sendLifecycleEmail({
       supabaseAdmin,
       email: user.email,

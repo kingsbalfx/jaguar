@@ -56,7 +56,7 @@ function VideoTile({ stream, label, muted = false }) {
   );
 }
 
-export default function SFURoom({ roomName, roomTitle = "", displayName = "Subscriber", isHost = false, recordingTitle = "", recordingSegment = "all" }) {
+export default function SFURoom({ roomName, roomTitle = "", displayName = "Subscriber", isHost = false, autoJoin = false, recordingTitle = "", recordingSegment = "all" }) {
   const socketRef = useRef(null);
   const requestsRef = useRef(new Map());
   const deviceRef = useRef(null);
@@ -293,13 +293,19 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
       setJoined(true);
       setConnectionStatus("connected");
       for (const producer of joinData.producers || []) void consumeProducer(producer);
+      if (isHost) await publishCamera();
     } catch (err) {
       setError(err.message || "Unable to join KINGSBALFX SFU room.");
       socketRef.current?.close();
     } finally {
       setJoining(false);
     }
-  }, [consumeProducer, createTransport, displayName, isHost, joined, joining, roomName, rpc]);
+  }, [consumeProducer, createTransport, displayName, isHost, joined, joining, publishCamera, roomName, rpc]);
+
+  useEffect(() => {
+    if (!autoJoin || joined || joining) return;
+    void join();
+  }, [autoJoin, join, joined, joining]);
 
   const requestStage = async (kind) => {
     setRequestStatus("");
