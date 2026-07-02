@@ -1,6 +1,7 @@
 import { emailLayout, sendLifecycleEmail } from "./mailer";
 import { createInAppNotification } from "./notifications";
 import { BOT_UNLIMITED_LIMIT, PRICING_TIERS, getBotTierDefaults, getPricingTier, normalizeBotLimit } from "./pricing-config";
+import { assertSignalDeliveryOpen } from "./signal-gate";
 import { ROLE_RANK, isSubscriptionActive } from "./subscription-status";
 
 const VALID_DIRECTIONS = new Set(["BUY", "SELL"]);
@@ -207,6 +208,7 @@ async function insertMasterSignal(supabaseAdmin, signal, targetPlans, payload) {
 
 export async function deliverBotSignal({ supabaseAdmin, payload }) {
   if (!supabaseAdmin) throw new Error("Supabase admin client not configured");
+  await assertSignalDeliveryOpen(supabaseAdmin);
   const signal = cleanSignalPayload(payload);
   const targetPlans = normalizeTargetPlans({ targetPlans: payload.targetPlans || payload.plans || payload.plan, minTier: payload.minTier });
   if (!targetPlans.length) throw new Error("No valid target plans selected");

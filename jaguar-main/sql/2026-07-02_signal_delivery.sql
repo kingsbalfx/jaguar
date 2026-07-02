@@ -1,6 +1,48 @@
 -- Signal delivery audit + tier quota support.
 -- Run this in Supabase SQL Editor after the existing bot_signals migration.
 
+create table if not exists public.site_settings (
+  key text primary key,
+  settings jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.site_settings enable row level security;
+
+drop policy if exists "site_settings_admin_all" on public.site_settings;
+create policy "site_settings_admin_all"
+  on public.site_settings
+  for all
+  using (
+    exists (
+      select 1
+      from public.profiles
+      where profiles.id = auth.uid()
+        and lower(coalesce(profiles.role, '')) = 'admin'
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.profiles
+      where profiles.id = auth.uid()
+        and lower(coalesce(profiles.role, '')) = 'admin'
+    )
+  );
+
+insert into public.site_settings (key, settings, updated_at)
+values (
+  'bot_signal_gate',
+  jsonb_build_object(
+    'paused', false,
+    'resume_at', null,
+    'message', 'Bot signal delivery is active.',
+    'updated_at', now()
+  ),
+  now()
+)
+on conflict (key) do nothing;
+
 create table if not exists public.bot_signals (
   id uuid primary key default gen_random_uuid(),
   user_id uuid null,

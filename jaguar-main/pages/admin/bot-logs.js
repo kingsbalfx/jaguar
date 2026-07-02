@@ -33,6 +33,10 @@ export default function BotLogs() {
   const [loading, setLoading] = useState(true);
   const [sendingSignal, setSendingSignal] = useState(false);
   const [signalStatus, setSignalStatus] = useState("");
+  const [signalGate, setSignalGate] = useState({ paused: false, resume_at: "", message: "" });
+  const [signalGateActive, setSignalGateActive] = useState(false);
+  const [signalGateSaving, setSignalGateSaving] = useState(false);
+  const [signalGateStatus, setSignalGateStatus] = useState("");
   const [signalDraft, setSignalDraft] = useState({
     symbol: "",
     direction: "BUY",
@@ -96,6 +100,67 @@ export default function BotLogs() {
     })();
   }, []);
 
+  const toDatetimeLocal = (value) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const offset = date.getTimezoneOffset();
+    return new Date(date.getTime() - offset * 60 * 1000).toISOString().slice(0, 16);
+  };
+
+  const fromDatetimeLocal = (value) => {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  };
+
+  const loadSignalGate = async () => {
+    const response = await fetch("/api/admin/signal-gate", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Unable to load signal pause status.");
+    setSignalGate({
+      paused: Boolean(data.gate?.paused),
+      resume_at: toDatetimeLocal(data.gate?.resume_at),
+      message: data.gate?.message || "",
+    });
+    setSignalGateActive(Boolean(data.active));
+    if (data.missingTable) setSignalGateStatus("Run jaguar-main/sql/2026-07-02_signal_delivery.sql in Supabase to enable signal pause.");
+  };
+
+  useEffect(() => {
+    loadSignalGate().catch((error) => setSignalGateStatus(error.message || "Unable to load signal pause status."));
+  }, []);
+
+  const saveSignalGate = async (event) => {
+    event.preventDefault();
+    setSignalGateSaving(true);
+    setSignalGateStatus("");
+    try {
+      const response = await fetch("/api/admin/signal-gate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paused: signalGate.paused,
+          resumeAt: fromDatetimeLocal(signalGate.resume_at),
+          message: signalGate.message,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to save signal pause status.");
+      setSignalGate({
+        paused: Boolean(data.gate?.paused),
+        resume_at: toDatetimeLocal(data.gate?.resume_at),
+        message: data.gate?.message || "",
+      });
+      setSignalGateActive(Boolean(data.active));
+      setSignalGateStatus(data.active ? "Bot signal delivery is paused. No signal emails or dashboard alerts will be sent." : "Bot signal delivery is active.");
+    } catch (error) {
+      setSignalGateStatus(error.message || "Unable to save signal pause status.");
+    } finally {
+      setSignalGateSaving(false);
+    }
+  };
+
   const toggleSignalPlan = (plan) => {
     setSignalDraft((current) => {
       const exists = current.targetPlans.includes(plan);
@@ -117,7 +182,10 @@ export default function BotLogs() {
         body: JSON.stringify(signalDraft),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Unable to deliver signal.");
+      if (!response.ok) {
+        if (data.paused) setSignalGateActive(true);
+        throw new Error(data.error || "Unable to deliver signal.");
+      }
       setSignalStatus(`Signal delivered. Audience ${data.audience}; ${data.emailed} email${data.emailed === 1 ? "" : "s"} sent; ${data.notified} dashboard alert${data.notified === 1 ? "" : "s"} created; ${data.skippedQuota} skipped by daily quota.`);
       setSignalDraft((current) => ({ ...current, symbol: "", entryPrice: "", stopLoss: "", takeProfit: "", confidence: "", note: "" }));
       const refreshed = await fetch("/api/admin/bot-logs?limit=200&signalLimit=80");
@@ -136,6 +204,48 @@ export default function BotLogs() {
   return (
     <main className="container mx-auto p-4 sm:p-6">
       <h1 className="text-2xl font-bold mb-4">Bot Logs</h1>
+      <section className={`rounded-lg p-4 mb-6 border ${signalGateActive ? "border-red-300/30 bg-red-500/10" : "border-emerald-300/20 bg-emerald-500/10"}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-xs uppercase tracking-widest text-emerald-200">Bot Signal Control</div>
+            <h2 className="text-lg font-semibold">Pause signal delivery</h2>
+            <p className="text-sm text-gray-300">When paused, manual dashboard signals and bot API signals are saved from being sent. No email or dashboard alert is delivered.</p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-xs font-bold ${signalGateActive ? "bg-red-500/20 text-red-100" : "bg-emerald-500/20 text-emerald-100"}`}>
+            {signalGateActive ? "Paused" : "Active"}
+          </span>
+        </div>
+        <form onSubmit={saveSignalGate} className="mt-4 grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
+          <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-gray-200 lg:col-span-3">
+            <input
+              type="checkbox"
+              checked={signalGate.paused}
+              onChange={(event) => setSignalGate((current) => ({ ...current, paused: event.target.checked }))}
+              className="mt-1"
+            />
+            <span>
+              <span className="block font-semibold text-white">Pause all bot signal sending</span>
+              <span className="text-gray-300">Use this when you do not want any plan or user to receive signal emails/screenshots yet.</span>
+            </span>
+          </label>
+          <input
+            type="datetime-local"
+            value={signalGate.resume_at}
+            onChange={(event) => setSignalGate((current) => ({ ...current, resume_at: event.target.value }))}
+            className="rounded bg-black/40 p-2 text-sm"
+          />
+          <input
+            value={signalGate.message}
+            onChange={(event) => setSignalGate((current) => ({ ...current, message: event.target.value }))}
+            placeholder="Pause message"
+            className="rounded bg-black/40 p-2 text-sm"
+          />
+          <button disabled={signalGateSaving} className="rounded bg-amber-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60">
+            {signalGateSaving ? "Saving..." : signalGate.paused ? "Save pause" : "Resume signals"}
+          </button>
+        </form>
+        <FeedbackMessage message={signalGateStatus} type={/unable|failed|missing|run/i.test(signalGateStatus) ? "error" : "success"} />
+      </section>
       <section className="bg-white/5 rounded-lg p-4 mb-6">
         <div className="mb-4">
           <div className="text-xs uppercase tracking-widest text-emerald-200">Signal Delivery</div>
@@ -162,8 +272,8 @@ export default function BotLogs() {
               </label>
             ))}
           </div>
-          <button disabled={sendingSignal || signalDraft.targetPlans.length === 0} className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold disabled:opacity-60 lg:col-span-6">
-            {sendingSignal ? "Sending signal..." : "Send signal to selected tiers"}
+          <button disabled={sendingSignal || signalDraft.targetPlans.length === 0 || signalGateActive} className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold disabled:opacity-60 lg:col-span-6">
+            {signalGateActive ? "Signals paused" : sendingSignal ? "Sending signal..." : "Send signal to selected tiers"}
           </button>
         </form>
         <FeedbackMessage message={signalStatus} type={/unable|failed|error|not installed/i.test(signalStatus) ? "error" : "success"} />

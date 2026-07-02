@@ -31,6 +31,9 @@ export default async function handler(req, res) {
     const result = await deliverBotSignal({ supabaseAdmin, payload: req.body || {} });
     return res.status(200).json({ ok: true, ...result });
   } catch (error) {
+    if (error.code === "SIGNAL_DELIVERY_PAUSED") {
+      return res.status(423).json({ error: error.message, paused: true, gate: error.gate || null });
+    }
     if (signalDeliverySqlRequired(error)) {
       return res.status(503).json({
         error: "Signal delivery SQL is not installed. Run jaguar-main/sql/2026-07-02_signal_delivery.sql in Supabase.",
