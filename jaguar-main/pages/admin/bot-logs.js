@@ -46,6 +46,7 @@ export default function BotLogs() {
     confidence: "",
     timeframe: "",
     note: "",
+    executeMt5: false,
     targetPlans: ["premium", "vip", "pro"],
   });
 
@@ -186,7 +187,10 @@ export default function BotLogs() {
         if (data.paused) setSignalGateActive(true);
         throw new Error(data.error || "Unable to deliver signal.");
       }
-      setSignalStatus(`Signal delivered. Audience ${data.audience}; ${data.emailed} email${data.emailed === 1 ? "" : "s"} sent; ${data.notified} dashboard alert${data.notified === 1 ? "" : "s"} created; ${data.skippedQuota} skipped by daily quota.`);
+      const mt5Text = data.mt5Execution?.attempted
+        ? data.mt5Execution.ok ? " MT5 execution forwarded." : ` MT5 execution failed: ${data.mt5Execution.reason || "bot unavailable"}.`
+        : "";
+      setSignalStatus(`Signal delivered. Audience ${data.audience}; ${data.emailed} email${data.emailed === 1 ? "" : "s"} sent; ${data.notified} dashboard alert${data.notified === 1 ? "" : "s"} created; ${data.skippedQuota} skipped by daily quota.${mt5Text}`);
       setSignalDraft((current) => ({ ...current, symbol: "", entryPrice: "", stopLoss: "", takeProfit: "", confidence: "", note: "" }));
       const refreshed = await fetch("/api/admin/bot-logs?limit=200&signalLimit=80");
       const refreshedData = await refreshed.json();
@@ -264,7 +268,15 @@ export default function BotLogs() {
           <input value={signalDraft.confidence} onChange={(e) => setSignalDraft((current) => ({ ...current, confidence: e.target.value }))} placeholder="Confidence %" className="rounded bg-black/40 p-2 text-sm" />
           <input value={signalDraft.timeframe} onChange={(e) => setSignalDraft((current) => ({ ...current, timeframe: e.target.value }))} placeholder="Timeframe e.g. M15" className="rounded bg-black/40 p-2 text-sm lg:col-span-1" />
           <input value={signalDraft.note} onChange={(e) => setSignalDraft((current) => ({ ...current, note: e.target.value }))} placeholder="Signal note" className="rounded bg-black/40 p-2 text-sm lg:col-span-3" />
-          <div className="flex flex-wrap gap-2 rounded bg-black/30 p-2 lg:col-span-2">
+          <label className="flex items-center gap-2 rounded bg-black/30 p-2 text-xs text-gray-200">
+            <input
+              type="checkbox"
+              checked={signalDraft.executeMt5}
+              onChange={(e) => setSignalDraft((current) => ({ ...current, executeMt5: e.target.checked }))}
+            />
+            Execute on MT5 bot
+          </label>
+          <div className="flex flex-wrap gap-2 rounded bg-black/30 p-2 lg:col-span-1">
             {Object.values(PRICING_TIERS).filter((tier) => tier.features?.signals).map((tier) => (
               <label key={tier.id} className="flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs">
                 <input type="checkbox" checked={signalDraft.targetPlans.includes(tier.id)} onChange={() => toggleSignalPlan(tier.id)} />

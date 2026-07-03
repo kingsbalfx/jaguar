@@ -206,6 +206,54 @@ async function insertMasterSignal(supabaseAdmin, signal, targetPlans, payload) {
   return data?.id || null;
 }
 
+function shouldExecuteMt5(payload = {}) {
+  const value = payload.executeMt5 ?? payload.executeOnMt5 ?? payload.mt5Execution ?? payload.execute;
+  if (value === true) return true;
+  return ["true", "1", "yes", "mt5", "execute"].includes(String(value || "").trim().toLowerCase());
+}
+
+async function forwardSignalToMt5Bot({ signal, signalId, targetPlans, payload }) {
+  if (!shouldExecuteMt5(payload)) return { attempted: false, reason: "not_requested" };
+  const baseUrl = String(process.env.BOT_API_INTERNAL || process.env.BOT_API_URL || "").trim().replace(/\/$/, "");
+  const token = String(process.env.BOT_API_TOKEN || process.env.ADMIN_API_KEY || "").trim();
+  if (!baseUrl) return { attempted: true, ok: false, reason: "BOT_API_URL_not_configured" };
+  const endpoint = String(process.env.BOT_EXECUTION_ENDPOINT || `${baseUrl}/signals/execute`).trim();
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}`, "x-bot-api-token": token } : {}),
+      },
+      body: JSON.stringify({
+        signalId,
+        symbol: signal.symbol,
+        direction: signal.direction,
+        entryPrice: signal.entryPrice,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+        confidence: signal.confidence,
+        timeframe: signal.timeframe,
+        strategy: signal.strategy,
+        targetPlans,
+        source: "kingsbalfx-web",
+        payload,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    return {
+      attempted: true,
+      ok: response.ok,
+      status: response.status,
+      endpoint,
+      data,
+      reason: response.ok ? null : data.error || data.message || "bot_execution_failed",
+    };
+  } catch (error) {
+    return { attempted: true, ok: false, endpoint, reason: error.message || "bot_execution_failed" };
+  }
+}
+
 export async function deliverBotSignal({ supabaseAdmin, payload }) {
   if (!supabaseAdmin) throw new Error("Supabase admin client not configured");
   await assertSignalDeliveryOpen(supabaseAdmin);
@@ -214,6 +262,7 @@ export async function deliverBotSignal({ supabaseAdmin, payload }) {
   if (!targetPlans.length) throw new Error("No valid target plans selected");
   const audience = await loadAudience(supabaseAdmin, targetPlans);
   const signalId = await insertMasterSignal(supabaseAdmin, signal, targetPlans, payload);
+  const mt5Execution = await forwardSignalToMt5Bot({ signal, signalId, targetPlans, payload });
   const attachment = buildProvidedImageAttachment(payload.imageData || payload.image || payload.screenshot, signal) || buildSignalAttachment(signal);
   const subject = `${signal.symbol} ${signal.direction} signal from KINGSBALFX`;
   const body = `${signal.symbol} ${signal.direction} signal: entry ${signal.entryPrice ?? "market"}, SL ${signal.stopLoss ?? "managed"}, TP ${signal.takeProfit ?? "managed"}.`;
@@ -280,13 +329,13 @@ export async function deliverBotSignal({ supabaseAdmin, payload }) {
   try {
     await supabaseAdmin.from("bot_logs").insert({
       event: "signal_delivery",
-      payload: { signalId, targetPlans, audience: audience.length, emailed, notified, skippedQuota, errors: errors.slice(0, 10) },
+      payload: { signalId, targetPlans, audience: audience.length, emailed, notified, skippedQuota, mt5Execution, errors: errors.slice(0, 10) },
     });
   } catch {
     // Signal delivery should not fail just because monitoring logs are unavailable.
   }
 
-  return { signalId, targetPlans, audience: audience.length, emailed, notified, skippedQuota, errors };
+  return { signalId, targetPlans, audience: audience.length, emailed, notified, skippedQuota, mt5Execution, errors };
 }
 
 export function signalDeliverySqlRequired(error) {
