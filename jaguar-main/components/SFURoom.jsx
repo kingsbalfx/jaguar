@@ -146,7 +146,6 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [sharingScreen, setSharingScreen] = useState(false);
   const [sendingScreenshot, setSendingScreenshot] = useState(false);
-  const [autoScreenshot, setAutoScreenshot] = useState(false);
   const [screenshotStatus, setScreenshotStatus] = useState("");
 
   const sfuConfigured = hasConfiguredSfu();
@@ -308,16 +307,6 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
     }
   }, [isHost, roomName, roomTitle, sendingScreenshot, sharingScreen]);
 
-  useEffect(() => {
-    if (!isHost || !sharingScreen || !autoScreenshot) return undefined;
-    const run = () => {
-      void sendScreenSnapshot();
-    };
-    run();
-    const timer = window.setInterval(run, 60000);
-    return () => window.clearInterval(timer);
-  }, [autoScreenshot, isHost, sendScreenSnapshot, sharingScreen]);
-
   const toggleMic = useCallback(() => {
     setMicEnabled((current) => {
       const next = !current;
@@ -465,7 +454,6 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
     localStreamRef.current = null;
     setLocalStream(null);
     setSharingScreen(false);
-    setAutoScreenshot(false);
     recvTransportRef.current?.close();
     sendTransportRef.current?.close();
     recvTransportRef.current = null;
@@ -540,13 +528,6 @@ export default function SFURoom({ roomName, roomTitle = "", displayName = "Subsc
             className="rounded-xl bg-cyan-600 px-4 py-3 text-sm font-black shadow-lg disabled:opacity-60"
           >
             {sendingScreenshot ? "Sending screenshot..." : "Send screenshot to selected users"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setAutoScreenshot((value) => !value)}
-            className={`mt-2 w-full rounded-xl px-4 py-2 text-xs font-bold ${autoScreenshot ? "bg-emerald-600" : "bg-white/10"}`}
-          >
-            {autoScreenshot ? "Auto screenshot every 60s: ON" : "Auto screenshot every 60s: OFF"}
           </button>
           <div className="mt-2 text-[11px] text-gray-300">Visible while this app tab is open. Browser security cannot draw this over other apps.</div>
         </div>

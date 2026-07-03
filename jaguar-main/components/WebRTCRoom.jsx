@@ -144,7 +144,6 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
   const [recordingStatus, setRecordingStatus] = useState("");
   const [screenshotStatus, setScreenshotStatus] = useState("");
   const [sendingScreenshot, setSendingScreenshot] = useState(false);
-  const [autoScreenshot, setAutoScreenshot] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
   const [lastRecording, setLastRecording] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState("ready");
@@ -495,7 +494,6 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
     screenStreamRef.current?.getTracks().forEach((track) => track.stop());
     screenStreamRef.current = null;
     setSharingScreen(false);
-    setAutoScreenshot(false);
   }, [replaceTrack]);
 
   const applyScreenShareStream = useCallback(async (screen) => {
@@ -580,16 +578,6 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
       setSendingScreenshot(false);
     }
   }, [isHost, roomName, roomTitle, sendingScreenshot]);
-
-  useEffect(() => {
-    if (!isHost || !sharingScreen || !autoScreenshot) return undefined;
-    const run = () => {
-      void sendScreenSnapshot();
-    };
-    run();
-    const timer = window.setInterval(run, 60000);
-    return () => window.clearInterval(timer);
-  }, [autoScreenshot, isHost, sendScreenSnapshot, sharingScreen]);
 
   const requestStage = async (kind) => {
     setRequestSent(kind);
@@ -1023,13 +1011,6 @@ export default function WebRTCRoom({ roomName, roomTitle = "", displayName, isHo
             className="rounded-xl bg-cyan-600 px-4 py-3 text-sm font-black shadow-lg disabled:opacity-60"
           >
             {sendingScreenshot ? "Sending screenshot..." : "Send screenshot to selected users"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setAutoScreenshot((value) => !value)}
-            className={`mt-2 w-full rounded-xl px-4 py-2 text-xs font-bold ${autoScreenshot ? "bg-emerald-600" : "bg-white/10"}`}
-          >
-            {autoScreenshot ? "Auto screenshot every 60s: ON" : "Auto screenshot every 60s: OFF"}
           </button>
           <div className="mt-2 text-[11px] text-gray-300">Visible while this app tab is open. Browser security cannot draw this over other apps.</div>
         </div>
