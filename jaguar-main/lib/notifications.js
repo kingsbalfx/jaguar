@@ -16,12 +16,12 @@ function compactText(value, maxLength = 600) {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
 }
 
-function inlineImageAttachment(imageData) {
+function inlineImageAttachment(imageData, label = "live-screenshot") {
   const match = String(imageData || "").match(/^data:image\/(png|jpe?g|webp);base64,(.+)$/i);
   if (!match) return null;
   const extension = match[1].toLowerCase().replace("jpeg", "jpg");
   return {
-    filename: `kingsbalfx-live-screenshot.${extension}`,
+    filename: `kingsbalfx-${label}.${extension}`,
     content: Buffer.from(match[2], "base64"),
     cid: "kingsbalfx-live-screenshot",
     contentType: `image/${extension === "jpg" ? "jpeg" : extension}`,
@@ -170,19 +170,30 @@ export async function notifyMentorshipRoomUpdate({
   const title = session.title || "KINGSBALFX Mentorship Session";
   const roomLabel = notificationAudienceLabel(session.segment);
   const isScreenshot = kind === "screenshot";
-  const snippet = compactText(content || (isScreenshot ? "A live screen screenshot was shared from the mentorship room." : "A new live-room message is available."));
+  const hasImage = Boolean(imageData);
+  const isChatImage = kind === "chat_image" || (!isScreenshot && hasImage);
+  const snippet = compactText(content || (isScreenshot
+    ? "A live screen screenshot was shared from the mentorship room."
+    : isChatImage
+      ? "A chart image was shared in the mentorship room."
+      : "A new live-room message is available."));
   const subject = isScreenshot
     ? `${title}: live screen screenshot shared`
-    : `${title}: new message from ${senderName || "Admin"}`;
+    : isChatImage
+      ? `${title}: chart image shared by ${senderName || "Admin"}`
+      : `${title}: new message from ${senderName || "Admin"}`;
   const body = isScreenshot
     ? `A KINGSBALFX live screen screenshot was shared for ${roomLabel}. Open your dashboard to view or join the room.`
-    : `${senderName || "Admin"} sent a message in ${title}: ${snippet}`;
-  const screenshotAttachment = inlineImageAttachment(imageData);
+    : isChatImage
+      ? `${senderName || "Admin"} shared a chart image in ${title}: ${snippet}`
+      : `${senderName || "Admin"} sent a message in ${title}: ${snippet}`;
+  const screenshotAttachment = inlineImageAttachment(imageData, isChatImage ? "live-chart" : "live-screenshot");
+  const imageAlt = isChatImage ? "KINGSBALFX live chat chart image" : "KINGSBALFX live screen screenshot";
   const imageHtml = screenshotAttachment
-    ? `<p style="margin-top:18px"><img src="cid:${screenshotAttachment.cid}" alt="KINGSBALFX live screen screenshot" style="display:block;max-width:100%;border-radius:14px;border:1px solid #dbe4ef" /></p>`
+    ? `<p style="margin-top:18px"><img src="cid:${screenshotAttachment.cid}" alt="${imageAlt}" style="display:block;max-width:100%;border-radius:14px;border:1px solid #dbe4ef" /></p>`
     : "";
   const html = emailLayout(
-    isScreenshot ? "Live screen screenshot shared" : "New live room message",
+    isScreenshot ? "Live screen screenshot shared" : isChatImage ? "Live chat chart image shared" : "New live room message",
     `<p><strong>${escapeHtml(title)}</strong></p><p>${escapeHtml(body)}</p>${imageHtml}<p style="color:#64748b;font-size:14px">This update was sent because your account is included in ${escapeHtml(roomLabel)}.</p>`,
     "Open Live Room",
     "/dashboard",

@@ -167,7 +167,7 @@ export default async function handler(req, res) {
           senderId: ctx.session.user.id,
           senderName,
           content: content || "A KINGSBALFX chart image was shared in the live chat.",
-          kind: "chat",
+          kind: parsedImage ? "chat_image" : "chat",
           imageData: parsedImage ? req.body.imageData : "",
         });
       }
