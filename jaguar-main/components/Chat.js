@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { getBrowserSupabaseClient } from "../lib/supabaseClient";
 import FeedbackMessage from "./FeedbackMessage";
 
+const MAX_CHAT_IMAGE_BYTES = 6 * 1024 * 1024;
+
+function isImageMessage(message) {
+  return message?.attachment_type === "image" && message?.attachment_url;
+}
+
 export default function Chat({ channel = "public", roomId = null }) {
   const supabase = getBrowserSupabaseClient();
   const roomKey = roomId || channel;
@@ -14,6 +20,8 @@ export default function Chat({ channel = "public", roomId = null }) {
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const [showNewMessages, setShowNewMessages] = useState(false);
+  const [imageAttachment, setImageAttachment] = useState(null);
+  const fileInputRef = useRef(null);
   const messagesRef = useRef(null);
   const channelRef = useRef(null);
   const stickToBottomRef = useRef(true);
@@ -66,6 +74,7 @@ export default function Chat({ channel = "public", roomId = null }) {
           const withoutCurrent = current.filter((item) => item.id !== next.id);
           return [...withoutCurrent, next].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         });
+        window.setTimeout(loadMessages, 400);
       })
       .subscribe();
     channelRef.current = realtime;
@@ -128,9 +137,42 @@ export default function Chat({ channel = "public", roomId = null }) {
     if (nearBottom) setShowNewMessages(false);
   };
 
+  const attachImageFile = (file) => {
+    if (!file) return;
+    if (!file.type?.startsWith("image/")) {
+      setError("Please attach a PNG, JPG, JPEG, or WEBP chart image.");
+      return;
+    }
+    if (file.size > MAX_CHAT_IMAGE_BYTES) {
+      setError("Chart image must be smaller than 6MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImageAttachment({ dataUrl: reader.result, name: file.name, size: file.size });
+      setError("");
+    };
+    reader.onerror = () => setError("Unable to read this image. Try another file.");
+    reader.readAsDataURL(file);
+  };
+
+  const handlePaste = (event) => {
+    const file = Array.from(event.clipboardData?.files || []).find((item) => item.type?.startsWith("image/"));
+    if (file) attachImageFile(file);
+  };
+
+  const clearAttachment = () => {
+    setImageAttachment(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
   const send = async () => {
     const content = text.trim();
-    if (!content || sending) return;
+    if ((!content && !imageAttachment) || sending) return;
+    if (editing && imageAttachment) {
+      setError("Finish editing the text message before attaching a chart image.");
+      return;
+    }
     setSending(true);
     setError("");
     try {
@@ -138,7 +180,14 @@ export default function Chat({ channel = "public", roomId = null }) {
       const response = await fetch("/api/chat/messages", {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomKey, id: editing?.id, content, replyTo: replyTo?.id || null }),
+        body: JSON.stringify({
+          roomKey,
+          id: editing?.id,
+          content,
+          replyTo: replyTo?.id || null,
+          imageData: editing ? undefined : imageAttachment?.dataUrl,
+          imageName: editing ? undefined : imageAttachment?.name,
+        }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -150,6 +199,7 @@ export default function Chat({ channel = "public", roomId = null }) {
         setMessages((current) => [...current.filter((item) => item.id !== data.message.id), data.message].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)));
       }
       setText("");
+      clearAttachment();
       setReplyTo(null);
       setEditing(null);
       notifyTyping(false);
@@ -178,7 +228,7 @@ export default function Chat({ channel = "public", roomId = null }) {
   };
 
   return (
-    <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0b141a] text-white shadow-2xl">
+    <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0b141a] text-white shadow-2xl" onPaste={handlePaste}>
       <div className="flex items-center gap-3 border-b border-white/10 bg-[#202c33] px-4 py-3">
         <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-700 text-sm font-bold text-white shadow-lg">
           MC
@@ -208,8 +258,14 @@ export default function Chat({ channel = "public", roomId = null }) {
             <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
               <div className={`group max-w-[88%] rounded-xl px-3 py-2 shadow-md sm:max-w-[72%] ${mine ? "rounded-tr-sm bg-[#005c4b]" : "rounded-tl-sm bg-[#202c33]"}`}>
                 {!mine && <div className="text-xs font-semibold text-emerald-300">{message.sender_name || "Member"}</div>}
-                {replied && <div className="mb-1.5 max-h-20 overflow-hidden rounded border-l-4 border-emerald-400 bg-black/20 px-2 py-1.5 text-xs text-gray-200">{replied.content}</div>}
-                <div className="whitespace-pre-wrap break-words pr-2 text-sm leading-relaxed">{message.content}</div>
+                {replied && <div className="mb-1.5 max-h-20 overflow-hidden rounded border-l-4 border-emerald-400 bg-black/20 px-2 py-1.5 text-xs text-gray-200">{replied.content || replied.attachment_name || "Chart image"}</div>}
+                {isImageMessage(message) && (
+                  <a href={message.attachment_url} target="_blank" rel="noreferrer" className="mb-2 block overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+                    <img src={message.attachment_url} alt={message.attachment_name || "Shared chart"} className="max-h-[380px] w-full object-contain" loading="lazy" />
+                  </a>
+                )}
+                {message.content && <div className="whitespace-pre-wrap break-words pr-2 text-sm leading-relaxed">{message.content}</div>}
+                {message.attachment_name && <div className="mt-1 truncate text-[10px] text-emerald-100/80">{message.attachment_name}</div>}
                 <div className="mt-1 flex flex-wrap items-center justify-end gap-2 text-[10px] text-gray-300">
                   {message.edited_at && <span>edited</span>}
                   <span>{new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
@@ -217,7 +273,7 @@ export default function Chat({ channel = "public", roomId = null }) {
                 </div>
                 <div className="mt-1 flex flex-wrap justify-end gap-3 border-t border-white/5 pt-1 text-[10px] text-gray-300 opacity-80 sm:opacity-0 sm:transition sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                   <button type="button" onClick={() => setReplyTo(message)} className="hover:text-white">Reply</button>
-                  {mine && <button type="button" onClick={() => { setEditing(message); setText(message.content); }} className="hover:text-white">Edit</button>}
+                  {mine && !message.attachment_path && <button type="button" onClick={() => { setEditing(message); setText(message.content); clearAttachment(); }} className="hover:text-white">Edit</button>}
                   {mine && <button type="button" onClick={() => remove(message)} className="hover:text-red-300">Delete</button>}
                 </div>
               </div>
@@ -231,11 +287,28 @@ export default function Chat({ channel = "public", roomId = null }) {
         </button>
       )}
       </div>
-      {(replyTo || editing) && <div className="flex justify-between bg-[#182229] px-3 py-2 text-xs"><span>{editing ? `Editing: ${editing.content}` : `Replying to: ${replyTo.content}`}</span><button onClick={() => { setReplyTo(null); setEditing(null); setText(""); }}>Cancel</button></div>}
+      {(replyTo || editing) && <div className="flex justify-between gap-3 bg-[#182229] px-3 py-2 text-xs"><span className="truncate">{editing ? `Editing: ${editing.content}` : `Replying to: ${replyTo.content || replyTo.attachment_name || "Chart image"}`}</span><button onClick={() => { setReplyTo(null); setEditing(null); setText(""); }}>Cancel</button></div>}
+      {imageAttachment && (
+        <div className="border-t border-white/10 bg-[#182229] px-3 py-3">
+          <div className="flex items-start gap-3 rounded-2xl border border-emerald-400/20 bg-black/20 p-2">
+            <img src={imageAttachment.dataUrl} alt="Selected chart preview" className="h-24 w-32 rounded-xl object-cover" />
+            <div className="min-w-0 flex-1 text-xs text-gray-200">
+              <div className="font-semibold text-emerald-200">Chart image ready</div>
+              <div className="truncate text-gray-400">{imageAttachment.name}</div>
+              <div className="mt-1 text-gray-400">Add a caption, then send to this room audience.</div>
+            </div>
+            <button type="button" onClick={clearAttachment} className="rounded-full bg-white/10 px-3 py-1 text-xs hover:bg-white/20">Remove</button>
+          </div>
+        </div>
+      )}
       <FeedbackMessage message={error} type="error" />
-      <div className="grid grid-cols-[1fr_auto] items-end gap-2 border-t border-white/10 bg-[#202c33] p-3">
-        <textarea value={text} onFocus={() => notifyTyping(true)} onBlur={() => notifyTyping(false)} onChange={(event) => { setText(event.target.value); notifyTyping(true); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} className="max-h-28 min-h-[46px] min-w-0 resize-none rounded-3xl bg-[#2a3942] px-4 py-3 text-sm outline-none placeholder:text-gray-400 focus:ring-1 focus:ring-emerald-500/60" placeholder="Type a message" />
-        <button type="button" onClick={send} disabled={sending || !user || !text.trim()} aria-label="Send message" className="grid h-12 w-12 place-items-center rounded-full bg-emerald-600 text-sm font-bold shadow-lg transition hover:bg-emerald-500 disabled:opacity-40">
+      <div className="grid grid-cols-[auto_1fr_auto] items-end gap-2 border-t border-white/10 bg-[#202c33] p-3">
+        <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => attachImageFile(event.target.files?.[0])} />
+        <button type="button" onClick={() => fileInputRef.current?.click()} disabled={sending || editing} className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-lg font-bold shadow-lg transition hover:bg-white/15 disabled:opacity-40" aria-label="Attach chart image">
+          +
+        </button>
+        <textarea value={text} onPaste={handlePaste} onFocus={() => notifyTyping(true)} onBlur={() => notifyTyping(false)} onChange={(event) => { setText(event.target.value); notifyTyping(true); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} className="max-h-28 min-h-[46px] min-w-0 resize-none rounded-3xl bg-[#2a3942] px-4 py-3 text-sm outline-none placeholder:text-gray-400 focus:ring-1 focus:ring-emerald-500/60" placeholder="Type, paste, or attach a chart image" />
+        <button type="button" onClick={send} disabled={sending || !user || (!text.trim() && !imageAttachment)} aria-label="Send message" className="grid h-12 w-12 place-items-center rounded-full bg-emerald-600 text-sm font-bold shadow-lg transition hover:bg-emerald-500 disabled:opacity-40">
           {sending ? "..." : "Send"}
         </button>
       </div>
