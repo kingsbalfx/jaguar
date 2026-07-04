@@ -410,6 +410,23 @@ def _console_compact_report(symbol: str, setup: dict, safety: dict = None, reque
         decision = "OPERATIONAL_SKIP"
     else:
         decision = "SKIP"
+    if setup.get("strategy") == "kingsbalfx":
+        reached = {state.get("name"): state for state in states}
+        refinement = (reached.get("m5_refinement") or {}).get("evidence") or {}
+        trigger = (reached.get("m5_final_trigger") or {}).get("evidence") or {}
+        if refinement or trigger:
+            LOGGER.info(
+                "[%s] KINGSBALFX EXECUTION FALLBACK | refinement_used=%s m5_refinement=%s m1_refinement=%s m1_refinement_candles=%s | trigger_used=%s m5_trigger=%s m1_trigger=%s m1_trigger_candles=%s",
+                symbol,
+                refinement.get("execution_timeframe_used") or "none",
+                _yes_no(refinement.get("m5_confirmed")),
+                _yes_no(refinement.get("m1_fallback_confirmed")),
+                refinement.get("m1_execution_confirmation_candles", 0),
+                trigger.get("execution_timeframe_used") or "none",
+                _yes_no(trigger.get("m5_confirmed")),
+                _yes_no(trigger.get("m1_fallback_confirmed")),
+                trigger.get("m1_execution_confirmation_candles", 0),
+            )
     LOGGER.info(
         "[%s] RESULT | decision=%s | direction=%s | passed=%s/%s | failed_step=%s | reason=%s",
         symbol,

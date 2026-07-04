@@ -52,15 +52,21 @@ def _atr_at(frame, index, period=14):
 
 
 def _mitigation(frame, creation_index, low, high):
+    """ICT FVG mitigation: a candle body (not just wick) must enter the gap to be 'touched'.
+    Fully filled means the body engulfs both edges of the FVG."""
     touched = False
     fully_filled = False
     mitigation_index = None
     for index in range(creation_index + 1, len(frame)):
         candle = frame.iloc[index]
-        if float(candle["low"]) <= high and float(candle["high"]) >= low:
+        body_low = min(float(candle["open"]), float(candle["close"]))
+        body_high = max(float(candle["open"]), float(candle["close"]))
+        # Body enters the gap (ICT standard - wick-only touch does not count)
+        if body_low <= high and body_high >= low:
             touched = True
             mitigation_index = index
-        if float(candle["low"]) <= low and float(candle["high"]) >= high:
+        # Body fully engulfs both edges of the gap
+        if body_low <= low and body_high >= high:
             fully_filled = True
             break
     return touched, fully_filled, mitigation_index
@@ -119,8 +125,8 @@ def detect_displacement_fvg(candles, displacement_index, direction, timeframe="M
     }
 
 
-def detect_fvg_from_df(df, trend=None, min_gap_ratio=0.0, min_body_ratio=0.60):
-    del min_gap_ratio, min_body_ratio
+def detect_fvg_from_df(df, trend=None):
+    """Detect all FVGs in a dataframe. min_gap_ratio/min_body_ratio are enforced inside detect_displacement_fvg."""
     frame = _as_frame(df)
     direction = trend or "bullish"
     results = []

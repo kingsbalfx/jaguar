@@ -8,6 +8,11 @@ from utils.persistent_json import load_json_file, save_json_file
 from utils.symbol_profile import canonical_symbol
 
 
+def _utc_now():
+    """Return current UTC time as a float (seconds since epoch)."""
+    return time.time()
+
+
 def _memory_file() -> Path:
     configured = os.getenv("TRADE_MEMORY_STORAGE_PATH")
     return Path(configured) if configured else Path(__file__).resolve().parent.parent / "data" / "trade_memory_runtime.json"
@@ -25,13 +30,13 @@ def can_trade(symbol, setup_id=None, cooldown=300, **_ignored):
     memory = _load()
     key = str(setup_id or f"{canonical_symbol(symbol)}_general")
     timestamp = (memory.get("setups") or {}).get(key)
-    return timestamp is None or time.time() - float(timestamp) >= int(cooldown)
+    return timestamp is None or _utc_now() - float(timestamp) >= int(cooldown)
 
 
 def register_trade(symbol, setup_id):
     memory = _load()
     key = str(setup_id or f"{canonical_symbol(symbol)}_general")
-    memory.setdefault("setups", {})[key] = time.time()
+    memory.setdefault("setups", {})[key] = _utc_now()
     _save(memory)
 
 

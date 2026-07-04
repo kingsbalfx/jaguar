@@ -849,12 +849,13 @@ def analyze_market_top_down(
     mtf = mtf or os.getenv("MTF_TIMEFRAME", "M15")
     ltf = ltf or os.getenv("LTF_TIMEFRAME", "M5")
     execution_tf = os.getenv("EXECUTION_TIMEFRAME", "M5")
+    m1_fallback_tf = os.getenv("M1_FALLBACK_TIMEFRAME", "M1")
     candle_windows = _concept_candle_windows()
     recent_candle_count = candle_windows["fetch_per_timeframe"]
     atr_period = max(5, int(os.getenv("ENTRY_ATR_PERIOD", "14")))
 
     requested_timeframes = []
-    for tf in [weekly_tf, daily_tf, daily_fallback_tf, htf, mtf, ltf, execution_tf]:
+    for tf in [weekly_tf, daily_tf, daily_fallback_tf, htf, mtf, ltf, execution_tf, m1_fallback_tf]:
         if tf and tf not in requested_timeframes:
             requested_timeframes.append(tf)
 
@@ -870,6 +871,7 @@ def analyze_market_top_down(
     m30_state = analysis[mtf]
     m15_state = analysis[ltf]
     execution_state = analysis[execution_tf]
+    m1_state = analysis.get(m1_fallback_tf, {}) if m1_fallback_tf else {}
     liquidity_sources = []
     seen_liquidity_timeframes = set()
     for timeframe, state in ((htf, h1_state), (mtf, m30_state), (ltf, m15_state), (execution_tf, execution_state)):
@@ -907,8 +909,15 @@ def analyze_market_top_down(
 
     htf_sweep = _detect_htf_liquidity_sweep(symbol, htf, price, "buy" if overall_trend == "bullish" else "sell")
 
-    m5_candles = execution_state.get("recent_candles") if execution_tf == "M5" else _fetch_recent_candles(symbol, "M5", bars=recent_candle_count)
-    m1_candles = _fetch_recent_candles(symbol, "M1", bars=recent_candle_count)
+    m5_candles = (
+        execution_state.get("recent_candles")
+        if execution_tf == "M5"
+        else _fetch_recent_candles(symbol, "M5", bars=_standard_fetch_bars("M5", recent_candle_count))
+    )
+    m1_candles = (
+        m1_state.get("recent_candles")
+        or _fetch_recent_candles(symbol, m1_fallback_tf, bars=_standard_fetch_bars(m1_fallback_tf, recent_candle_count))
+    )
     visual_concepts = _visual_live_concepts(
         symbol,
         price,
@@ -954,6 +963,7 @@ def analyze_market_top_down(
             "MTF": mtf,
             "LTF": ltf,
             "EXECUTION": execution_tf,
+            "M1_FALLBACK": m1_fallback_tf,
         },
         "candle_windows": candle_windows,
         "candle_window_usage": {
@@ -989,6 +999,7 @@ def analyze_market_top_down(
         "MTF": m30_state,
         "LTF": m15_state,
         "EXECUTION": execution_state,
+        "M1": m1_state,
         "m5_candles": m5_candles,
         "m1_candles": m1_candles,
         "external_liquidity": external_liquidity,

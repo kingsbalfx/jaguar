@@ -4,6 +4,7 @@ except Exception:
     mt5 = None
 import time
 from datetime import datetime
+from typing import Optional
 
 
 def _require_mt5():
@@ -101,7 +102,7 @@ def execute_trade(
     sl_price: float,
     tp_price: float,
     order_type: str = "market",
-    entry_price: float | None = None,
+    entry_price: Optional[float] = None,
 ):
     """Execute a confirmed market order. Pending orders are forbidden."""
     _require_mt5()

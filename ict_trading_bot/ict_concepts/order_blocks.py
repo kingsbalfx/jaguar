@@ -48,23 +48,24 @@ def find_true_order_block(candles, displacement_index, direction, timeframe="M5"
         return None
 
     candle = frame.iloc[origin]
-    body_low = min(float(candle["open"]), float(candle["close"]))
-    body_high = max(float(candle["open"]), float(candle["close"]))
+    # ICT standard: use full candle range (wick + body) for the order block zone
+    ob_low = min(float(candle["open"]), float(candle["close"]), float(candle["low"]))
+    ob_high = max(float(candle["open"]), float(candle["close"]), float(candle["high"]))
     touched = False
     mitigation_index = None
     for index in range(displacement_index + 1, len(frame)):
         future = frame.iloc[index]
-        if float(future["low"]) <= body_high and float(future["high"]) >= body_low:
+        if float(future["low"]) <= ob_high and float(future["high"]) >= ob_low:
             touched = True
             mitigation_index = index
             break
     return {
         "type": "bullish" if bullish else "bearish",
-        "low": body_low,
-        "high": body_high,
+        "low": ob_low,
+        "high": ob_high,
         "wick_low": float(candle["low"]),
         "wick_high": float(candle["high"]),
-        "midpoint": (body_low + body_high) / 2.0,
+        "midpoint": (ob_low + ob_high) / 2.0,
         "origin_index": origin,
         "displacement_index": displacement_index,
         "index": displacement_index,

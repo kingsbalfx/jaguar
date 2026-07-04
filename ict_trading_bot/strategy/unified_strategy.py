@@ -423,12 +423,14 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
         if displacement_index is not None and 0 <= int(displacement_index) < len(candles)
         else 0.0
     )
+    atr_value = _atr(candles, displacement_index) if displacement_index is not None else 0.0
     displacement = (
         bool(sweep.get("displacement"))
         and float(sweep.get("displacement_body_ratio", 0.0)) >= 0.60
-        and impulse_range >= _atr(candles, displacement_index)
+        and (displacement_index is not None)
+        and impulse_range >= atr_value
     )
-    if not require(SEQUENCE[3], displacement, {**sweep, "impulse_range": impulse_range, "atr": _atr(candles, displacement_index)}, "Post-sweep candle must be ATR-normalized displacement with body at least 60%"):
+    if not require(SEQUENCE[3], displacement, {**sweep, "impulse_range": impulse_range, "atr": atr_value}, "Post-sweep candle must be ATR-normalized displacement with body at least 60%"):
         return _result(symbol, direction, states)
 
     execution_structure = (analysis.get("EXECUTION") or {}).get("market_structure") or {}

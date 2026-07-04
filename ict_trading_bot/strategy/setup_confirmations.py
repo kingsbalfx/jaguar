@@ -208,12 +208,11 @@ def liquidity_sweep_or_swing(price, analysis, direction, external_liquidity=None
         displacement_idx = sweep_idx + 1
         sweep_extreme = float(sweep_candle["low"])
 
-        # ---- HTF SWING VERIFICATION ----
+        # ---- HTF SWING VERIFICATION (MANDATORY) ----
         htf_swings = htf.get("swings", [])
-        if htf_swings:
-            htf_lows = [float(s["price"]) for s in htf_swings if s.get("type") == "low"]
-            if not any(abs(swing_price - hl) / swing_price < 0.002 for hl in htf_lows):
-                return _empty_sweep()
+        htf_lows = [float(s["price"]) for s in htf_swings if s.get("type") == "low"]
+        if not htf_lows or not any(abs(swing_price - hl) / swing_price < 0.002 for hl in htf_lows):
+            return _empty_sweep()
     else:
         swing_highs = [s for s in mtf_swings if s.get("type") == "high"]
         if not swing_highs:
@@ -244,12 +243,11 @@ def liquidity_sweep_or_swing(price, analysis, direction, external_liquidity=None
         displacement_idx = sweep_idx + 1
         sweep_extreme = float(sweep_candle["high"])
 
-        # ---- HTF SWING VERIFICATION ----
+        # ---- HTF SWING VERIFICATION (MANDATORY) ----
         htf_swings = htf.get("swings", [])
-        if htf_swings:
-            htf_highs = [float(s["price"]) for s in htf_swings if s.get("type") == "high"]
-            if not any(abs(swing_price - hh) / swing_price < 0.002 for hh in htf_highs):
-                return _empty_sweep()
+        htf_highs = [float(s["price"]) for s in htf_swings if s.get("type") == "high"]
+        if not htf_highs or not any(abs(swing_price - hh) / swing_price < 0.002 for hh in htf_highs):
+            return _empty_sweep()
 
     return {
         "confirmed": True,

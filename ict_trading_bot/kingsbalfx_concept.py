@@ -199,9 +199,11 @@ def _swing_points(candles: Sequence[Candle], lookback: int = 2) -> List[Dict[str
     for index in range(lookback, len(candles) - lookback):
         window = candles[index - lookback:index + lookback + 1]
         candle = candles[index]
-        if candle["high"] == max(item["high"] for item in window):
+        window_highs = [item["high"] for item in window]
+        window_lows = [item["low"] for item in window]
+        if abs(candle["high"] - max(window_highs)) < 1e-8:
             swings.append({"type": "high", "price": candle["high"], "index": index, "time": candle.get("time")})
-        if candle["low"] == min(item["low"] for item in window):
+        if abs(candle["low"] - min(window_lows)) < 1e-8:
             swings.append({"type": "low", "price": candle["low"], "index": index, "time": candle.get("time")})
     return swings
 

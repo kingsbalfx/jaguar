@@ -48,9 +48,9 @@ def _swings(candles, width=2):
     for index in range(width, len(candles) - width):
         window = candles[index - width : index + width + 1]
         candle = candles[index]
-        if candle["high"] == max(item["high"] for item in window):
+        if abs(candle["high"] - max(item["high"] for item in window)) < 1e-8:
             result.append({"type": "high", "price": candle["high"], "index": index, "time": candle["time"]})
-        if candle["low"] == min(item["low"] for item in window):
+        if abs(candle["low"] - min(item["low"] for item in window)) < 1e-8:
             result.append({"type": "low", "price": candle["low"], "index": index, "time": candle["time"]})
     return result
 

@@ -98,8 +98,13 @@ class PreTradeValidator:
             if tick is None:
                 self._check("Spread", False, "Cannot fetch tick data")
                 return False
-            spread_pips = (tick.ask - tick.bid) * 10000
-            if spread_pips > 5.0:
+            # Use symbol digits to calculate spread pips correctly for all symbols
+            info = mt5.symbol_info(symbol)
+            digits = int(getattr(info, "digits", 5) or 5)
+            pip_multiplier = 10 ** (digits - 1) if digits > 3 else 100
+            max_spread = float(os.getenv("MAX_SPREAD_PIPS", "5") or 5.0)
+            spread_pips = (tick.ask - tick.bid) * pip_multiplier
+            if spread_pips > max_spread:
                 self._check("Spread", False, f"Spread too wide ({spread_pips:.1f}p)")
                 return False
             self._check("Spread", True, f"Spread acceptable ({spread_pips:.1f}p)")
