@@ -125,6 +125,7 @@ export default async function handler(req, res) {
       return res.status(error.status || 400).json({ error: error.message });
     }
     if (!content && !parsedImage) return res.status(400).json({ error: "Type a message or attach a chart image." });
+    const messageContent = content || (parsedImage ? "Shared a KINGSBALFX chart image." : "");
     const senderIsAdmin = String(ctx.profile.role || "").toLowerCase() === "admin";
     const senderName = senderIsAdmin ? "Admin" : ctx.profile.username || ctx.profile.name || "Subscriber";
     let attachment = null;
@@ -137,7 +138,7 @@ export default async function handler(req, res) {
       room_key: roomKey,
       sender_id: ctx.session.user.id,
       sender_name: senderName,
-      content,
+      content: messageContent,
       reply_to: req.body?.replyTo || null,
       ...(attachment || {}),
     }).select("*").single();
