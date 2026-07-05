@@ -1,5 +1,7 @@
 """The exact twelve-state ICT trade decision sequence."""
 
+import os
+
 from ict_concepts.fib import ote_zone
 from ict_concepts.fvg import detect_displacement_fvg
 from ict_concepts.liquidity import rank_liquidity_zones
@@ -159,7 +161,21 @@ def _zone_levels(zone):
     }
 
 
-def _retracement_zone(price, fvg, order_block):
+def _retracement_zone(price, fvg, order_block, candles=None, displacement_index=None):
+    """
+    FIX 12: Enforce minimum hold time before accepting retracement.
+    A retracement is only valid if at least MIN_RETRACEMENT_CANDLES candles
+    have elapsed since the displacement candle. This prevents premature entries
+    where price has not yet given price enough time to form a valid retracement.
+    """
+    min_hold = int(os.getenv("MIN_RETRACEMENT_CANDLES", os.getenv("MIN_HOLD_CANDLES", "3")))
+    min_hold = max(1, min(min_hold, 20))
+    if candles is not None and displacement_index is not None:
+        displacement_index = int(displacement_index)
+        elapsed = len(candles) - 1 - displacement_index
+        if elapsed < min_hold:
+            return {"confirmed": False, "reason": f"only {elapsed} candles since displacement; need {min_hold}"}
+
     for kind, zone in (("fvg", fvg), ("order_block", order_block)):
         if not _touches(price, zone):
             continue
@@ -492,7 +508,7 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
 
     eligible_fvg = fvg if fvg_correct_half or visual_fvg_correct_half else None
     eligible_order_block = order_block if order_block_correct_half or visual_order_block_correct_half else None
-    retracement = _retracement_zone(price, eligible_fvg, eligible_order_block)
+    retracement = _retracement_zone(price, eligible_fvg, eligible_order_block, candles=candles, displacement_index=displacement_index)
     ote_retracement = _ote_retracement_zone(price, fib, direction)
     executable_retracement = retracement if retracement.get("confirmed") else ote_retracement
     if not require(

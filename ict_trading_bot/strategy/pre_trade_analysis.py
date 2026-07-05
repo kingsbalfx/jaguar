@@ -9,6 +9,7 @@ from ict_concepts.judas_swing import detect_judas_swing, should_enter_on_judas_r
 from ict_concepts.sweet_zone import detect_sweet_zone, should_enter_on_continuation
 import os
 
+from utils.timeframe_cache import get_cached, set_cache
 from utils.symbol_profile import get_entry_profile
 from utils.sessions import (
     in_asia_session,
@@ -160,6 +161,10 @@ def _calculate_sma(candles, period=50):
 
 
 def _analyze_timeframe(symbol, timeframe, price, recent_candle_count=500, atr_period=14, candle_windows=None):
+    # FIX 10: Use TTL cache to avoid redundant MT5 fetches within same scan cycle
+    cached = get_cached(symbol, timeframe, price)
+    if cached is not None:
+        return cached
     candle_windows = candle_windows or _concept_candle_windows()
     fetch_bars = _standard_fetch_bars(timeframe, recent_candle_count)
     try:
@@ -224,7 +229,7 @@ def _analyze_timeframe(symbol, timeframe, price, recent_candle_count=500, atr_pe
     current_volume = recent_candles[-1]["volume"] if recent_candles else 0
     sma_50 = _calculate_sma(recent_candles, period=min(50, len(recent_candles)))
 
-    return {
+    result = {
         "timeframe": timeframe,
         "fetch_bars": fetch_bars,
         "trend": trend,
@@ -264,6 +269,9 @@ def _analyze_timeframe(symbol, timeframe, price, recent_candle_count=500, atr_pe
         "sma_50": sma_50,
         "above_sma": price > sma_50 if sma_50 > 0 else True,
     }
+    # FIX 10: Cache the result to avoid redundant MT5 fetches within scan cycle
+    set_cache(symbol, timeframe, price, result)
+    return result
 
 
 def _directional_trends(states):
@@ -835,32 +843,24 @@ def _detect_htf_liquidity_sweep(symbol, htf_tf, price, direction):
     return liquidity_taken(price, liquidity, direction, recent_candles=recent_candles)
 
 
-def analyze_market_top_down(
-    symbol,
-    price,
-    htf=None,
-    mtf=None,
-    ltf=None
+def _build_topdown_result(
+    symbol, price,
+    weekly_tf, daily_tf, daily_fallback_tf,
+    htf, mtf, ltf, execution_tf, m1_fallback_tf,
+    atr_period, candle_windows,
 ):
-    weekly_tf = os.getenv("WEEKLY_TIMEFRAME", "W1")
-    daily_tf = os.getenv("DAILY_TIMEFRAME", os.getenv("CONTEXT_DAILY_TIMEFRAME", "D1"))
-    daily_fallback_tf = os.getenv("DAILY_CONTEXT_FALLBACK_TIMEFRAME", os.getenv("D1_CONTEXT_FALLBACK_TIMEFRAME", "H4"))
-    htf = htf or os.getenv("HTF_TIMEFRAME", "H1")
-    mtf = mtf or os.getenv("MTF_TIMEFRAME", "M15")
-    ltf = ltf or os.getenv("LTF_TIMEFRAME", "M5")
-    execution_tf = os.getenv("EXECUTION_TIMEFRAME", "M5")
-    m1_fallback_tf = os.getenv("M1_FALLBACK_TIMEFRAME", "M1")
-    candle_windows = _concept_candle_windows()
-    recent_candle_count = candle_windows["fetch_per_timeframe"]
-    atr_period = max(5, int(os.getenv("ENTRY_ATR_PERIOD", "14")))
+    """FIX 14: Extract core top-down analysis into a focused helper.
 
+    Orchestrates per-timeframe analysis, alignment, background context,
+    visual concepts, and result assembly.
+    """
     requested_timeframes = []
     for tf in [weekly_tf, daily_tf, daily_fallback_tf, htf, mtf, ltf, execution_tf, m1_fallback_tf]:
         if tf and tf not in requested_timeframes:
             requested_timeframes.append(tf)
 
     analysis = {
-        tf: _analyze_timeframe(symbol, tf, price, recent_candle_count, atr_period, candle_windows)
+        tf: _analyze_timeframe(symbol, tf, price, candle_windows["fetch_per_timeframe"], atr_period, candle_windows)
         for tf in requested_timeframes
     }
 
@@ -872,13 +872,14 @@ def analyze_market_top_down(
     m15_state = analysis[ltf]
     execution_state = analysis[execution_tf]
     m1_state = analysis.get(m1_fallback_tf, {}) if m1_fallback_tf else {}
+
     liquidity_sources = []
-    seen_liquidity_timeframes = set()
-    for timeframe, state in ((htf, h1_state), (mtf, m30_state), (ltf, m15_state), (execution_tf, execution_state)):
-        key = str(timeframe).upper()
-        if key in seen_liquidity_timeframes:
+    seen_liq = set()
+    for tf_name, state in ((htf, h1_state), (mtf, m30_state), (ltf, m15_state), (execution_tf, execution_state)):
+        key = str(tf_name).upper()
+        if key in seen_liq:
             continue
-        seen_liquidity_timeframes.add(key)
+        seen_liq.add(key)
         liquidity_sources.append((key, state))
     external_liquidity = _external_liquidity(*liquidity_sources)
     for state in (h1_state, m30_state, m15_state, execution_state):
@@ -894,11 +895,8 @@ def analyze_market_top_down(
 
     context_alignment = "aligned" if h1_m15_alignment.get("confirmed") else "mixed"
     background_state, daily_context = _select_background_context(
-        daily_state,
-        daily_fallback_state,
-        price,
-        primary_timeframe=daily_tf,
-        fallback_timeframe=daily_fallback_tf,
+        daily_state, daily_fallback_state, price,
+        primary_timeframe=daily_tf, fallback_timeframe=daily_fallback_tf,
     )
     opening_gaps = {
         "NDOG": _opening_gap_from_state(daily_state, price, "NDOG", daily_tf),
@@ -912,16 +910,14 @@ def analyze_market_top_down(
     m5_candles = (
         execution_state.get("recent_candles")
         if execution_tf == "M5"
-        else _fetch_recent_candles(symbol, "M5", bars=_standard_fetch_bars("M5", recent_candle_count))
+        else _fetch_recent_candles(symbol, "M5", bars=_standard_fetch_bars("M5", candle_windows["fetch_per_timeframe"]))
     )
     m1_candles = (
         m1_state.get("recent_candles")
-        or _fetch_recent_candles(symbol, m1_fallback_tf, bars=_standard_fetch_bars(m1_fallback_tf, recent_candle_count))
+        or _fetch_recent_candles(symbol, m1_fallback_tf, bars=_standard_fetch_bars(m1_fallback_tf, candle_windows["fetch_per_timeframe"]))
     )
     visual_concepts = _visual_live_concepts(
-        symbol,
-        price,
-        overall_trend,
+        symbol, price, overall_trend,
         ((htf, h1_state), (mtf, m30_state), (ltf, m15_state), (execution_tf, execution_state)),
         reference_levels=_background_reference_levels(background_state),
     )
@@ -967,7 +963,7 @@ def analyze_market_top_down(
         },
         "candle_windows": candle_windows,
         "candle_window_usage": {
-            "fetch_per_timeframe": recent_candle_count,
+            "fetch_per_timeframe": candle_windows["fetch_per_timeframe"],
             "htf_narrative": candle_windows["htf_context"],
             "external_liquidity": candle_windows["external_liquidity"],
             "market_structure_mss_bos": candle_windows["structure"],
@@ -1006,5 +1002,40 @@ def analyze_market_top_down(
         "htf_sweep": htf_sweep,
         "volume_alignment": execution_state["volume_boost"],
         "sma_alignment": execution_state["above_sma"] if overall_trend == "bullish" else not execution_state["above_sma"],
-        "correlated": {}
+        "correlated": {},
     }
+
+
+def analyze_market_top_down(
+    symbol,
+    price,
+    htf=None,
+    mtf=None,
+    ltf=None
+):
+    """FIX 14: Delegates to _build_topdown_result for the heavy lifting."""
+    weekly_tf = os.getenv("WEEKLY_TIMEFRAME", "W1")
+    daily_tf = os.getenv("DAILY_TIMEFRAME", os.getenv("CONTEXT_DAILY_TIMEFRAME", "D1"))
+    daily_fallback_tf = os.getenv("DAILY_CONTEXT_FALLBACK_TIMEFRAME", os.getenv("D1_CONTEXT_FALLBACK_TIMEFRAME", "H4"))
+    htf = htf or os.getenv("HTF_TIMEFRAME", "H1")
+    mtf = mtf or os.getenv("MTF_TIMEFRAME", "M15")
+    ltf = ltf or os.getenv("LTF_TIMEFRAME", "M5")
+    execution_tf = os.getenv("EXECUTION_TIMEFRAME", "M5")
+    m1_fallback_tf = os.getenv("M1_FALLBACK_TIMEFRAME", "M1")
+    candle_windows = _concept_candle_windows()
+    atr_period = max(5, int(os.getenv("ENTRY_ATR_PERIOD", "14")))
+
+    return _build_topdown_result(
+        symbol=symbol,
+        price=price,
+        weekly_tf=weekly_tf,
+        daily_tf=daily_tf,
+        daily_fallback_tf=daily_fallback_tf,
+        htf=htf,
+        mtf=mtf,
+        ltf=ltf,
+        execution_tf=execution_tf,
+        m1_fallback_tf=m1_fallback_tf,
+        atr_period=atr_period,
+        candle_windows=candle_windows,
+    )

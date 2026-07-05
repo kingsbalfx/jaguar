@@ -639,7 +639,7 @@ def _smt_snapshot(symbol: str, analysis: dict, trend: str) -> dict:
     if not related:
         return {"confirmed": False, "direction": None, "pair": None, "reason": "no configured SMT correlation"}
 
-    def summary(candles):
+    def _summary(candles):
         smt_window = _int_env("SMT_CANDLES", 20, minimum=10, maximum=50)
         recent = list(candles or [])[-smt_window:]
         if len(recent) < 10:
@@ -656,6 +656,34 @@ def _smt_snapshot(symbol: str, analysis: dict, trend: str) -> dict:
             "candles_used": len(recent),
         }
 
+    def _fetch_m5_candles(symbol_to_fetch: str, min_count: int = 10) -> list:
+        """Lightweight M5 fetch for correlated pair -- avoids full topdown analysis."""
+        try:
+            import MetaTrader5 as mt5
+            from strategy.pre_trade_analysis import _tf_to_mt5, _standard_fetch_bars
+            fetch_bars = _standard_fetch_bars("M5", min_count + 10)
+            tf = _tf_to_mt5("M5")
+            if mt5 is None or tf is None:
+                return []
+            if not mt5.symbol_select(symbol_to_fetch, True):
+                return []
+            rates = mt5.copy_rates_from_pos(symbol_to_fetch, tf, 0, fetch_bars)
+            if rates is None or len(rates) == 0:
+                return []
+            return [
+                {
+                    "time": int(row["time"]),
+                    "open": float(row["open"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "close": float(row["close"]),
+                    "volume": float(row["tick_volume"]),
+                }
+                for row in rates[-min_count - 5:]
+            ]
+        except Exception:
+            return []
+
     main_candles = analysis.get("m5_candles") or []
     smt_window = _int_env("SMT_CANDLES", 20, minimum=10, maximum=50)
     if len(main_candles) < 10:
@@ -671,13 +699,12 @@ def _smt_snapshot(symbol: str, analysis: dict, trend: str) -> dict:
             checked.append(f"{pair_name}:unavailable")
             continue
         try:
-            tick = get_tick_snapshot(correlated)
-            other = analyze_market_top_down(correlated, (tick["bid"] + tick["ask"]) / 2.0)
-            other_candles = other.get("m5_candles") or []
+            # FIX 6: Use lightweight M5 fetch instead of full topdown analysis
+            other_candles = _fetch_m5_candles(correlated, min_count=10)
             if len(other_candles) < 10:
                 checked.append(f"{pair_name}:insufficient_data")
                 continue
-            result = detect_smt(summary(main_candles), summary(other_candles), expected_direction=trend, correlation_mode=mode)
+            result = detect_smt(_summary(main_candles), _summary(other_candles), expected_direction=trend, correlation_mode=mode)
             result["pair"] = pair_name
             result["correlated_symbol"] = correlated
             result["candles_used"] = min(smt_window, len(main_candles), len(other_candles))
