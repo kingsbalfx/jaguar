@@ -907,10 +907,33 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
     if observed != SEQUENCE[: len(observed)]:
         raise RuntimeError(f"State sequence violated: {observed}")
     if not setup["executable"]:
-        LOGGER.info("[%s] ICT SKIP -> KINGSBALFX FALLBACK | failed_step=%s | reason=%s", symbol, setup.get("failed_step"), setup.get("reason"))
+        # Determine if we should try Kingsbalfx fallback.
+        # Skip fallback if the failure was Gate 1 (structural conflict) with no realistic chance
+        # of the pair aligning in this session. Only try fallback if at least H1 direction is clear.
+        failed_step = setup.get("failed_step")
+        direction = setup.get("direction") or setup.get("trend") or analysis.get("overall_trend")
+        
+        # Hard skip: If Gate 1 failed completely (no direction at all), Kingsbalfx will also fail
+        if failed_step == "higher_timeframe_narrative" and not direction:
+            fallback_setup = {
+                "strategy": "kingsbalfx",
+                "executable": False,
+                "direction": None,
+                "reason": "h1_narrative_unclear",
+                "failed_step": "higher_timeframe_narrative",
+                "states": [],
+                "total_steps": 6,
+                "primary_ict_skip": {
+                    "failed_step": setup.get("failed_step"),
+                    "reason": setup.get("reason"),
+                },
+            }
+            return None, fallback_setup, {"reason": "h1_narrative_unclear"}
+        
+        LOGGER.info("[%s] ICT SKIP -> KINGSBALFX FALLBACK | failed_step=%s | reason=%s", symbol, failed_step, setup.get("reason"))
         fallback_request, fallback_setup, fallback_safety = _evaluate_kingsbalfx_fallback(
             symbol,
-            setup.get("direction") or setup.get("trend") or analysis.get("overall_trend"),
+            direction,
             analysis,
             tick,
             account,

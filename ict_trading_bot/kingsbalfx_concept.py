@@ -740,15 +740,15 @@ def evaluate(
         )
     )
 
+    # Kingsbalfx uses its own independent H1 bias detection (not the ICT structural alignment
+    # that may have already failed in the 12-gate scanner).
     h1_trend = _trend_from_candles(h1)
     h1_structure = h1_state.get("market_structure") or {}
     h1_structure_confirms = _structure_confirms(h1_structure, trade_direction, require_event=False)
-    h1_clear = (
-        bool(h1_m15_alignment.get("confirmed") and h1_m15_alignment.get("direction") == trade_direction)
-        if h1_m15_alignment
-        else h1_trend in ("bullish", "bearish") and _normalize_direction(h1_trend) == trade_direction
-    )
-    h1_clear = bool(h1_clear or (_bias_from_state(h1_state, h1) == trade_direction and h1_structure_confirms))
+    h1_clear = h1_trend in ("bullish", "bearish") and _normalize_direction(h1_trend) == trade_direction
+    # Fallback: if candle-based trend is unclear, check state-based bias
+    if not h1_clear:
+        h1_clear = (_bias_from_state(h1_state, h1) == trade_direction and h1_structure_confirms)
     h1_fvgs_for_targets = _fvg_zones(h1_fvg_ob, "H1", price)
     h1_obs_for_targets = _ob_zones(h1_fvg_ob, "H1")
     primary_targets = (
@@ -803,11 +803,18 @@ def evaluate(
         and _live_concept_matches_direction(judas_swing, trade_direction)
     )
 
-    m15_agrees = (
-        bool(h1_m15_alignment.get("confirmed") and h1_m15_alignment.get("direction") == trade_direction)
-        if h1_m15_alignment
-        else _bias_from_state(m15_state, m15) == trade_direction
-    )
+    # FIX: Kingsbalfx uses its own independent M15 bias detection (not the ICT structural
+    # alignment that may have already failed in the 12-gate scanner).
+    if h1_m15_alignment and h1_m15_alignment.get("confirmed"):
+        m15_agrees = bool(h1_m15_alignment.get("direction") == trade_direction)
+    else:
+        m15_bias = _bias_from_state(m15_state, m15)
+        # If M15 has no clear bias (ranging), that's OK — just don't oppose H1
+        if m15_bias is None:
+            m15_agrees = True
+        else:
+            m15_agrees = m15_bias == trade_direction
+
     evidence["states"].append(
         _state(
             "m15_alignment",
