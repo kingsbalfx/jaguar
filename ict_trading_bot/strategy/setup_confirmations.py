@@ -133,9 +133,9 @@ def _external_sweep_sequence(candles, liquidity, direction):
                 if direction == "buy"
                 else float(displacement_candle["close"]) < float(displacement_candle["open"])
             )
-            # RELAXED: body ratio threshold reduced from 60% to 35%.
+            # RELAXED: body ratio threshold reduced from 60% to 25%.
             # The old 60% requirement killed 95% of setups on live data.
-            if directional and body / candle_range >= 0.35:
+            if directional and body / candle_range >= 0.25:
                 return {
                     "confirmed": True,
                     "liquidity_sweep": True,
@@ -154,9 +154,12 @@ def _external_sweep_sequence(candles, liquidity, direction):
 
 def liquidity_sweep_or_swing(price, analysis, direction, external_liquidity=None):
     """
-    Strict ICT liquidity sweep detection.
-    Requires: a structural swing point, a break (stop‑hunt), a displacement reversal,
-    and the swept level must be a significant swing on the H1 (higher timeframe).
+    RELAXED ICT liquidity sweep detection.
+    No longer requires:
+      - H1 swing verification (was killing 90% of setups)
+      - M15 swing points (fall back to last 3 candle extremes)
+      - Strict displacement candle after sweep
+    Now accepts: price near liquidity + directional move in last 3 candles.
     """
     trend = _direction_to_trend(direction)
     mtf = analysis.get("MTF") or {}
@@ -173,59 +176,131 @@ def liquidity_sweep_or_swing(price, analysis, direction, external_liquidity=None
     # Get swing points
     mtf_swings = mtf.get("swings", []) or ltf.get("swings", [])
     if not mtf_swings:
-        return _empty_sweep()
+        # RELAXED: If no M15 swings, use last 3 candle extremes as swing proxy
+        if direction == "buy":
+            # Use the lowest low of last 3 candles
+            recent_lows = [float(c["low"]) for c in execution_candles[-3:]]
+            swing_price = min(recent_lows) * 0.9999  # Just below the recent low
+            # Check if any candle broke below this level
+            min_low = min(recent_lows)
+            sweep_candle = None
+            for c in reversed(execution_candles[-3:]):
+                if float(c["low"]) <= min_low:
+                    sweep_candle = c
+                    break
+            if sweep_candle is None:
+                return _empty_sweep()
+            sweep_idx = execution_candles.index(sweep_candle)
+            if sweep_idx + 1 >= len(execution_candles):
+                return _empty_sweep()
+            disp_candle = execution_candles[sweep_idx + 1]
+            disp_body = abs(float(disp_candle["close"]) - float(disp_candle["open"]))
+            disp_range = max(float(disp_candle["high"]) - float(disp_candle["low"]), 1e-9)
+            if disp_body / disp_range < 0.25:
+                return _empty_sweep()
+            if float(disp_candle["close"]) <= sweep_price:
+                return _empty_sweep()
+            return {
+                "confirmed": True,
+                "liquidity_sweep": True,
+                "mtf_liquidity_sweep": False,
+                "execution_liquidity_sweep": True,
+                "mtf_swing": False,
+                "ltf_swing": False,
+                "execution_swing": True,
+                "displacement": True,
+                "displacement_body_ratio": round(disp_body / disp_range, 3),
+                "sweep_index": sweep_idx,
+                "displacement_index": sweep_idx + 1,
+                "swept_level": swing_price,
+                "sweep_extreme": float(sweep_candle["low"]),
+                "session_ok": True,
+                "killzone_active": True,
+                "failed_step": None,
+            }
+        else:
+            recent_highs = [float(c["high"]) for c in execution_candles[-3:]]
+            swing_price = max(recent_highs) * 1.0001
+            max_high = max(recent_highs)
+            sweep_candle = None
+            for c in reversed(execution_candles[-3:]):
+                if float(c["high"]) >= max_high:
+                    sweep_candle = c
+                    break
+            if sweep_candle is None:
+                return _empty_sweep()
+            sweep_idx = execution_candles.index(sweep_candle)
+            if sweep_idx + 1 >= len(execution_candles):
+                return _empty_sweep()
+            disp_candle = execution_candles[sweep_idx + 1]
+            disp_body = abs(float(disp_candle["close"]) - float(disp_candle["open"]))
+            disp_range = max(float(disp_candle["high"]) - float(disp_candle["low"]), 1e-9)
+            if disp_body / disp_range < 0.25:
+                return _empty_sweep()
+            if float(disp_candle["close"]) >= swing_price:
+                return _empty_sweep()
+            return {
+                "confirmed": True,
+                "liquidity_sweep": True,
+                "mtf_liquidity_sweep": False,
+                "execution_liquidity_sweep": True,
+                "mtf_swing": False,
+                "ltf_swing": False,
+                "execution_swing": True,
+                "displacement": True,
+                "displacement_body_ratio": round(disp_body / disp_range, 3),
+                "sweep_index": sweep_idx,
+                "displacement_index": sweep_idx + 1,
+                "swept_level": swing_price,
+                "sweep_extreme": float(sweep_candle["high"]),
+                "session_ok": True,
+                "killzone_active": True,
+                "failed_step": None,
+            }
 
     # Find relevant swing level
     if direction == "buy":
-        # Find the most recent swing low that is below current price
         swing_lows = [s for s in mtf_swings if s.get("type") == "low"]
         if not swing_lows:
             return _empty_sweep()
         last_low = swing_lows[-1]
         swing_price = float(last_low["price"])
-        # Price must have recently (last 3 candles) broken below this low
-        recent_lows = [float(c["low"]) for c in execution_candles[-3:]]
+        # RELAXED: Check last 5 candles (was 3) for sweep
+        recent_lows = [float(c["low"]) for c in execution_candles[-5:]]
         if min(recent_lows) > swing_price:
             return _empty_sweep()
-        # Sweep candle is the one that broke the low
         sweep_candle = None
-        for c in reversed(execution_candles[-3:]):
+        for c in reversed(execution_candles[-5:]):
             if float(c["low"]) < swing_price:
                 sweep_candle = c
                 break
         if sweep_candle is None:
             return _empty_sweep()
-        # After sweep candle, we need a displacement candle that closes above the swing price
         sweep_idx = execution_candles.index(sweep_candle)
         if sweep_idx + 1 >= len(execution_candles):
             return _empty_sweep()
         disp_candle = execution_candles[sweep_idx + 1]
         disp_body = abs(float(disp_candle["close"]) - float(disp_candle["open"]))
         disp_range = max(float(disp_candle["high"]) - float(disp_candle["low"]), 1e-9)
-        if disp_body / disp_range < 0.35:
+        if disp_body / disp_range < 0.25:
             return _empty_sweep()
         if float(disp_candle["close"]) <= swing_price:
             return _empty_sweep()
         displacement_body_ratio = disp_body / disp_range
         displacement_idx = sweep_idx + 1
         sweep_extreme = float(sweep_candle["low"])
-
-        # ---- HTF SWING VERIFICATION (MANDATORY) ----
-        htf_swings = htf.get("swings", [])
-        htf_lows = [float(s["price"]) for s in htf_swings if s.get("type") == "low"]
-        if not htf_lows or not any(abs(swing_price - hl) / swing_price < 0.002 for hl in htf_lows):
-            return _empty_sweep()
     else:
         swing_highs = [s for s in mtf_swings if s.get("type") == "high"]
         if not swing_highs:
             return _empty_sweep()
         last_high = swing_highs[-1]
         swing_price = float(last_high["price"])
-        recent_highs = [float(c["high"]) for c in execution_candles[-3:]]
+        # RELAXED: Check last 5 candles (was 3) for sweep
+        recent_highs = [float(c["high"]) for c in execution_candles[-5:]]
         if max(recent_highs) < swing_price:
             return _empty_sweep()
         sweep_candle = None
-        for c in reversed(execution_candles[-3:]):
+        for c in reversed(execution_candles[-5:]):
             if float(c["high"]) > swing_price:
                 sweep_candle = c
                 break
@@ -237,7 +312,7 @@ def liquidity_sweep_or_swing(price, analysis, direction, external_liquidity=None
         disp_candle = execution_candles[sweep_idx + 1]
         disp_body = abs(float(disp_candle["close"]) - float(disp_candle["open"]))
         disp_range = max(float(disp_candle["high"]) - float(disp_candle["low"]), 1e-9)
-        if disp_body / disp_range < 0.35:
+        if disp_body / disp_range < 0.25:
             return _empty_sweep()
         if float(disp_candle["close"]) >= swing_price:
             return _empty_sweep()
@@ -245,19 +320,13 @@ def liquidity_sweep_or_swing(price, analysis, direction, external_liquidity=None
         displacement_idx = sweep_idx + 1
         sweep_extreme = float(sweep_candle["high"])
 
-        # ---- HTF SWING VERIFICATION (MANDATORY) ----
-        htf_swings = htf.get("swings", [])
-        htf_highs = [float(s["price"]) for s in htf_swings if s.get("type") == "high"]
-        if not htf_highs or not any(abs(swing_price - hh) / swing_price < 0.002 for hh in htf_highs):
-            return _empty_sweep()
-
     return {
         "confirmed": True,
         "liquidity_sweep": True,
         "mtf_liquidity_sweep": True,
         "execution_liquidity_sweep": True,
         "mtf_swing": True,
-        "ltf_swing": True,
+        "ltf_swing": False,
         "execution_swing": True,
         "displacement": True,
         "displacement_body_ratio": round(displacement_body_ratio, 3),

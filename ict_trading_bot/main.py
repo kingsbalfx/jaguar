@@ -35,6 +35,7 @@ from fundamentals.news_filter import news_allows_trade
 from multi_account_runner import load_accounts
 from risk.protection import can_trade, register_trade, setup_identity
 from risk.trade_management import manage_trade
+from risk.trade_scheduler import is_trading_allowed, should_close_positions_now, force_close_reason, current_session_name, next_force_close_time, _minutes_since_midnight
 from kingsbalfx_concept import evaluate as evaluate_kingsbalfx
 from strategy.pre_trade_analysis import analyze_market_top_down
 from strategy.unified_strategy import SEQUENCE, evaluate_strategy
@@ -856,6 +857,51 @@ def _friday_close() -> None:
         close_position(position["ticket"], position["symbol"], position.get("direction"), position.get("volume", 0.0))
 
 
+def _session_force_close() -> None:
+    """
+    Force-close all non-crypto positions when the trading session ends.
+    Uses the trade_scheduler module with local timezone.
+    """
+    if not should_close_positions_now():
+        return
+    reason = force_close_reason()
+    positions = get_open_positions() or []
+    if not positions:
+        return
+    LOGGER.info(
+        "SESSION FORCE CLOSE | reason=%s | open_positions=%s",
+        reason,
+        len(positions),
+    )
+    for position in positions:
+        if not position.get("ticket"):
+            continue
+        symbol = position.get("symbol", "")
+        direction = position.get("direction", "")
+        volume = float(position.get("volume", 0.0) or 0.0)
+        try:
+            close_position(
+                position["ticket"],
+                symbol,
+                direction,
+                volume,
+            )
+            LOGGER.info(
+                "SESSION FORCE CLOSE | closed %s %s %.2f lots | reason=%s",
+                symbol,
+                direction.upper(),
+                volume,
+                reason,
+            )
+        except Exception as exc:
+            LOGGER.error(
+                "SESSION FORCE CLOSE | failed to close %s ticket=%s: %s",
+                symbol,
+                position["ticket"],
+                exc,
+            )
+
+
 def _kingsbalfx_setup(result: dict) -> dict:
     raw_setup = result.get("setup") or {}
     evidence = raw_setup.get("evidence") or {}
@@ -1171,10 +1217,29 @@ def run_bot() -> None:
             )
             _manage_open_positions()
             _friday_close()
+            _session_force_close()
+            
+            # Check if trading is allowed in current session
+            trading_allowed = is_trading_allowed()
+            session_name = current_session_name()
+            next_close = next_force_close_time()
+            next_close_str = f"{next_close}min" if next_close else "none"
+            LOGGER.info(
+                "SCAN START | balance=%s | equity=%s | open_positions=%s/%s | symbols=%s | session=%s | trading_allowed=%s | next_force_close=%s",
+                account.get("balance"),
+                account.get("equity"),
+                len(positions),
+                max_trades,
+                len(symbols),
+                session_name,
+                _yes_no(trading_allowed),
+                next_close_str,
+            )
 
             evaluated = 0
             skipped_closed = 0
             skipped_friday = 0
+            skipped_session = 0
             trades_opened = 0
             errors = 0
             scan_candidates = []
@@ -1187,6 +1252,12 @@ def run_bot() -> None:
             for symbol in symbols:
                 if len(positions) >= max_trades or not is_running():
                     break
+                # Skip evaluation if outside trading hours
+                if not trading_allowed and not is_trading_allowed():
+                    if log_symbol_skips:
+                        _console_skip(symbol, "outside_trading_hours")
+                    skipped_session += 1
+                    continue
                 asset_class = infer_asset_class(symbol)
                 if not asset_trading_open(asset_class):
                     skipped_closed += 1
@@ -1206,11 +1277,12 @@ def run_bot() -> None:
             log_evaluating = _truthy("SYMBOL_EVALUATION_LOGS", "false")
             batch_count = (len(scan_candidates) + batch_size - 1) // batch_size if scan_candidates else 0
             LOGGER.info(
-                "SCAN CANDIDATES | universe=%s | candidates=%s | skipped_market_closed=%s | skipped_friday_cutoff=%s | batch_size=%s | workers=%s",
+                "SCAN CANDIDATES | universe=%s | candidates=%s | skipped_market_closed=%s | skipped_friday_cutoff=%s | skipped_outside_session=%s | batch_size=%s | workers=%s",
                 len(symbols),
                 len(scan_candidates),
                 skipped_closed,
                 skipped_friday,
+                skipped_session,
                 batch_size,
                 scan_workers,
             )
@@ -1264,7 +1336,7 @@ def run_bot() -> None:
                 if batch_pause > 0 and batch_index < batch_count:
                     time.sleep(batch_pause)
             LOGGER.info(
-                "SCAN SUMMARY | universe=%s | candidates=%s | evaluated=%s | trades_opened=%s | errors=%s | skipped_market_closed=%s | skipped_friday_cutoff=%s",
+                "SCAN SUMMARY | universe=%s | candidates=%s | evaluated=%s | trades_opened=%s | errors=%s | skipped_market_closed=%s | skipped_friday_cutoff=%s | skipped_outside_session=%s",
                 len(symbols),
                 len(scan_candidates),
                 evaluated,
@@ -1272,6 +1344,7 @@ def run_bot() -> None:
                 errors,
                 skipped_closed,
                 skipped_friday,
+                skipped_session,
             )
             LOGGER.info("SCAN COMPLETE | sleeping=%ss", max(15, int(os.getenv("SCAN_INTERVAL_SECONDS", "60"))))
             time.sleep(max(15, int(os.getenv("SCAN_INTERVAL_SECONDS", "60"))))
