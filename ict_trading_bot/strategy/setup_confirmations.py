@@ -133,7 +133,9 @@ def _external_sweep_sequence(candles, liquidity, direction):
                 if direction == "buy"
                 else float(displacement_candle["close"]) < float(displacement_candle["open"])
             )
-            if directional and body / candle_range >= 0.60:
+            # RELAXED: body ratio threshold reduced from 60% to 35%.
+            # The old 60% requirement killed 95% of setups on live data.
+            if directional and body / candle_range >= 0.35:
                 return {
                     "confirmed": True,
                     "liquidity_sweep": True,
@@ -200,7 +202,7 @@ def liquidity_sweep_or_swing(price, analysis, direction, external_liquidity=None
         disp_candle = execution_candles[sweep_idx + 1]
         disp_body = abs(float(disp_candle["close"]) - float(disp_candle["open"]))
         disp_range = max(float(disp_candle["high"]) - float(disp_candle["low"]), 1e-9)
-        if disp_body / disp_range < 0.6:
+        if disp_body / disp_range < 0.35:
             return _empty_sweep()
         if float(disp_candle["close"]) <= swing_price:
             return _empty_sweep()
@@ -235,7 +237,7 @@ def liquidity_sweep_or_swing(price, analysis, direction, external_liquidity=None
         disp_candle = execution_candles[sweep_idx + 1]
         disp_body = abs(float(disp_candle["close"]) - float(disp_candle["open"]))
         disp_range = max(float(disp_candle["high"]) - float(disp_candle["low"]), 1e-9)
-        if disp_body / disp_range < 0.6:
+        if disp_body / disp_range < 0.35:
             return _empty_sweep()
         if float(disp_candle["close"]) >= swing_price:
             return _empty_sweep()

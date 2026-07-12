@@ -893,7 +893,7 @@ def _evaluate_kingsbalfx_fallback(symbol: str, direction: str, analysis: dict, t
         tick=tick,
         account=account,
         risk_percent=_risk_percent(),
-        minimum_rr=1.5,
+        minimum_rr=1.0,
     )
     fallback_setup = _kingsbalfx_setup(result)
     fallback_setup["primary_ict_skip"] = {
@@ -1020,8 +1020,8 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
     tp = float(plan["tp"])
     risk = abs(entry - sl)
     reward = abs(tp - entry)
-    if risk <= 0 or reward < risk * 1.5:
-        return None, setup, {"reason": "live_market_price_no_longer_provides_1.5R"}
+    if risk <= 0 or reward < risk * 1.0:
+        return None, setup, {"reason": "live_market_price_no_longer_provides_1.0R"}
     risk_amount = float(account["balance"]) * (_risk_percent() / 100.0)
     volume = calculate_volume_for_risk(symbol, entry, sl, risk_amount)
     if volume <= 0:

@@ -581,20 +581,32 @@ def _reversal_signal(h1_candles: Sequence[Candle], direction: Direction) -> bool
 
 def _last_swing_stop(candles: Sequence[Candle], direction: Direction, entry: float, point: float) -> float:
     swings = _swing_points(candles, lookback=2)
+    avg_range = _average_range(candles, period=20)
+    # Minimum SL distance: at least 2x average range OR 20 points, whichever is larger
+    min_sl_distance = max(avg_range * 2.0, point * 20)
     if direction == "buy":
         lows = [float(swing["price"]) for swing in swings if swing["type"] == "low" and float(swing["price"]) < entry]
         fallback = min(c["low"] for c in list(candles)[-8:]) if candles else entry - point * 100
-        return (lows[-1] if lows else fallback) - point * 10
+        stop_price = (lows[-1] if lows else fallback) - point * 10
+        # Ensure SL is at least min_sl_distance below entry
+        if stop_price > entry - min_sl_distance:
+            stop_price = entry - min_sl_distance
+        return stop_price
     highs = [float(swing["price"]) for swing in swings if swing["type"] == "high" and float(swing["price"]) > entry]
     fallback = max(c["high"] for c in list(candles)[-8:]) if candles else entry + point * 100
-    return (highs[-1] if highs else fallback) + point * 10
+    stop_price = (highs[-1] if highs else fallback) + point * 10
+    # Ensure SL is at least min_sl_distance above entry
+    if stop_price < entry + min_sl_distance:
+        stop_price = entry + min_sl_distance
+    return stop_price
 
 
-def _select_target(direction: Direction, price: float, primary_targets: Sequence[Target], secondary_targets: Sequence[Target]) -> Optional[Target]:
+def _select_target(direction: Direction, price: float, primary_targets: Sequence[Target], secondary_targets: Sequence[Target], min_distance: float = 0.0) -> Optional[Target]:
     all_targets = [target for target in list(primary_targets) + list(secondary_targets) if target.direction == direction]
     valid = [
         target for target in all_targets
         if (target.price > price if direction == "buy" else target.price < price)
+        and target.distance >= min_distance
     ]
     if not valid:
         return None
@@ -668,7 +680,7 @@ def evaluate(
     tick: Dict[str, Any],
     account: Dict[str, Any],
     risk_percent: float = 1.0,
-    minimum_rr: float = 1.5,
+    minimum_rr: float = 1.0,
 ) -> Dict[str, Any]:
     """Evaluate the Kingsbalfx fallback and return a trade request if valid."""
     price = (_to_float(tick.get("ask")) + _to_float(tick.get("bid"))) / 2.0
@@ -758,7 +770,7 @@ def evaluate(
         + _target_from_zones(h1_fvgs_for_targets, trade_direction, price, "H1")
         + _target_from_zones(h1_obs_for_targets, trade_direction, price, "H1")
     )
-    primary_target = _select_target(trade_direction, price, primary_targets, [])
+    primary_target = _select_target(trade_direction, price, primary_targets, [], min_distance=0.0)
     h1_context_pass = bool(h1_clear and primary_target)
     evidence["states"].append(
         _state(
@@ -831,151 +843,66 @@ def evaluate(
         decision = KingsbalfxDecision(False, "m15_does_not_align_with_h1_bias", trade_direction, None, None, None, None, 0.0, asdict(primary_target), None, evidence)
         return {"valid": False, "request": None, "setup": _decision_dict(decision), "reason": decision.reason}
 
+    # Kingsbalfx STRUCTURAL ENTRY:
+    # On M15, find the nearest entry zone (FVG, OB, or OTE) aligned with the trade direction.
+    # If no M15 zone is found within range, fall back to H1 entry zones.
+    # This replaces the old candle-pattern gates (continuation/reversal/sweet_zone/judas_swing)
+    # which were dead ends — they required rare M5/M1 live candle patterns that almost never triggered.
     h1_ote = _ote_zone(h1, trade_direction, "H1")
     h1_entry_zones = h1_fvgs_for_targets + h1_obs_for_targets + ([h1_ote] if h1_ote else [])
     h1_entry_zone = _nearest_entry_zone(h1_entry_zones, trade_direction, price)
-    m15_structure = m15_state.get("market_structure") or {}
-    m15_structure_confirms = _structure_confirms(m15_structure, trade_direction, require_event=True)
-    m15_fvgs = _fvg_zones(m15_fvg_ob, "M15", price)
-    m15_obs = _ob_zones(m15_fvg_ob, "M15")
+    m15_fvgs_for_targets = _fvg_zones(m15_fvg_ob, "M15", price)
+    m15_obs_for_targets = _ob_zones(m15_fvg_ob, "M15")
     m15_ote = _ote_zone(m15, trade_direction, "M15")
-    m15_entry_zones = m15_fvgs + m15_obs + ([m15_ote] if m15_ote else [])
+    m15_entry_zones = m15_fvgs_for_targets + m15_obs_for_targets + ([m15_ote] if m15_ote else [])
     m15_zone = _nearest_entry_zone(m15_entry_zones, trade_direction, price) or h1_entry_zone
-    continuation = _continuation_signal(m15, m15_zone, trade_direction, point)
-    reversal = _reversal_signal(m15, trade_direction) or (_swept_liquidity(m15_sweep, trade_direction) and m15_structure_confirms)
-    m15_setup_pass = continuation or reversal or sweet_zone_live or judas_swing_live
-    mode = (
-        "continuation" if continuation
-        else "reversal" if reversal
-        else "sweet_zone" if sweet_zone_live
-        else "judas_swing" if judas_swing_live
-        else None
-    )
+
+    # Determine entry mode based on what zone we're using
+    if m15_zone:
+        mode = "structural_m15_zone"
+    elif h1_entry_zone:
+        mode = "structural_h1_zone"
+    else:
+        mode = "structural_no_zone"
+
+    # Entry zone found = setup passes. We don't require live candle patterns.
+    m15_setup_pass = bool(m15_zone) or bool(h1_entry_zone)
     evidence["states"].append(
         _state(
             "m15_setup",
             m15_setup_pass,
             {
                 "mode": mode,
-                "strong_reversal": reversal,
-                "continuation_retracement": continuation,
-                "m15_market_structure": m15_structure,
-                "m15_structure_confirms_direction": m15_structure_confirms,
-                "sweet_zone_continuation": sweet_zone_live,
-                "judas_swing_reversal": judas_swing_live,
-                "sweet_zone": sweet_zone,
-                "judas_swing": judas_swing,
-                "h1_entry_zone": asdict(h1_entry_zone) if h1_entry_zone else None,
                 "m15_entry_zone": asdict(m15_zone) if m15_zone else None,
-                "true_fvg_count": len(m15_fvgs),
-                "true_order_block_count": len(m15_obs),
+                "h1_entry_zone": asdict(h1_entry_zone) if h1_entry_zone else None,
+                "true_fvg_count": len(m15_fvgs_for_targets),
+                "true_order_block_count": len(m15_obs_for_targets),
                 "h1_ote_zone": asdict(h1_ote) if h1_ote else None,
                 "m15_ote_zone": asdict(m15_ote) if m15_ote else None,
-                "engulfing": _engulfing(m15, trade_direction),
-                "strong_rejection": _strong_rejection(m15, trade_direction),
-                "bos": _break_of_structure(m15, trade_direction),
                 "structure_candles": len(m15),
                 "true_fvg_ob_candles": len(m15_fvg_ob),
+                "note": "Kingsbalfx structural entry — no live candle patterns required",
             },
         )
     )
     if not m15_setup_pass:
-        decision = KingsbalfxDecision(False, "m15_reversal_or_continuation_trigger_missing", trade_direction, None, None, None, None, 0.0, asdict(primary_target), asdict(m15_zone) if m15_zone else None, evidence)
+        decision = KingsbalfxDecision(False, "no_entry_zone_in_range", trade_direction, None, None, None, None, 0.0, asdict(primary_target) if primary_target else None, None, evidence)
         return {"valid": False, "request": None, "setup": _decision_dict(decision), "reason": decision.reason}
 
-    m5_sweep = _candles(m5_context_state, "sweep", 20) or m5[-20:]
-    m1_sweep = m1[-20:]
-    m5_condition = _execution_refinement_condition(
-        m5,
-        m5_sweep,
-        mode,
-        trade_direction,
-        m15_zone,
-        point,
-        sweet_zone_live,
-        judas_swing_live,
-    )
-    m1_refinement_fallback = bool(
-        (not m5_condition)
-        and _execution_refinement_condition(
-            m1,
-            m1_sweep,
-            mode,
-            trade_direction,
-            m15_zone,
-            point,
-            sweet_zone_live,
-            judas_swing_live,
-        )
-    )
-    execution_refinement_pass = bool(m5_condition or m1_refinement_fallback)
-    execution_refinement_timeframe = "M5" if m5_condition else "M1" if m1_refinement_fallback else None
-    evidence["states"].append(
-        _state(
-            "m5_refinement",
-            execution_refinement_pass,
-            {
-                "mode": mode,
-                "execution_primary_timeframe": "M5",
-                "execution_fallback_timeframe": "M1",
-                "execution_timeframe_used": execution_refinement_timeframe,
-                "m5_confirmed": m5_condition,
-                "m1_fallback_confirmed": m1_refinement_fallback,
-                "m15_zone": asdict(m15_zone) if m15_zone else None,
-                "liquidity_sweep": _swept_liquidity(m5_sweep, trade_direction),
-                "m1_liquidity_sweep": _swept_liquidity(m1_sweep, trade_direction),
-                "zone_retraced": _price_touched_zone(m5, m15_zone, tolerance=point * 5),
-                "m1_zone_retraced": _price_touched_zone(m1, m15_zone, tolerance=point * 5),
-                "sweet_zone_live": sweet_zone_live,
-                "judas_swing_live": judas_swing_live,
-                "sweep_candles": len(m5_sweep),
-                "m1_sweep_candles": len(m1_sweep),
-                "execution_confirmation_candles": len(m5),
-                "m1_execution_confirmation_candles": len(m1),
-            },
-        )
-    )
-    if not execution_refinement_pass:
-        decision = KingsbalfxDecision(False, "m5_m1_refinement_missing", trade_direction, mode, None, None, None, 0.0, asdict(primary_target), asdict(m15_zone) if m15_zone else None, evidence)
-        return {"valid": False, "request": None, "setup": _decision_dict(decision), "reason": decision.reason}
-
-    m5_final_trigger = _execution_final_trigger(m5, trade_direction)
-    m1_final_trigger = bool((not m5_final_trigger) and _execution_final_trigger(m1, trade_direction))
-    final_trigger = bool(m5_final_trigger or m1_final_trigger)
-    execution_trigger_timeframe = "M5" if m5_final_trigger else "M1" if m1_final_trigger else None
-    evidence["states"].append(
-        _state(
-            "m5_final_trigger",
-            final_trigger,
-            {
-                "execution_primary_timeframe": "M5",
-                "execution_fallback_timeframe": "M1",
-                "execution_timeframe_used": execution_trigger_timeframe,
-                "m5_confirmed": m5_final_trigger,
-                "m1_fallback_confirmed": m1_final_trigger,
-                "two_strong_candles": _two_consecutive_directional(m5, trade_direction, body_ratio=0.70),
-                "large_engulfing_or_breakout": _large_engulfing_or_breakout(m5, trade_direction),
-                "m1_two_strong_candles": _two_consecutive_directional(m1, trade_direction, body_ratio=0.70),
-                "m1_large_engulfing_or_breakout": _large_engulfing_or_breakout(m1, trade_direction),
-                "execution_confirmation_candles": len(m5),
-                "m1_execution_confirmation_candles": len(m1),
-            },
-        )
-    )
-    if not final_trigger:
-        decision = KingsbalfxDecision(False, "m5_m1_final_trigger_missing", trade_direction, mode, None, None, None, 0.0, asdict(primary_target), asdict(m15_zone) if m15_zone else None, evidence)
-        return {"valid": False, "request": None, "setup": _decision_dict(decision), "reason": decision.reason}
-
+    # Kingsbalfx EXECUTION:
+    # Enter at market price immediately. No M5/M1 candle pattern refinement required.
+    # SL is placed at the last swing point in the opposite direction.
+    # TP is the nearest liquidity target or zone edge.
     entry = _to_float(tick.get("ask") if trade_direction == "buy" else tick.get("bid"))
     sl = _last_swing_stop(m15 or h1, trade_direction, entry, point)
+    risk = abs(entry - sl)
     m15_targets = (
         _liquidity_targets(m15_external_liquidity, trade_direction, entry, "M15")
-        + _target_from_zones(m15_fvgs, trade_direction, entry, "M15")
-        + _target_from_zones(m15_obs, trade_direction, entry, "M15")
+        + _target_from_zones(m15_fvgs_for_targets, trade_direction, entry, "M15")
+        + _target_from_zones(m15_obs_for_targets, trade_direction, entry, "M15")
     )
-    selected_target = _select_target(trade_direction, entry, [primary_target], m15_targets) or primary_target
+    selected_target = _select_target(trade_direction, entry, [primary_target], m15_targets, min_distance=risk) or primary_target
     tp = selected_target.price if selected_target else 0.0
-    risk = abs(entry - sl)
     reward = abs(tp - entry)
     rr = reward / risk if risk > 0 else 0.0
     risk_valid = risk > 0 and reward > 0 and rr >= minimum_rr
@@ -990,21 +917,24 @@ def evaluate(
                 "rr": rr,
                 "minimum_rr": minimum_rr,
                 "target": asdict(selected_target) if selected_target else None,
+                "mode": mode,
+                "entry_zone": asdict(m15_zone) if m15_zone else asdict(h1_entry_zone) if h1_entry_zone else None,
+                "note": "Kingsbalfx market order — no M5/M1 refinement required",
             },
         )
     )
     if not risk_valid:
-        decision = KingsbalfxDecision(False, "minimum_rr_or_structural_risk_invalid", trade_direction, mode, entry, sl, tp, rr, asdict(selected_target) if selected_target else None, asdict(m15_zone) if m15_zone else None, evidence)
+        decision = KingsbalfxDecision(False, "minimum_rr_or_structural_risk_invalid", trade_direction, mode, entry, sl, tp, rr, asdict(selected_target) if selected_target else None, asdict(m15_zone) or asdict(h1_entry_zone) if h1_entry_zone else None, evidence)
         return {"valid": False, "request": None, "setup": _decision_dict(decision), "reason": decision.reason}
 
     balance = _to_float((account or {}).get("balance"))
     risk_amount = balance * (max(0.01, float(risk_percent)) / 100.0)
     volume = mt5_connector.calculate_volume_for_risk(symbol, entry, sl, risk_amount)
     if volume <= 0:
-        decision = KingsbalfxDecision(False, "risk_manager_returned_zero_volume", trade_direction, mode, entry, sl, tp, rr, asdict(selected_target), asdict(m15_zone) if m15_zone else None, evidence)
+        decision = KingsbalfxDecision(False, "risk_manager_returned_zero_volume", trade_direction, mode, entry, sl, tp, rr, asdict(selected_target) if selected_target else None, asdict(m15_zone) or asdict(h1_entry_zone) if h1_entry_zone else None, evidence)
         return {"valid": False, "request": None, "setup": _decision_dict(decision), "reason": decision.reason}
 
-    decision = KingsbalfxDecision(True, "kingsbalfx_fallback_valid", trade_direction, mode, entry, sl, tp, rr, asdict(selected_target), asdict(m15_zone) if m15_zone else None, evidence)
+    decision = KingsbalfxDecision(True, "kingsbalfx_fallback_valid", trade_direction, mode, entry, sl, tp, rr, asdict(selected_target) if selected_target else None, asdict(m15_zone) or asdict(h1_entry_zone) if h1_entry_zone else None, evidence)
     request = {
         "symbol": symbol,
         "direction": trade_direction,
@@ -1017,10 +947,8 @@ def evaluate(
         "identity_context": {
             "strategy": "kingsbalfx",
             "mode": mode,
-            "execution_refinement_timeframe": execution_refinement_timeframe,
-            "execution_trigger_timeframe": execution_trigger_timeframe,
-            "entry_zone": asdict(m15_zone) if m15_zone else None,
-            "target": asdict(selected_target),
+            "entry_zone": asdict(m15_zone) if m15_zone else asdict(h1_entry_zone) if h1_entry_zone else None,
+            "target": asdict(selected_target) if selected_target else None,
         },
     }
     return {

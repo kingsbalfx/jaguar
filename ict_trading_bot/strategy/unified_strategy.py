@@ -163,19 +163,10 @@ def _zone_levels(zone):
 
 def _retracement_zone(price, fvg, order_block, candles=None, displacement_index=None):
     """
-    FIX 12: Enforce minimum hold time before accepting retracement.
-    A retracement is only valid if at least MIN_RETRACEMENT_CANDLES candles
-    have elapsed since the displacement candle. This prevents premature entries
-    where price has not yet given price enough time to form a valid retracement.
+    RELAXATION 2: No minimum hold time required for retracement.
+    Previously required MIN_RETRACEMENT_CANDLES elapsed since displacement.
+    Now accepts retracement on the very next candle after displacement.
     """
-    min_hold = int(os.getenv("MIN_RETRACEMENT_CANDLES", os.getenv("MIN_HOLD_CANDLES", "3")))
-    min_hold = max(1, min(min_hold, 20))
-    if candles is not None and displacement_index is not None:
-        displacement_index = int(displacement_index)
-        elapsed = len(candles) - 1 - displacement_index
-        if elapsed < min_hold:
-            return {"confirmed": False, "reason": f"only {elapsed} candles since displacement; need {min_hold}"}
-
     for kind, zone in (("fvg", fvg), ("order_block", order_block)):
         if not _touches(price, zone):
             continue
@@ -429,7 +420,22 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
         "killzone_active": concept_context.get("killzone_active"),
         "smt": concept_context.get("smt", {}),
     }
-    if not require(SEQUENCE[2], sweep.get("confirmed"), sweep_evidence, "Price must trade beyond external liquidity and close back inside"):
+    # RELAXATION 1: If strict sweep fails, check if price is simply
+    # near or has approached the liquidity zone (not requiring a full sweep + close back inside).
+    # This catches setups where price is positioned for a sweep but hasn't triggered it yet.
+    sweep_confirmed = sweep.get("confirmed")
+    near_liquidity = False
+    if not sweep_confirmed:
+        entry_zone_levels = [float(z.get("level", 0.0)) for z in entry_liquidity if z.get("level")]
+        if entry_zone_levels:
+            if direction == "buy":
+                nearest_liq = min(entry_zone_levels)
+                near_liquidity = price <= nearest_liq * 1.002  # within 0.2% of liquidity
+            else:
+                nearest_liq = max(entry_zone_levels)
+                near_liquidity = price >= nearest_liq * 0.998  # within 0.2% of liquidity
+    sweep_pass = sweep_confirmed or near_liquidity
+    if not require(SEQUENCE[2], sweep_pass, {**sweep_evidence, "relaxed": not sweep_confirmed, "near_liquidity": near_liquidity}, "Price must trade beyond external liquidity and close back inside (relaxed: near liquidity is also accepted)"):
         return _result(symbol, direction, states)
 
     candles = (analysis.get("EXECUTION") or {}).get("recent_candles") or []
@@ -441,12 +447,12 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
     )
     atr_value = _atr(candles, displacement_index) if displacement_index is not None else 0.0
     displacement = (
-        bool(sweep.get("displacement"))
-        and float(sweep.get("displacement_body_ratio", 0.0)) >= 0.60
-        and (displacement_index is not None)
-        and impulse_range >= atr_value
+        bool(sweep.get("displacement") or near_liquidity)
+        and float(sweep.get("displacement_body_ratio", 0.0)) >= 0.25
+        and (displacement_index is not None or near_liquidity)
+        and impulse_range >= atr_value * 0.3
     )
-    if not require(SEQUENCE[3], displacement, {**sweep, "impulse_range": impulse_range, "atr": atr_value}, "Post-sweep candle must be ATR-normalized displacement with body at least 60%"):
+    if not require(SEQUENCE[3], displacement, {**sweep, "impulse_range": impulse_range, "atr": atr_value}, "Post-sweep candle must have body at least 25% and range >= 0.3x ATR"):
         return _result(symbol, direction, states)
 
     execution_structure = (analysis.get("EXECUTION") or {}).get("market_structure") or {}
@@ -502,8 +508,8 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
 
     stop = float(sweep["sweep_extreme"])
     risk = abs(float(price) - stop)
-    target = next((item for item in targets if abs(float(item["level"]) - float(price)) >= risk * 1.5), None)
-    if not require(SEQUENCE[8], target is not None and risk > 0, {"target": target, "risk": risk}, "Opposing external liquidity must provide at least 1.5R"):
+    target = next((item for item in targets if abs(float(item["level"]) - float(price)) >= risk * 1.0), None)
+    if not require(SEQUENCE[8], target is not None and risk > 0, {"target": target, "risk": risk}, "Opposing external liquidity must provide at least 1.0R"):
         return _result(symbol, direction, states)
 
     eligible_fvg = fvg if fvg_correct_half or visual_fvg_correct_half else None
@@ -530,6 +536,12 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
         confirmation.get("execution_confirmed")
         or confirmation.get("m1_fallback_confirmed")
     )
+    # RELAXATION 3: If no M5/M1 candle pattern found, fall back to
+    # structure + zone proximity. Being in the zone with structural
+    # alignment is sufficient — we don't require a rejection/engulfing
+    # candle pattern on the lower timeframe.
+    zone_retrace_available = bool(executable_retracement.get("confirmed"))
+    ltf_confirmed = ltf_confirmed or zone_retrace_available
     confirmation_evidence = {
         **confirmation,
         "execution_primary_timeframe": "M5",
@@ -539,8 +551,12 @@ def evaluate_strategy(symbol, price, analysis, *, smt=None, killzone_active=Fals
             if confirmation.get("execution_confirmed")
             else "M1"
             if confirmation.get("m1_fallback_confirmed")
+            else "zone_proximity"
+            if zone_retrace_available
             else None
         ),
+        "relaxed": not bool(confirmation.get("execution_confirmed") or confirmation.get("m1_fallback_confirmed")),
+        "relaxed_reason": "candle_pattern_not_required_when_zone_retrace_is_present",
         "smt": concept_context.get("smt", {}),
         "smt_confirmed": concept_context.get("smt_confirmed"),
         "killzone_active": concept_context.get("killzone_active"),
