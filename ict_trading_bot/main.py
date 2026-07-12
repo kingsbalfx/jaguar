@@ -1,6 +1,7 @@
 """Live ICT state-machine orchestrator."""
 
 import datetime
+import json
 import logging
 import os
 import sys
@@ -10,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from dotenv import load_dotenv
+import requests
 
 from bot_api import start_in_thread
 from bot_state import consume_restart_request, is_running, set_connection, update_metrics
@@ -459,6 +461,69 @@ def _console_skip(symbol: str, reason: str, evidence: dict = None) -> None:
     context = " ".join(f"{key}={value}" for key, value in (evidence or {}).items() if not isinstance(value, (dict, list, tuple)))
     LOGGER.info("[%s] SKIP | %s%s", symbol, reason, f" | {context}" if context else "")
 
+def _signal_delivery_endpoint() -> str:
+    explicit = os.getenv("BOT_SIGNAL_DELIVERY_URL", "").strip()
+    if explicit:
+        return explicit
+    base = (os.getenv("KINGSBALFX_WEB_URL") or os.getenv("NEXT_PUBLIC_SITE_URL") or os.getenv("SITE_URL") or "").strip().rstrip("/")
+    return f"{base}/api/bot/signals" if base else ""
+
+
+def _signal_delivery_payload(signal: dict) -> dict:
+    state_machine = signal.get("state_machine") or {}
+    return {
+        "symbol": signal.get("symbol"),
+        "direction": str(signal.get("direction") or "").upper(),
+        "entryPrice": signal.get("entry") or signal.get("entry_price"),
+        "stopLoss": signal.get("sl") or signal.get("stop_loss"),
+        "takeProfit": signal.get("tp") or signal.get("take_profit"),
+        "confidence": signal.get("confidence") or signal.get("ml_probability"),
+        "timeframe": signal.get("timeframe") or os.getenv("BOT_SIGNAL_TIMEFRAME", "M5"),
+        "strategy": signal.get("strategy") or "KINGSBALFX Bot",
+        "note": state_machine.get("reason") or signal.get("reason") or "Live MT5 execution signal opened by KINGSBALFX bot.",
+        "status": signal.get("status") or "open",
+        "targetPlans": [item.strip() for item in os.getenv("BOT_SIGNAL_TARGET_PLANS", "premium,vip,pro,lifetime").split(",") if item.strip()],
+        "source": "ict_trading_bot",
+        "botId": os.getenv("BOT_ACCOUNT_ID") or os.getenv("BOT_INSTANCE_ID") or os.getenv("BOT_ID") or os.getenv("PERSISTENT_BOT_ID"),
+        "raw": signal,
+    }
+
+
+def _deliver_signal_to_website(signal: dict) -> bool:
+    endpoint = _signal_delivery_endpoint()
+    if not endpoint:
+        return False
+    token = (os.getenv("BOT_SIGNAL_SECRET") or os.getenv("BOT_API_TOKEN") or os.getenv("ADMIN_API_KEY") or "").strip()
+    if not token:
+        LOGGER.warning("BOT_SIGNAL_DELIVERY_URL is configured but BOT_SIGNAL_SECRET/BOT_API_TOKEN is missing; falling back to Supabase insert")
+        return False
+    try:
+        response = requests.post(
+            endpoint,
+            headers={"Content-Type": "application/json", "x-bot-signal-secret": token, "x-bot-api-token": token},
+            data=json.dumps(_signal_delivery_payload(signal), default=str),
+            timeout=float(os.getenv("BOT_SIGNAL_DELIVERY_TIMEOUT", "20")),
+        )
+        try:
+            data = response.json()
+        except ValueError:
+            data = {"text": response.text[:500]}
+        if response.ok:
+            LOGGER.info(
+                "Signal delivery API accepted %s %s | audience=%s emailed=%s notified=%s",
+                signal.get("symbol"),
+                signal.get("direction"),
+                data.get("audience"),
+                data.get("emailed"),
+                data.get("notified"),
+            )
+            return True
+        LOGGER.error("Signal delivery API rejected signal | status=%s response=%s", response.status_code, data)
+        return False
+    except Exception as exc:
+        LOGGER.error("Signal delivery API failed: %s", exc)
+        return False
+
 
 def _launch_multi_account_children() -> bool:
     if not _truthy("MULTI_ACCOUNT_ENABLED") or _truthy("MULTI_ACCOUNT_CHILD"):
@@ -874,6 +939,10 @@ def _evaluate_kingsbalfx_fallback(symbol: str, direction: str, analysis: dict, t
 
 
 def _evaluate_symbol(symbol: str, account: dict, positions: list):
+    resolved_symbol = _resolve_symbol(symbol)
+    if not resolved_symbol:
+        raise RuntimeError(f"Failed to resolve/select broker symbol {symbol}")
+    symbol = resolved_symbol
     tick = get_tick_snapshot(symbol)
     price = (tick["bid"] + tick["ask"]) / 2.0
     analysis = analyze_market_top_down(symbol, price)
@@ -1030,7 +1099,9 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
         return {"evaluated": 1, "trades_opened": 0, "errors": 0}
     register_trade(symbol, request["identity"])
     payload = {**request, "state_machine": setup, "status": "open"}
-    persist_signal_to_supabase(payload)
+    delivered = _deliver_signal_to_website(payload)
+    if not delivered:
+        persist_signal_to_supabase(payload)
     push_trade(payload)
     strategy_name = request.get("strategy") or "ict_state_machine"
     if strategy_name == "kingsbalfx":
@@ -1081,6 +1152,12 @@ def run_bot() -> None:
                     time.sleep(30)
                     continue
             account = get_account_snapshot()
+            if not account:
+                LOGGER.error("MT5 account snapshot unavailable; reconnecting before next scan")
+                connected = reconnect()
+                set_connection(connected)
+                time.sleep(15 if connected else 30)
+                continue
             persist_account_snapshot_to_supabase(account)
             positions = get_open_positions() or []
             update_metrics(account=account, open_positions=len(positions))
