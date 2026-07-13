@@ -531,22 +531,54 @@ def _launch_multi_account_children() -> bool:
         return False
     import subprocess
 
+    # Save parent's MT5_ACCOUNT_LOGIN so child processes don't inherit it
+    parent_login = os.environ.pop("MT5_ACCOUNT_LOGIN", "")
+    parent_password = os.environ.pop("MT5_ACCOUNT_PASSWORD", "")
+    parent_server = os.environ.pop("MT5_ACCOUNT_SERVER", "")
+
+    accounts = load_accounts()
+    LOGGER.info(
+        "MULTI ACCOUNT | launching %s child processes",
+        len(accounts),
+    )
+
     processes = []
-    for index, account in enumerate(load_accounts()):
+    for index, account in enumerate(accounts):
         env = os.environ.copy()
-        env.update(
-            {
-                "MULTI_ACCOUNT_CHILD": "true",
-                "BOT_ACCOUNT_INDEX": str(index),
-                "BOT_ACCOUNT_ID": str(account.get("bot_id") or f"bot_acc_{index + 1}"),
-                "MT5_ACCOUNT_LOGIN": str(account.get("login") or ""),
-                "MT5_ACCOUNT_PASSWORD": str(account.get("password") or ""),
-                "MT5_ACCOUNT_SERVER": str(account.get("server") or ""),
-            }
-        )
+        login = str(account.get("login") or "").strip()
+        password = str(account.get("password") or "").strip()
+        server = str(account.get("server") or "").strip()
+        if not login or not password or not server:
+            LOGGER.warning(
+                "MULTI ACCOUNT | skipping account index=%s login=%s: missing credentials",
+                index,
+                login or "none",
+            )
+            continue
+        env["MULTI_ACCOUNT_CHILD"] = "true"
+        env["BOT_ACCOUNT_INDEX"] = str(index)
+        env["BOT_ACCOUNT_ID"] = str(account.get("bot_id") or f"bot_acc_{login}")
+        env["MT5_ACCOUNT_LOGIN"] = login
+        env["MT5_ACCOUNT_PASSWORD"] = password
+        env["MT5_ACCOUNT_SERVER"] = server
+        if account.get("user_id"):
+            env["BOT_USER_ID"] = str(account["user_id"])
+        if account.get("email"):
+            env["BOT_USER_EMAIL"] = str(account["email"])
         if account.get("mt5_path"):
             env["MT5_PATH"] = str(account["mt5_path"])
             env["MT5_PORTABLE"] = "1"
+        if account.get("symbols"):
+            env["SYMBOLS"] = ",".join(account["symbols"])
+        if account.get("api_port") is not None:
+            env["API_PORT"] = str(account["api_port"])
+        LOGGER.info(
+            "MULTI ACCOUNT | spawning child %s/%s | login=%s | server=%s",
+            index + 1,
+            len(accounts),
+            login,
+            server,
+        )
         processes.append(
             subprocess.Popen(
                 [sys.executable, str(Path(__file__).resolve())],
@@ -554,7 +586,28 @@ def _launch_multi_account_children() -> bool:
                 env=env,
             )
         )
-        time.sleep(max(2, int(os.getenv("MULTI_ACCOUNT_START_DELAY_SECONDS", "35"))))
+        delay = max(2, int(os.getenv("MULTI_ACCOUNT_START_DELAY_SECONDS", "35")))
+        if index < len(accounts) - 1:
+            LOGGER.info("MULTI ACCOUNT | waiting %ss before next account", delay)
+            time.sleep(delay)
+
+    # Restore parent env
+    if parent_login:
+        os.environ["MT5_ACCOUNT_LOGIN"] = parent_login
+    if parent_password:
+        os.environ["MT5_ACCOUNT_PASSWORD"] = parent_password
+    if parent_server:
+        os.environ["MT5_ACCOUNT_SERVER"] = parent_server
+
+    if not processes:
+        LOGGER.warning("MULTI ACCOUNT | no child processes spawned (no valid accounts)")
+        return False
+
+    LOGGER.info(
+        "MULTI ACCOUNT | %s/%s child processes launched, waiting for them to finish",
+        len(processes),
+        len(accounts),
+    )
     for process in processes:
         process.wait()
     return True
@@ -818,6 +871,10 @@ def _manage_open_positions() -> None:
             tick = get_tick_snapshot(symbol)
             current = tick["bid"] if position.get("direction") == "buy" else tick["ask"]
             analysis = analyze_market_top_down(symbol, current)
+            point = float(tick.get("point", 0.0001) or 0.0001)
+            spec = mt5_connector.get_symbol_spec(symbol)
+            point = float(spec.get("point", point))
+            is_crypto = infer_asset_class(symbol) == "crypto"
             action = manage_trade(
                 {
                     "symbol": symbol,
@@ -825,14 +882,17 @@ def _manage_open_positions() -> None:
                     "entry": position.get("price"),
                     "sl": position.get("sl"),
                     "tp": position.get("tp"),
-                    "lot": position.get("volume"),
-                    "stage": position.get("stage", 0),
+                    "volume": position.get("volume"),  # renamed from "lot" to match trade_management.py
+                    "profit": position.get("profit"),   # added for crypto profit check
                 },
                 current,
                 swings=(analysis.get("MTF") or {}).get("swings"),
                 order_blocks=(analysis.get("MTF") or {}).get("order_blocks"),
                 fvgs=(analysis.get("LTF") or {}).get("fvgs"),
                 atr=float((analysis.get("HTF") or {}).get("atr", 0.0) or 0.0),
+                is_crypto=is_crypto,
+                point=point,
+                symbol=symbol,
             )
             if not action:
                 continue
@@ -1158,8 +1218,18 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
 
 
 def run_bot() -> None:
+    # If multi-account parent, launch children and exit
     if _launch_multi_account_children():
         return
+    
+    # Single account mode or child process
+    login_display = os.getenv("MT5_ACCOUNT_LOGIN", "unknown")[:8]
+    LOGGER.info(
+        "BOT START | mode=%s | account=%s | api_port=%s",
+        "child" if _truthy("MULTI_ACCOUNT_CHILD") else "single",
+        login_display,
+        os.getenv("API_PORT", "8000"),
+    )
     start_in_thread()
     connected = connect()
     set_connection(connected)
