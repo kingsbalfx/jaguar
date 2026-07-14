@@ -30,6 +30,8 @@ export default function BotLogs() {
   const [logs, setLogs] = useState([]);
   const [signals, setSignals] = useState([]);
   const [signalsError, setSignalsError] = useState("");
+  const [signalStats, setSignalStats] = useState(null);
+  const [signalStatsError, setSignalStatsError] = useState("");
   const [loading, setLoading] = useState(true);
   const [sendingSignal, setSendingSignal] = useState(false);
   const [signalStatus, setSignalStatus] = useState("");
@@ -93,6 +95,8 @@ export default function BotLogs() {
         setLogs(data.logs || []);
         setSignals(data.signals || []);
         setSignalsError(data.signalsError || "");
+        setSignalStats(data.signalStats || null);
+        setSignalStatsError(data.signalStatsError || "");
       } catch (e) {
         console.error("Failed to fetch logs:", e);
       } finally {
@@ -196,12 +200,26 @@ export default function BotLogs() {
       const refreshedData = await refreshed.json();
       setSignals(refreshedData.signals || []);
       setLogs(refreshedData.logs || []);
+      setSignalStats(refreshedData.signalStats || null);
+      setSignalStatsError(refreshedData.signalStatsError || "");
     } catch (error) {
       setSignalStatus(error.message || "Unable to deliver signal.");
     } finally {
       setSendingSignal(false);
     }
   };
+
+  const renderPairList = (items = []) => (
+    <div className="mt-2 space-y-1 text-xs text-gray-200">
+      {items.length === 0 && <div className="text-gray-400">No delivered pair yet.</div>}
+      {items.map((item) => (
+        <div key={item.symbol} className="flex justify-between gap-3 rounded bg-black/20 px-2 py-1">
+          <span>{item.symbol}</span>
+          <span className="font-semibold text-emerald-200">{item.count}</span>
+        </div>
+      ))}
+    </div>
+  );
 
   if (loading) return <main className="container mx-auto p-4 sm:p-6">Loading...</main>;
 
@@ -290,6 +308,37 @@ export default function BotLogs() {
         </form>
         <FeedbackMessage message={signalStatus} type={/unable|failed|error|not installed/i.test(signalStatus) ? "error" : "success"} />
       </section>
+      <section className="bg-white/5 rounded-lg p-4 mb-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs uppercase tracking-widest text-emerald-200">Signal Sent Analytics</div>
+            <h2 className="text-lg font-semibold">Delivered signal count by day, week, total, and pair</h2>
+            <p className="text-sm text-gray-400">Counts come from signal_deliveries, so they represent users who received email/dashboard alerts.</p>
+          </div>
+          {signalStatsError && <div className="rounded bg-yellow-500/10 px-3 py-2 text-xs text-yellow-200">{signalStatsError}</div>}
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-md border border-white/10 bg-black/30 p-3">
+            <div className="text-xs text-gray-400">Today</div>
+            <div className="text-2xl font-semibold text-emerald-200">{signalStats?.deliveredToday ?? 0}</div>
+            <div className="text-xs text-gray-400">Signals: {signalStats?.signalsToday ?? 0} | Email sent: {signalStats?.sentToday ?? 0}</div>
+            {renderPairList(signalStats?.topPairsToday || [])}
+          </div>
+          <div className="rounded-md border border-white/10 bg-black/30 p-3">
+            <div className="text-xs text-gray-400">Last 7 days</div>
+            <div className="text-2xl font-semibold text-sky-200">{signalStats?.deliveredWeek ?? 0}</div>
+            <div className="text-xs text-gray-400">Signals: {signalStats?.signalsWeek ?? 0} | Email sent: {signalStats?.sentWeek ?? 0}</div>
+            {renderPairList(signalStats?.topPairsWeek || [])}
+          </div>
+          <div className="rounded-md border border-white/10 bg-black/30 p-3">
+            <div className="text-xs text-gray-400">Total tracked</div>
+            <div className="text-2xl font-semibold text-purple-200">{signalStats?.deliveredTotal ?? 0}</div>
+            <div className="text-xs text-gray-400">Signals: {signalStats?.signalsTotal ?? 0} | Email sent: {signalStats?.sentTotal ?? 0}</div>
+            {renderPairList(signalStats?.topPairsTotal || [])}
+          </div>
+        </div>
+      </section>
+
       <section id="market-edge" className="bg-white/5 rounded-lg p-4 mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>

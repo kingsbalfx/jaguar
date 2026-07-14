@@ -493,10 +493,15 @@ def _signal_delivery_payload(signal: dict) -> dict:
 def _deliver_signal_to_website(signal: dict) -> bool:
     endpoint = _signal_delivery_endpoint()
     if not endpoint:
+        message = "Signal delivery API is not configured. Set BOT_SIGNAL_DELIVERY_URL or KINGSBALFX_WEB_URL in ict_trading_bot/.env; SMTP will not send from direct Supabase fallback."
+        LOGGER.error(message)
+        bot_log("signal_delivery_not_configured", message, {"symbol": signal.get("symbol"), "direction": signal.get("direction")}, persist=True)
         return False
     token = (os.getenv("BOT_SIGNAL_SECRET") or os.getenv("BOT_API_TOKEN") or os.getenv("ADMIN_API_KEY") or "").strip()
     if not token:
-        LOGGER.warning("BOT_SIGNAL_DELIVERY_URL is configured but BOT_SIGNAL_SECRET/BOT_API_TOKEN is missing; falling back to Supabase insert")
+        message = "Signal delivery API is configured but BOT_SIGNAL_SECRET/BOT_API_TOKEN is missing; SMTP will not send from direct Supabase fallback."
+        LOGGER.warning(message)
+        bot_log("signal_delivery_token_missing", message, {"symbol": signal.get("symbol"), "direction": signal.get("direction"), "endpoint": endpoint}, persist=True)
         return False
     try:
         response = requests.post(
@@ -520,9 +525,11 @@ def _deliver_signal_to_website(signal: dict) -> bool:
             )
             return True
         LOGGER.error("Signal delivery API rejected signal | status=%s response=%s", response.status_code, data)
+        bot_log("signal_delivery_api_rejected", "Website signal delivery API rejected the signal", {"symbol": signal.get("symbol"), "direction": signal.get("direction"), "status_code": response.status_code, "response": data}, persist=True)
         return False
     except Exception as exc:
         LOGGER.error("Signal delivery API failed: %s", exc)
+        bot_log("signal_delivery_api_failed", f"Signal delivery API failed: {exc}", {"symbol": signal.get("symbol"), "direction": signal.get("direction"), "endpoint": endpoint}, persist=True)
         return False
 
 
@@ -1208,6 +1215,7 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
     delivered = _deliver_signal_to_website(payload)
     if not delivered:
         persist_signal_to_supabase(payload)
+        bot_log("signal_delivery_fallback_supabase", "Signal saved directly to Supabase fallback; SMTP delivery requires BOT_SIGNAL_DELIVERY_URL/KINGSBALFX_WEB_URL and matching BOT_SIGNAL_SECRET.", {"symbol": payload.get("symbol"), "direction": payload.get("direction")}, persist=True)
     push_trade(payload)
     strategy_name = request.get("strategy") or "ict_state_machine"
     if strategy_name == "kingsbalfx":
