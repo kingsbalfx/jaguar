@@ -21,6 +21,20 @@ function topPairs(rows, since = null) {
     .slice(0, 10);
 }
 
+function topSignalPairs(rows, since = null) {
+  const counts = new Map();
+  for (const row of rows || []) {
+    const createdAt = row.created_at ? new Date(row.created_at) : null;
+    if (since && (!createdAt || createdAt < since)) continue;
+    const symbol = row.symbol || "UNKNOWN";
+    counts.set(symbol, (counts.get(symbol) || 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([symbol, count]) => ({ symbol, count }))
+    .sort((a, b) => b.count - a.count || a.symbol.localeCompare(b.symbol))
+    .slice(0, 10);
+}
+
 function buildSignalStats(deliveries = []) {
   const today = startOfToday();
   const week = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -43,6 +57,21 @@ function buildSignalStats(deliveries = []) {
     topPairsToday: topPairs(deliveries, today),
     topPairsWeek: topPairs(deliveries, week),
     topPairsTotal: topPairs(deliveries),
+  };
+}
+
+function buildGeneratedSignalStats(signals = []) {
+  const today = startOfToday();
+  const week = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const todayRows = signals.filter((row) => row.created_at && new Date(row.created_at) >= today);
+  const weekRows = signals.filter((row) => row.created_at && new Date(row.created_at) >= week);
+  return {
+    generatedToday: todayRows.length,
+    generatedWeek: weekRows.length,
+    generatedTotal: signals.length,
+    topGeneratedPairsToday: topSignalPairs(signals, today),
+    topGeneratedPairsWeek: topSignalPairs(signals, week),
+    topGeneratedPairsTotal: topSignalPairs(signals),
   };
 }
 
@@ -100,7 +129,7 @@ export default async function handler(req, res) {
       .from("bot_signals")
       .select("id,user_id,symbol,direction,entry_price,stop_loss,take_profit,signal_quality,confidence,status,created_at")
       .order("created_at", { ascending: false })
-      .limit(signalLimit);
+      .limit(Math.max(signalLimit, 1000));
 
     const { data: deliveries, error: deliveriesError } = await supabaseAdmin
       .from("signal_deliveries")
@@ -110,10 +139,11 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       logs: data || [],
-      signals: signalsError ? [] : signals || [],
+      signals: signalsError ? [] : (signals || []).slice(0, signalLimit),
       signalsError: signalsError?.message || null,
       signalStats: deliveriesError ? null : buildSignalStats(deliveries || []),
       signalStatsError: deliveriesError?.message || null,
+      generatedSignalStats: signalsError ? null : buildGeneratedSignalStats(signals || []),
     });
   } catch (e) {
     console.error(e);

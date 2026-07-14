@@ -490,47 +490,65 @@ def _signal_delivery_payload(signal: dict) -> dict:
     }
 
 
-def _deliver_signal_to_website(signal: dict) -> bool:
+def _deliver_signal_to_website(signal: dict) -> dict:
     endpoint = _signal_delivery_endpoint()
     if not endpoint:
         message = "Signal delivery API is not configured. Set BOT_SIGNAL_DELIVERY_URL or KINGSBALFX_WEB_URL in ict_trading_bot/.env; SMTP will not send from direct Supabase fallback."
         LOGGER.error(message)
         bot_log("signal_delivery_not_configured", message, {"symbol": signal.get("symbol"), "direction": signal.get("direction")}, persist=True)
-        return False
+        return {"accepted": False, "fallback_allowed": True, "reason": "not_configured"}
     token = (os.getenv("BOT_SIGNAL_SECRET") or os.getenv("BOT_API_TOKEN") or os.getenv("ADMIN_API_KEY") or "").strip()
     if not token:
         message = "Signal delivery API is configured but BOT_SIGNAL_SECRET/BOT_API_TOKEN is missing; SMTP will not send from direct Supabase fallback."
         LOGGER.warning(message)
         bot_log("signal_delivery_token_missing", message, {"symbol": signal.get("symbol"), "direction": signal.get("direction"), "endpoint": endpoint}, persist=True)
-        return False
-    try:
-        response = requests.post(
-            endpoint,
-            headers={"Content-Type": "application/json", "x-bot-signal-secret": token, "x-bot-api-token": token},
-            data=json.dumps(_signal_delivery_payload(signal), default=str),
-            timeout=float(os.getenv("BOT_SIGNAL_DELIVERY_TIMEOUT", "20")),
-        )
+        return {"accepted": False, "fallback_allowed": True, "reason": "token_missing"}
+    payload = _signal_delivery_payload(signal)
+    timeout = float(os.getenv("BOT_SIGNAL_DELIVERY_TIMEOUT", "90"))
+    attempts = max(1, int(float(os.getenv("BOT_SIGNAL_DELIVERY_ATTEMPTS", "2"))))
+    last_error = None
+    for attempt in range(1, attempts + 1):
         try:
-            data = response.json()
-        except ValueError:
-            data = {"text": response.text[:500]}
-        if response.ok:
-            LOGGER.info(
-                "Signal delivery API accepted %s %s | audience=%s emailed=%s notified=%s",
-                signal.get("symbol"),
-                signal.get("direction"),
-                data.get("audience"),
-                data.get("emailed"),
-                data.get("notified"),
+            response = requests.post(
+                endpoint,
+                headers={"Content-Type": "application/json", "x-bot-signal-secret": token, "x-bot-api-token": token},
+                data=json.dumps(payload, default=str),
+                timeout=timeout,
             )
-            return True
-        LOGGER.error("Signal delivery API rejected signal | status=%s response=%s", response.status_code, data)
-        bot_log("signal_delivery_api_rejected", "Website signal delivery API rejected the signal", {"symbol": signal.get("symbol"), "direction": signal.get("direction"), "status_code": response.status_code, "response": data}, persist=True)
-        return False
-    except Exception as exc:
-        LOGGER.error("Signal delivery API failed: %s", exc)
-        bot_log("signal_delivery_api_failed", f"Signal delivery API failed: {exc}", {"symbol": signal.get("symbol"), "direction": signal.get("direction"), "endpoint": endpoint}, persist=True)
-        return False
+            try:
+                data = response.json()
+            except ValueError:
+                data = {"text": response.text[:500]}
+            if response.ok:
+                LOGGER.info(
+                    "Signal delivery API accepted %s %s | audience=%s emailed=%s notified=%s plans=%s smtp=%s",
+                    signal.get("symbol"),
+                    signal.get("direction"),
+                    data.get("audience"),
+                    data.get("emailed"),
+                    data.get("notified"),
+                    data.get("audienceByPlan"),
+                    data.get("smtp"),
+                )
+                if int(data.get("emailed") or 0) <= 0:
+                    bot_log(
+                        "signal_delivery_zero_email",
+                        "Website accepted signal, but no email was sent. Check audience, quotas, and SMTP details in payload.",
+                        {"symbol": signal.get("symbol"), "direction": signal.get("direction"), "response": data},
+                        persist=True,
+                    )
+                return {"accepted": True, "fallback_allowed": False, "response": data}
+            LOGGER.error("Signal delivery API rejected signal | status=%s response=%s", response.status_code, data)
+            bot_log("signal_delivery_api_rejected", "Website signal delivery API rejected the signal", {"symbol": signal.get("symbol"), "direction": signal.get("direction"), "status_code": response.status_code, "response": data}, persist=True)
+            return {"accepted": False, "fallback_allowed": True, "status_code": response.status_code, "response": data}
+        except Exception as exc:
+            last_error = exc
+            LOGGER.warning("Signal delivery API failed attempt %s/%s: %s", attempt, attempts, exc)
+            if attempt < attempts:
+                time.sleep(2 * attempt)
+    LOGGER.error("Signal delivery API failed after %s attempt(s): %s", attempts, last_error)
+    bot_log("signal_delivery_api_failed", f"Signal delivery API failed: {last_error}", {"symbol": signal.get("symbol"), "direction": signal.get("direction"), "endpoint": endpoint}, persist=True)
+    return {"accepted": False, "fallback_allowed": True, "reason": "request_failed", "error": str(last_error)}
 
 
 def _launch_multi_account_children() -> bool:
@@ -1212,8 +1230,8 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
         return {"evaluated": 1, "trades_opened": 0, "errors": 0}
     register_trade(symbol, request["identity"])
     payload = {**request, "state_machine": setup, "status": "open"}
-    delivered = _deliver_signal_to_website(payload)
-    if not delivered:
+    delivery = _deliver_signal_to_website(payload)
+    if not delivery.get("accepted") and delivery.get("fallback_allowed"):
         persist_signal_to_supabase(payload)
         bot_log("signal_delivery_fallback_supabase", "Signal saved directly to Supabase fallback; SMTP delivery requires BOT_SIGNAL_DELIVERY_URL/KINGSBALFX_WEB_URL and matching BOT_SIGNAL_SECRET.", {"symbol": payload.get("symbol"), "direction": payload.get("direction")}, persist=True)
     push_trade(payload)

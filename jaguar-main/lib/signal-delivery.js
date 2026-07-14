@@ -1,4 +1,4 @@
-import { emailLayout, sendLifecycleEmail } from "./mailer";
+import { emailLayout, getSmtpStatus, sendLifecycleEmail } from "./mailer";
 import { createInAppNotification } from "./notifications";
 import { BOT_UNLIMITED_LIMIT, PRICING_TIERS, getBotTierDefaults, getPricingTier, normalizeBotLimit } from "./pricing-config";
 import { assertSignalDeliveryOpen } from "./signal-gate";
@@ -174,6 +174,28 @@ async function loadAudience(supabaseAdmin, targetPlans) {
   }).filter((user) => user.email && user.active && user.eligible);
 }
 
+function summarizeAudience(users = []) {
+  return users.reduce((summary, user) => {
+    const plan = user.plan || "unknown";
+    summary[plan] = (summary[plan] || 0) + 1;
+    return summary;
+  }, {});
+}
+
+async function runWithConcurrency(items, limit, worker) {
+  const results = [];
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(Number(limit) || 1, items.length || 1));
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(items[index], index);
+    }
+  }));
+  return results;
+}
+
 async function countDeliveriesToday(supabaseAdmin, userId) {
   const result = await supabaseAdmin
     .from("signal_deliveries")
@@ -261,6 +283,7 @@ export async function deliverBotSignal({ supabaseAdmin, payload }) {
   const targetPlans = normalizeTargetPlans({ targetPlans: payload.targetPlans || payload.plans || payload.plan, minTier: payload.minTier });
   if (!targetPlans.length) throw new Error("No valid target plans selected");
   const audience = await loadAudience(supabaseAdmin, targetPlans);
+  const audienceByPlan = summarizeAudience(audience);
   const signalId = await insertMasterSignal(supabaseAdmin, signal, targetPlans, payload);
   const mt5Execution = await forwardSignalToMt5Bot({ signal, signalId, targetPlans, payload });
   const attachment = buildProvidedImageAttachment(payload.imageData || payload.image || payload.screenshot, signal) || buildSignalAttachment(signal);
@@ -280,13 +303,14 @@ export async function deliverBotSignal({ supabaseAdmin, payload }) {
   let notified = 0;
   let skippedQuota = 0;
   const errors = [];
+  const concurrency = Math.min(Math.max(Number(process.env.SIGNAL_EMAIL_CONCURRENCY || 8), 1), 20);
 
-  for (const user of audience) {
+  await runWithConcurrency(audience, concurrency, async (user) => {
     try {
       const usedToday = await countDeliveriesToday(supabaseAdmin, user.id);
       if (usedToday >= user.dailyLimit && user.dailyLimit < BOT_UNLIMITED_LIMIT) {
         skippedQuota += 1;
-        continue;
+        return;
       }
       const dedupeKey = `bot_signal:${signalId}:${user.id}`;
       const emailResult = await sendLifecycleEmail({
@@ -324,18 +348,40 @@ export async function deliverBotSignal({ supabaseAdmin, payload }) {
     } catch (error) {
       errors.push({ userId: user.id, error: error.message || String(error) });
     }
-  }
+  });
 
   try {
     await supabaseAdmin.from("bot_logs").insert({
       event: "signal_delivery",
-      payload: { signalId, targetPlans, audience: audience.length, emailed, notified, skippedQuota, mt5Execution, errors: errors.slice(0, 10) },
+      payload: {
+        signalId,
+        targetPlans,
+        audience: audience.length,
+        audienceByPlan,
+        emailed,
+        notified,
+        skippedQuota,
+        smtp: getSmtpStatus(),
+        mt5Execution,
+        errors: errors.slice(0, 10),
+      },
     });
   } catch {
     // Signal delivery should not fail just because monitoring logs are unavailable.
   }
 
-  return { signalId, targetPlans, audience: audience.length, emailed, notified, skippedQuota, mt5Execution, errors };
+  return {
+    signalId,
+    targetPlans,
+    audience: audience.length,
+    audienceByPlan,
+    emailed,
+    notified,
+    skippedQuota,
+    smtp: getSmtpStatus(),
+    mt5Execution,
+    errors,
+  };
 }
 
 export function signalDeliverySqlRequired(error) {
