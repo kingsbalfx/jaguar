@@ -7,8 +7,12 @@ import os
 import secrets
 from bot_state import get_state, set_running, request_restart
 from utils.logger import bot_log
+from risk.mirror_trading import register_mirror_api
 
 app = Flask("bot_api")
+
+# Register mirror trading API endpoints
+register_mirror_api(app)
 
 # Global storage for webhook signals
 webhook_signals = []

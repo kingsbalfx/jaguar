@@ -36,6 +36,12 @@ from multi_account_runner import load_accounts
 from risk.protection import can_trade, register_trade, setup_identity
 from risk.trade_management import manage_trade
 from risk.trade_scheduler import is_trading_allowed, should_close_positions_now, force_close_reason, current_session_name, next_force_close_time, _minutes_since_midnight
+from risk.mirror_trading import (
+    MIRROR_ENABLED,
+    broadcast_signal,
+    create_mirror_signal,
+    check_pending_mirror_signals,
+)
 from kingsbalfx_concept import evaluate as evaluate_kingsbalfx
 from strategy.pre_trade_analysis import analyze_market_top_down
 from strategy.unified_strategy import SEQUENCE, evaluate_strategy
@@ -1240,6 +1246,35 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
         bot_log("trade_opened", f"[{symbol}] Kingsbalfx fallback confirmed and trade opened", payload)
     else:
         bot_log("trade_opened", f"[{symbol}] strict ICT sequence confirmed and trade opened", payload)
+
+    # --- MIRROR TRADING: Broadcast signal to other accounts ---
+    if MIRROR_ENABLED:
+        try:
+            source_login = os.getenv("MT5_ACCOUNT_LOGIN", "unknown")
+            mirror_signal = create_mirror_signal(
+                symbol=request["symbol"],
+                direction=request["direction"],
+                entry_price=request["entry"],
+                stop_loss=request["sl"],
+                take_profit=request["tp"],
+                source_login=source_login,
+                source_strategy=request.get("strategy", "ict_state_machine"),
+                reason=f"trade_executed_{strategy_name}",
+            )
+            broadcast_results = broadcast_signal(mirror_signal)
+            successful_broadcasts = sum(1 for r in broadcast_results if r.get("success"))
+            if broadcast_results:
+                LOGGER.info(
+                    "[MIRROR] Signal broadcast to %s/%s peers | symbol=%s direction=%s",
+                    successful_broadcasts,
+                    len(broadcast_results),
+                    symbol,
+                    request["direction"],
+                )
+        except Exception as exc:
+            LOGGER.warning("[MIRROR] Failed to broadcast mirror signal: %s", exc)
+    # --- END MIRROR TRADING ---
+
     return {"evaluated": 1, "trades_opened": 1, "errors": 0}
 
 
@@ -1442,6 +1477,27 @@ def run_bot() -> None:
                 skipped_friday,
                 skipped_session,
             )
+
+            # --- MIRROR TRADING: Check for pending signals from shared file ---
+            if MIRROR_ENABLED:
+                try:
+                    pending_results = check_pending_mirror_signals()
+                    if pending_results:
+                        mirrored = sum(1 for r in pending_results if r.get("action") == "executed")
+                        skipped = sum(1 for r in pending_results if r.get("action") == "skipped")
+                        errors_m = sum(1 for r in pending_results if r.get("action") == "error")
+                        if mirrored > 0:
+                            LOGGER.info(
+                                "[MIRROR] Processed %s pending signals: %s executed, %s skipped, %s errors",
+                                len(pending_results),
+                                mirrored,
+                                skipped,
+                                errors_m,
+                            )
+                except Exception as exc:
+                    LOGGER.warning("[MIRROR] Failed to check pending mirror signals: %s", exc)
+            # --- END MIRROR TRADING ---
+
             LOGGER.info("SCAN COMPLETE | sleeping=%ss", max(15, int(os.getenv("SCAN_INTERVAL_SECONDS", "60"))))
             time.sleep(max(15, int(os.getenv("SCAN_INTERVAL_SECONDS", "60"))))
         except KeyboardInterrupt:
