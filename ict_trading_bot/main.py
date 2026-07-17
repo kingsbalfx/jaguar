@@ -1148,6 +1148,38 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
         )
         if fallback_request:
             return fallback_request, fallback_setup, fallback_safety
+
+        # --- FALLBACK STRATEGY 3 ---
+        try:
+            from strategy.fallback_strategy3 import evaluate_fallback3 as _evaluate_fallback3
+            
+            _fb3_request, _fb3_setup, _fb3_safety = _evaluate_fallback3(
+                symbol=symbol,
+                direction=direction,
+                analysis=analysis,
+                tick=tick,
+                account=account,
+                positions=positions,
+                mt5_connector=mt5_connector,
+                ict_setup=setup,
+                kingsbalfx_setup=fallback_setup,
+                risk_percent=_risk_percent(),
+                minimum_rr=1.0,
+            )
+            if _fb3_request:
+                LOGGER.info("[%s] FALLBACK3 | valid trade found | score=%s | sweep=%s | choch=%s",
+                            symbol,
+                            _fb3_setup.get("score"),
+                            _fb3_setup.get("evidence", {}).get("sweep", {}).get("classification"),
+                            _fb3_setup.get("evidence", {}).get("choch", {}).get("detected"))
+                return _fb3_request, _fb3_setup, _fb3_safety
+            LOGGER.debug("[%s] FALLBACK3 | skip: %s", symbol, _fb3_setup.get("reason", "no_valid_setup"))
+        except ImportError:
+            LOGGER.debug("[%s] FALLBACK3 | module not available", symbol)
+        except Exception as _fb3_exc:
+            LOGGER.warning("[%s] FALLBACK3 | error: %s", symbol, _fb3_exc)
+        # --- END FALLBACK STRATEGY 3 ---
+
         return None, fallback_setup, fallback_safety
 
     plan = setup["plan"]
