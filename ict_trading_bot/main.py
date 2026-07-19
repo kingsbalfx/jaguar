@@ -1180,6 +1180,40 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
             LOGGER.warning("[%s] FALLBACK3 | error: %s", symbol, _fb3_exc)
         # --- END FALLBACK STRATEGY 3 ---
 
+        # --- FALLBACK STRATEGY 4 ---
+        try:
+            from strategy.fallback_strategy4 import evaluate_fallback4 as _evaluate_fallback4
+
+            _fb4_request, _fb4_setup, _fb4_safety = _evaluate_fallback4(
+                symbol=symbol,
+                direction=direction,
+                analysis=analysis,
+                tick=tick,
+                account=account,
+                positions=positions,
+                mt5_connector=mt5_connector,
+                ict_setup=setup,
+                kingsbalfx_setup=fallback_setup,
+                fallback3_setup=_fb3_setup if '_fb3_setup' in dir() else None,
+                risk_percent=_risk_percent(),
+                minimum_rr=1.0,
+            )
+            if _fb4_request:
+                LOGGER.info("[%s] FALLBACK4 | valid trade | score=%s | range_w=%.1f sweep=%s entry=%.5f",
+                            symbol,
+                            _fb4_setup.get("score"),
+                            _fb4_setup.get("range_width_atr", 0),
+                            _fb4_setup.get("sweep_side", "none"),
+                            _fb4_setup.get("entry_price", 0))
+                return _fb4_request, _fb4_setup, _fb4_safety
+            LOGGER.debug("[%s] FALLBACK4 | skip: %s", symbol,
+                         _fb4_setup.get("rejection_reason", "no_valid_setup") if _fb4_setup else "no_setup")
+        except ImportError:
+            LOGGER.debug("[%s] FALLBACK4 | module not available", symbol)
+        except Exception as _fb4_exc:
+            LOGGER.warning("[%s] FALLBACK4 | error: %s", symbol, _fb4_exc)
+        # --- END FALLBACK STRATEGY 4 ---
+
         return None, fallback_setup, fallback_safety
 
     plan = setup["plan"]
@@ -1274,10 +1308,14 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
         bot_log("signal_delivery_fallback_supabase", "Signal saved directly to Supabase fallback; SMTP delivery requires BOT_SIGNAL_DELIVERY_URL/KINGSBALFX_WEB_URL and matching BOT_SIGNAL_SECRET.", {"symbol": payload.get("symbol"), "direction": payload.get("direction")}, persist=True)
     push_trade(payload)
     strategy_name = request.get("strategy") or "ict_state_machine"
-    if strategy_name == "kingsbalfx":
-        bot_log("trade_opened", f"[{symbol}] Kingsbalfx fallback confirmed and trade opened", payload)
-    else:
-        bot_log("trade_opened", f"[{symbol}] strict ICT sequence confirmed and trade opened", payload)
+    strategy_labels = {
+        "ict_state_machine": "ICT 12-gate",
+        "kingsbalfx": "Kingsbalfx fallback",
+        "fallback3": "Fallback 3",
+        "fallback4": "Fallback 4",
+    }
+    label = strategy_labels.get(strategy_name, strategy_name)
+    bot_log("trade_opened", f"[{symbol}] {label} confirmed and trade opened", payload)
 
     # --- MIRROR TRADING: Broadcast signal to other accounts ---
     if MIRROR_ENABLED:
