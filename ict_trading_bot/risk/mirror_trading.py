@@ -290,9 +290,13 @@ def broadcast_signal(signal: Dict) -> List[Dict]:
         return []
 
     results = []
-    api_token = os.getenv("BOT_API_TOKEN", "").strip()
+    api_token = (
+        os.getenv("BOT_API_TOKEN", "").strip()
+        or os.getenv("BOT_SIGNAL_SECRET", "").strip()
+        or os.getenv("ADMIN_API_KEY", "").strip()
+    )
     if not api_token:
-        logger.warning("[MIRROR] BOT_API_TOKEN not set; skipping HTTP broadcasts.")
+        logger.warning("[MIRROR] BOT_API_TOKEN/BOT_SIGNAL_SECRET not set; skipping HTTP broadcasts.")
         return results
 
     batches = [peers[i:i + MIRROR_BROADCAST_BATCH] for i in range(0, len(peers), MIRROR_BROADCAST_BATCH)]
@@ -538,27 +542,17 @@ def check_pending_mirror_signals() -> List[Dict]:
 
     # Channel 1: Shared file
     for signal in _read_signal_file():
-        signal_id = signal.get("signal_id", "")
         expires_at = signal.get("expires_at", 0)
         if time.time() > expires_at:
             continue
-        if is_duplicate_signal(signal_id):
-            continue
-        should, _ = should_execute_mirror(signal)
-        if should:
-            results.append(process_mirror_signal(signal))
+        results.append(process_mirror_signal(signal))
 
     # Channel 2: Supabase
     for signal in _supabase_fetch_pending_signals():
-        signal_id = signal.get("signal_id", "")
         expires_at = signal.get("expires_at", 0)
         if time.time() > expires_at:
             continue
-        if is_duplicate_signal(signal_id):
-            continue
-        should, _ = should_execute_mirror(signal)
-        if should:
-            results.append(process_mirror_signal(signal))
+        results.append(process_mirror_signal(signal))
 
     return results
 

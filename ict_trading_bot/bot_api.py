@@ -20,15 +20,21 @@ MAX_WEBHOOK_SIGNALS = 100  # Prevent memory issues
 
 
 def _authorized():
-    expected = os.getenv("BOT_API_TOKEN", "").strip()
-    if not expected:
+    allowed = [
+        os.getenv("BOT_API_TOKEN", "").strip(),
+        os.getenv("BOT_SIGNAL_SECRET", "").strip(),
+        os.getenv("ADMIN_API_KEY", "").strip(),
+    ]
+    allowed = [value for value in allowed if value]
+    if not allowed:
         return False
     supplied = (
         request.headers.get("authorization", "").removeprefix("Bearer ").strip()
         or request.headers.get("x-bot-api-token", "").strip()
+        or request.headers.get("x-bot-signal-secret", "").strip()
         or request.args.get("token", "").strip()
     )
-    return bool(supplied) and secrets.compare_digest(supplied, expected)
+    return bool(supplied) and any(secrets.compare_digest(supplied, expected) for expected in allowed)
 
 
 def _require_auth():

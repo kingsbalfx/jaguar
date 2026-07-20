@@ -45,6 +45,7 @@ on conflict (key) do nothing;
 
 create table if not exists public.bot_signals (
   id uuid primary key default gen_random_uuid(),
+  bot_id uuid not null default '00000000-0000-4000-8000-000000000001'::uuid,
   user_id uuid null,
   symbol text,
   direction text,
@@ -57,6 +58,19 @@ create table if not exists public.bot_signals (
   status text default 'pending',
   created_at timestamptz default now()
 );
+
+alter table public.bot_signals
+  add column if not exists bot_id uuid default '00000000-0000-4000-8000-000000000001'::uuid;
+
+update public.bot_signals
+set bot_id = '00000000-0000-4000-8000-000000000001'::uuid
+where bot_id is null;
+
+alter table public.bot_signals
+  alter column bot_id set default '00000000-0000-4000-8000-000000000001'::uuid;
+
+alter table public.bot_signals
+  alter column bot_id set not null;
 
 alter table public.bot_signals
   add column if not exists reason jsonb default '{}'::jsonb;
@@ -106,6 +120,25 @@ create policy "users read own signal deliveries"
 drop policy if exists "service role manages signal deliveries" on public.signal_deliveries;
 create policy "service role manages signal deliveries"
   on public.signal_deliveries
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+create table if not exists public.mirror_signals (
+  signal_id text primary key,
+  expires_at timestamptz,
+  data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_mirror_signals_expires_at
+  on public.mirror_signals(expires_at desc);
+
+alter table public.mirror_signals enable row level security;
+
+drop policy if exists "service role manages mirror signals" on public.mirror_signals;
+create policy "service role manages mirror signals"
+  on public.mirror_signals
   for all
   using (auth.role() = 'service_role')
   with check (auth.role() = 'service_role');

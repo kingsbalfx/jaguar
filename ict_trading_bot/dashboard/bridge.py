@@ -3,7 +3,7 @@ import time
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict
-from uuid import UUID
+from uuid import NAMESPACE_DNS, UUID, uuid5
 
 from supabase import create_client
 
@@ -61,6 +61,12 @@ def _normalize_uuid(value: Any, allow_text: bool = False):
         return str(UUID(raw))
     except Exception:
         return raw if allow_text else None
+
+
+def _stable_bot_uuid(value: Any):
+    raw = str(value or "").strip() or "kingsbalfx-default-bot"
+    normalized = _normalize_uuid(raw)
+    return normalized or str(uuid5(NAMESPACE_DNS, raw))
 
 
 def _get_supabase_client():
@@ -236,6 +242,13 @@ def persist_signal_to_supabase(signal: Dict[str, Any]):
         _normalize_uuid(signal.get("bot_id"), allow_text=allow_text_bot_id)
         or _normalize_uuid(os.getenv("BOT_INSTANCE_ID"), allow_text=allow_text_bot_id)
         or _normalize_uuid(os.getenv("BOT_ID"), allow_text=allow_text_bot_id)
+        or _stable_bot_uuid(
+            signal.get("botId")
+            or signal.get("bot_account_id")
+            or os.getenv("BOT_ACCOUNT_ID")
+            or os.getenv("MT5_ACCOUNT_LOGIN")
+            or "kingsbalfx-direct-supabase-bot"
+        )
     )
     user_uuid = (
         _normalize_uuid(signal.get("user_id"))

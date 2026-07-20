@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { emailLayout, getSmtpStatus, sendLifecycleEmail } from "./mailer";
 import { createInAppNotification } from "./notifications";
 import { BOT_UNLIMITED_LIMIT, PRICING_TIERS, getBotTierDefaults, getPricingTier, normalizeBotLimit } from "./pricing-config";
@@ -25,6 +26,34 @@ function cleanNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function cleanUuid(value) {
+  const raw = String(value || "").trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw)
+    ? raw.toLowerCase()
+    : "";
+}
+
+function deterministicUuid(value) {
+  const seed = String(value || "kingsbalfx-default-bot").trim() || "kingsbalfx-default-bot";
+  const hex = crypto.createHash("sha256").update(seed).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+function resolveBotId(payload = {}) {
+  const raw =
+    payload.botId ||
+    payload.bot_id ||
+    payload.botID ||
+    payload.raw?.bot_id ||
+    payload.raw?.botId ||
+    payload.raw?.bot_account_id ||
+    process.env.DEFAULT_BOT_ID ||
+    process.env.BOT_INSTANCE_ID ||
+    process.env.BOT_ID ||
+    "kingsbalfx-web-signal-bot";
+  return cleanUuid(raw) || deterministicUuid(raw);
 }
 
 function cleanSignalPayload(input = {}) {
@@ -207,23 +236,42 @@ async function countDeliveriesToday(supabaseAdmin, userId) {
 }
 
 async function insertMasterSignal(supabaseAdmin, signal, targetPlans, payload) {
-  const { data, error } = await supabaseAdmin
+  const botId = resolveBotId(payload);
+  const record = {
+    bot_id: botId,
+    user_id: null,
+    symbol: signal.symbol,
+    direction: signal.direction,
+    entry_price: signal.entryPrice,
+    stop_loss: signal.stopLoss,
+    take_profit: signal.takeProfit,
+    signal_quality: targetPlans.join(","),
+    confidence: signal.confidence,
+    reason: { ...payload, botId, targetPlans, timeframe: signal.timeframe, strategy: signal.strategy, note: signal.note },
+    status: signal.status || "delivered",
+    created_at: new Date().toISOString(),
+  };
+
+  let result = await supabaseAdmin
     .from("bot_signals")
-    .insert({
-      user_id: null,
-      symbol: signal.symbol,
-      direction: signal.direction,
-      entry_price: signal.entryPrice,
-      stop_loss: signal.stopLoss,
-      take_profit: signal.takeProfit,
-      signal_quality: targetPlans.join(","),
-      confidence: signal.confidence,
-      reason: { ...payload, targetPlans, timeframe: signal.timeframe, strategy: signal.strategy, note: signal.note },
-      status: signal.status || "delivered",
-      created_at: new Date().toISOString(),
-    })
+    .insert(record)
     .select("id")
     .maybeSingle();
+
+  if (
+    result.error &&
+    /bot_id/i.test(String(result.error.message || "")) &&
+    /does not exist|schema cache|column/i.test(String(result.error.message || ""))
+  ) {
+    const { bot_id: _botId, ...withoutBotId } = record;
+    result = await supabaseAdmin
+      .from("bot_signals")
+      .insert(withoutBotId)
+      .select("id")
+      .maybeSingle();
+  }
+
+  const { data, error } = result;
   if (error) throw new Error(error.message || "Unable to save signal");
   return data?.id || null;
 }
@@ -385,5 +433,5 @@ export async function deliverBotSignal({ supabaseAdmin, payload }) {
 }
 
 export function signalDeliverySqlRequired(error) {
-  return error?.code === "42P01" || error?.code === "42703" || /signal_deliveries|column/i.test(String(error?.message || ""));
+  return error?.code === "42P01" || error?.code === "42703" || /signal_deliveries/i.test(String(error?.message || ""));
 }
