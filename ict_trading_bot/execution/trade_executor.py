@@ -103,6 +103,7 @@ def execute_trade(
     tp_price: float,
     order_type: str = "market",
     entry_price: Optional[float] = None,
+    strategy_name: str = "ict_state_machine",
 ):
     """Execute a confirmed market order. Pending orders are forbidden."""
     _require_mt5()
@@ -189,10 +190,17 @@ def execute_trade(
         return None
 
     placed_price = request.get("price", market_price)
+    strategy_labels = {
+        "ict_state_machine": "ICT 12-gate",
+        "kingsbalfx": "Kingsbalfx fallback",
+        "fallback3": "Fallback 3",
+        "fallback4": "Fallback 4",
+    }
+    label = strategy_labels.get(strategy_name, strategy_name)
     print(
         f"[{datetime.now()}] Trade placed -> "
         f"{symbol} {direction_upper(direction_lower)} | {lot} lots | "
-        f"Type {order_type_lower.upper()} | strict ICT state machine confirmed"
+        f"Type {order_type_lower.upper()} | {label}"
     )
 
     return {
@@ -206,6 +214,7 @@ def execute_trade(
         "lot": lot,
         "stage": 0,
         "order_type": order_type_lower,
+        "strategy": strategy_name,
         "mt5_retcode": getattr(result, "retcode", None),
         "mt5_comment": getattr(result, "comment", None),
     }
@@ -213,13 +222,39 @@ def execute_trade(
 
 def modify_position(ticket, sl=None, tp=None):
     _require_mt5()
+    
+    # Get the current position to verify it still exists
+    positions = mt5.positions_get(ticket=int(ticket)) if hasattr(mt5, 'positions_get') else None
+    if not positions:
+        print(f"[{datetime.now()}] modify_position | ticket={ticket} not found or already closed")
+        return False
+    
     request = {"action": mt5.TRADE_ACTION_SLTP, "position": int(ticket)}
     if sl is not None:
         request["sl"] = float(sl)
     if tp is not None:
         request["tp"] = float(tp)
+    
+    # Log what we're about to do
+    print(f"[{datetime.now()}] modify_position | ticket={ticket} sl={sl} tp={tp}")
+    
     result = mt5.order_send(request)
-    return result is not None and getattr(result, "retcode", None) in _success_retcodes()
+
+    success = result is not None and getattr(result, "retcode", None) in _success_retcodes()
+    if success:
+        print(f"[{datetime.now()}] modify_position SUCCESS | ticket={ticket} sl={sl} tp={tp} retcode={getattr(result, 'retcode', None)}")
+    else:
+        _log_modify_failure(ticket, sl, tp, result)
+    return success
+
+
+def _log_modify_failure(ticket, sl, tp, result):
+    """Log details of a failed SL/TP modification."""
+    from datetime import datetime
+    retcode = getattr(result, "retcode", None) if result else None
+    comment = getattr(result, "comment", "") if result else ""
+    print(f"[{datetime.now()}] SL/TP modify failed | ticket={ticket} sl={sl} tp={tp} "
+          f"retcode={retcode} comment={comment} last_error={mt5.last_error() if mt5 else 'N/A'}")
 
 
 def close_position(ticket, symbol, direction, volume):

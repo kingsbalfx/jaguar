@@ -205,6 +205,15 @@ def evaluate_fallback4(
     exec_candles = _extract_candles(analysis, execution_tf)
     context_candles = _extract_candles(analysis, context_tf)
 
+    # Sanitize: ensure we have list of dicts, not raw floats
+    def _ensure_candle_dicts(candles):
+        if isinstance(candles, list) and candles and not isinstance(candles[0], dict):
+            return []
+        return candles or []
+    
+    exec_candles = _ensure_candle_dicts(exec_candles)
+    context_candles = _ensure_candle_dicts(context_candles)
+
     if len(exec_candles) < 15:
         return _skip_result(f"insufficient_{execution_tf}_candles", symbol=symbol)
 

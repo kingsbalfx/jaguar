@@ -91,10 +91,10 @@ def evaluate_fallback3(
     
     # HTF candles (H1)
     htf_timeframe = config.HTF_TIMEFRAME  # "H1"
-    htf_state = analysis.get("HTF", analysis.get(htf_timeframe, {}))
+    htf_state = analysis.get("HTF") or analysis.get(htf_timeframe) or {}
     htf_candles = htf_state.get("recent_candles", [])
     htf_swings = htf_state.get("swings", [])
-    htf_trend = htf_trend = (
+    htf_trend = (
         htf_state.get("trend")
         or (analysis.get("topdown") or {}).get("h1_trend")
         or (analysis.get("h1_m15_alignment") or {}).get("h1_trend")
@@ -104,21 +104,33 @@ def evaluate_fallback3(
     
     # Structure timeframe candles (M15)
     structure_tf = config.STRUCTURE_TIMEFRAME  # "M15"
-    structure_state = analysis.get("MTF", analysis.get(structure_tf, {}))
+    structure_state = analysis.get("MTF") or analysis.get(structure_tf) or {}
     structure_candles = structure_state.get("recent_candles", [])
     
     # Execution timeframe candles (M5)
     exec_tf = config.EXECUTION_TIMEFRAME  # "M5"
-    exec_state = analysis.get("EXECUTION", analysis.get(exec_tf, {}))
+    exec_state = analysis.get("EXECUTION") or analysis.get(exec_tf) or {}
     exec_candles = exec_state.get("recent_candles", [])
     
     # Fallbacks
-    if not exec_candles:
+    if not exec_candles or not isinstance(exec_candles, list):
         exec_candles = analysis.get("m5_candles", [])
-    if not htf_candles:
-        htf_candles = analysis.get("HTF", {}).get("recent_candles", [])
-    if not structure_candles:
-        structure_candles = analysis.get("MTF", {}).get("recent_candles", []) or exec_candles
+    if not htf_candles or not isinstance(htf_candles, list):
+        htf_candles = (analysis.get("HTF") or {}).get("recent_candles", [])
+    if not structure_candles or not isinstance(structure_candles, list):
+        structure_candles = (analysis.get("MTF") or {}).get("recent_candles", []) or exec_candles
+    
+    # Sanitize: ensure we have a list of dicts, not raw floats
+    def _ensure_candle_dicts(candles):
+        """Convert list of floats to empty list (invalid data)."""
+        if isinstance(candles, list) and candles and not isinstance(candles[0], dict):
+            return []
+        return candles
+    
+    exec_candles = _ensure_candle_dicts(exec_candles)
+    htf_candles = _ensure_candle_dicts(htf_candles)
+    structure_candles = _ensure_candle_dicts(structure_candles)
+    working_candles = _ensure_candle_dicts(structure_candles or exec_candles)
     
     # ============================================================
     # STEP 1: Determine HTF Bias
@@ -145,7 +157,6 @@ def evaluate_fallback3(
     # ============================================================
     # STEP 2: Map Liquidity Levels
     # ============================================================
-    working_candles = structure_candles or exec_candles
     levels = identify_key_levels(working_candles)
     liq_zones = identify_liquidity_zones(levels, trade_direction, price)
     

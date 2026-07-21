@@ -1150,6 +1150,7 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
             return fallback_request, fallback_setup, fallback_safety
 
         # --- FALLBACK STRATEGY 3 ---
+        _fb3_setup = None
         try:
             from strategy.fallback_strategy3 import evaluate_fallback3 as _evaluate_fallback3
             
@@ -1194,7 +1195,7 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
                 mt5_connector=mt5_connector,
                 ict_setup=setup,
                 kingsbalfx_setup=fallback_setup,
-                fallback3_setup=_fb3_setup if '_fb3_setup' in dir() else None,
+                fallback3_setup=_fb3_setup,
                 risk_percent=_risk_percent(),
                 minimum_rr=1.0,
             )
@@ -1288,6 +1289,7 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
     if len(positions) >= max_trades:
         _console_skip(symbol, "max_open_trades_reached_before_execution", {"open_positions": len(positions), "max_trades": max_trades})
         return {"evaluated": 1, "trades_opened": 0, "errors": 0}
+    strategy_name = request.get("strategy") or "ict_state_machine"
     trade = execute_trade(
         request["symbol"],
         request["direction"],
@@ -1296,6 +1298,7 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
         request["tp"],
         request["order_type"],
         request["entry"],
+        strategy_name=strategy_name,
     )
     if not trade:
         _console_skip(symbol, "broker_rejected_or_failed_market_order", request)
@@ -1307,7 +1310,6 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
         persist_signal_to_supabase(payload)
         bot_log("signal_delivery_fallback_supabase", "Signal saved directly to Supabase fallback; SMTP delivery requires BOT_SIGNAL_DELIVERY_URL/KINGSBALFX_WEB_URL and matching BOT_SIGNAL_SECRET.", {"symbol": payload.get("symbol"), "direction": payload.get("direction")}, persist=True)
     push_trade(payload)
-    strategy_name = request.get("strategy") or "ict_state_machine"
     strategy_labels = {
         "ict_state_machine": "ICT 12-gate",
         "kingsbalfx": "Kingsbalfx fallback",
