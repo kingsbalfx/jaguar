@@ -240,7 +240,14 @@ async function insertMasterSignal(supabaseAdmin, signal, targetPlans, payload) {
   const record = {
     bot_id: botId,
     user_id: null,
-    signal: `${signal.symbol} ${signal.direction}`,
+    signal: {
+      label: `${signal.symbol} ${signal.direction}`,
+      symbol: signal.symbol,
+      direction: signal.direction,
+      entryPrice: signal.entryPrice,
+      stopLoss: signal.stopLoss,
+      takeProfit: signal.takeProfit,
+    },
     symbol: signal.symbol,
     direction: signal.direction,
     entry_price: signal.entryPrice,

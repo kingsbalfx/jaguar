@@ -285,7 +285,14 @@ def persist_signal_to_supabase(signal: Dict[str, Any]):
             _SIGNAL_LIMIT_CHECK_DISABLED = True
 
     record = {
-        "signal": f"{signal.get('symbol') or ''} {signal.get('direction') or ''}".strip(),
+        "signal": {
+            "label": f"{signal.get('symbol') or ''} {signal.get('direction') or ''}".strip(),
+            "symbol": signal.get("symbol"),
+            "direction": signal.get("direction"),
+            "entry": signal.get("entry") or signal.get("entry_price"),
+            "sl": signal.get("sl") or signal.get("stop_loss"),
+            "tp": signal.get("tp") or signal.get("take_profit"),
+        },
         "symbol": signal.get("symbol"),
         "direction": signal.get("direction"),
         "entry_price": signal.get("entry") or signal.get("entry_price"),

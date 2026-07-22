@@ -47,7 +47,7 @@ create table if not exists public.bot_signals (
   id uuid primary key default gen_random_uuid(),
   bot_id uuid not null default '00000000-0000-4000-8000-000000000001'::uuid,
   user_id uuid null,
-  signal text not null default '',
+  signal jsonb not null default '{}'::jsonb,
   symbol text,
   direction text,
   entry_price numeric,
@@ -74,14 +74,49 @@ alter table public.bot_signals
   alter column bot_id set not null;
 
 alter table public.bot_signals
-  add column if not exists signal text default '';
+  add column if not exists signal jsonb default '{}'::jsonb;
+
+do $$
+declare
+  signal_data_type text;
+begin
+  select data_type into signal_data_type
+  from information_schema.columns
+  where table_schema = 'public'
+    and table_name = 'bot_signals'
+    and column_name = 'signal';
+
+  if signal_data_type = 'json' then
+    alter table public.bot_signals
+      alter column signal drop default;
+
+    alter table public.bot_signals
+      alter column signal type jsonb
+      using coalesce(signal::jsonb, '{}'::jsonb);
+  elsif signal_data_type is not null and signal_data_type <> 'jsonb' then
+    alter table public.bot_signals
+      alter column signal drop default;
+
+    alter table public.bot_signals
+      alter column signal type jsonb
+      using jsonb_build_object(
+        'label', nullif(btrim(signal::text), ''),
+        'symbol', symbol,
+        'direction', direction
+      );
+  end if;
+end $$;
 
 update public.bot_signals
-set signal = trim(coalesce(symbol, '') || ' ' || coalesce(direction, ''))
-where signal is null or signal = '';
+set signal = jsonb_build_object(
+  'label', trim(coalesce(symbol, '') || ' ' || coalesce(direction, '')),
+  'symbol', symbol,
+  'direction', direction
+)
+where signal is null or signal = '{}'::jsonb;
 
 alter table public.bot_signals
-  alter column signal set default '';
+  alter column signal set default '{}'::jsonb;
 
 alter table public.bot_signals
   alter column signal set not null;
