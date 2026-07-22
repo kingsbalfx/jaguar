@@ -492,7 +492,17 @@ def _signal_delivery_payload(signal: dict) -> dict:
         "targetPlans": [item.strip() for item in os.getenv("BOT_SIGNAL_TARGET_PLANS", "premium,vip,pro,lifetime").split(",") if item.strip()],
         "source": "ict_trading_bot",
         "botId": os.getenv("BOT_ACCOUNT_ID") or os.getenv("BOT_INSTANCE_ID") or os.getenv("BOT_ID") or os.getenv("PERSISTENT_BOT_ID"),
-        "raw": signal,
+        "raw": {
+            "symbol": signal.get("symbol"),
+            "direction": signal.get("direction"),
+            "entry": signal.get("entry") or signal.get("entry_price"),
+            "sl": signal.get("sl") or signal.get("stop_loss"),
+            "tp": signal.get("tp") or signal.get("take_profit"),
+            "lot": signal.get("lot"),
+            "order_type": signal.get("order_type"),
+            "strategy": signal.get("strategy"),
+            "identity": signal.get("identity"),
+        },
     }
 
 

@@ -47,6 +47,7 @@ create table if not exists public.bot_signals (
   id uuid primary key default gen_random_uuid(),
   bot_id uuid not null default '00000000-0000-4000-8000-000000000001'::uuid,
   user_id uuid null,
+  signal text not null default '',
   symbol text,
   direction text,
   entry_price numeric,
@@ -71,6 +72,19 @@ alter table public.bot_signals
 
 alter table public.bot_signals
   alter column bot_id set not null;
+
+alter table public.bot_signals
+  add column if not exists signal text default '';
+
+update public.bot_signals
+set signal = trim(coalesce(symbol, '') || ' ' || coalesce(direction, ''))
+where signal is null or signal = '';
+
+alter table public.bot_signals
+  alter column signal set default '';
+
+alter table public.bot_signals
+  alter column signal set not null;
 
 alter table public.bot_signals
   add column if not exists reason jsonb default '{}'::jsonb;

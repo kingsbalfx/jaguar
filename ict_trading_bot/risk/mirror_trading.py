@@ -348,6 +348,15 @@ def broadcast_signal(signal: Dict) -> List[Dict]:
     logger.info("[MIRROR] Broadcast complete: %s/%s peers reached | %s %s | strategy=%s",
                  successful, len(peers), signal["symbol"], signal["direction"],
                  signal.get("source_strategy", "unknown"))
+    if successful < len(peers):
+        failed = [r for r in results if not r.get("success")]
+        for item in failed[:10]:
+            logger.warning(
+                "[MIRROR] Broadcast failed | login=%s action=%s error=%s",
+                item.get("login"),
+                item.get("action"),
+                item.get("error"),
+            )
     return results
 
 
