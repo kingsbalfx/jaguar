@@ -64,6 +64,9 @@ alter table public.bot_signals
   add column if not exists bot_id uuid default '00000000-0000-4000-8000-000000000001'::uuid;
 
 alter table public.bot_signals
+  drop constraint if exists bot_signals_bot_id_fkey;
+
+alter table public.bot_signals
   alter column bot_id drop default;
 
 alter table public.bot_signals

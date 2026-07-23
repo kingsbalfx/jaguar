@@ -238,7 +238,7 @@ async function countDeliveriesToday(supabaseAdmin, userId) {
 async function insertMasterSignal(supabaseAdmin, signal, targetPlans, payload) {
   const botId = resolveBotId(payload);
   const record = {
-    bot_id: botId,
+    bot_id: String(process.env.BOT_SIGNAL_REQUIRE_BOT_ID || "").toLowerCase() === "true" ? botId : null,
     user_id: null,
     signal: {
       label: `${signal.symbol} ${signal.direction}`,

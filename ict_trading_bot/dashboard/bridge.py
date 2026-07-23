@@ -330,8 +330,8 @@ def persist_signal_to_supabase(signal: Dict[str, Any]):
         "reason": signal.get("reason") or {},
         "status": signal.get("status") or "pending",
     }
-    if bot_uuid and _BOT_SIGNALS_HAS_BOT_ID:
-        record["bot_id"] = bot_uuid
+    if _BOT_SIGNALS_HAS_BOT_ID:
+        record["bot_id"] = bot_uuid if _env_bool("BOT_SIGNAL_REQUIRE_BOT_ID", False) else None
     if user_uuid:
         record["user_id"] = user_uuid
     if _BOT_SIGNALS_HAS_CREATED_AT:
@@ -341,7 +341,10 @@ def persist_signal_to_supabase(signal: Dict[str, Any]):
         return client.table(table).insert(record).execute()
 
     res = _with_retries(_insert_signal)
-    if res is None and record.get("bot_id"):
+    if res is None and "bot_id" in record and record.get("bot_id"):
+        record["bot_id"] = None
+        res = _with_retries(_insert_signal)
+    if res is None and "bot_id" in record:
         _BOT_SIGNALS_HAS_BOT_ID = False
         record.pop("bot_id", None)
         res = _with_retries(_insert_signal)

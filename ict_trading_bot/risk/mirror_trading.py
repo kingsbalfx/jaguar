@@ -47,6 +47,7 @@ MIRROR_RISK_PERCENT = float(os.getenv("MIRROR_RISK_PERCENT", os.getenv("RISK_PER
 MIRROR_BROADCAST_BATCH = int(os.getenv("MIRROR_BROADCAST_BATCH", "10"))
 MIRROR_BROADCAST_DELAY = float(os.getenv("MIRROR_BROADCAST_DELAY", "0.5"))
 MIRROR_SUPABASE_TABLE = os.getenv("MIRROR_SUPABASE_TABLE", "mirror_signals")
+MIRROR_BROADCAST_RETRIES = int(os.getenv("MIRROR_BROADCAST_RETRIES", "3"))
 
 _SHARED_SIGNAL_DIR = Path(__file__).resolve().parent.parent / "data"
 _SHARED_SIGNAL_FILE = _SHARED_SIGNAL_DIR / "mirror_signals.json"
@@ -54,6 +55,14 @@ _SHARED_SIGNAL_FILE = _SHARED_SIGNAL_DIR / "mirror_signals.json"
 _received_signals: set = set()
 _received_signals_lock = threading.Lock()
 _last_mirror_time: Dict[str, float] = {}
+
+
+def _connect_host(host: Any) -> str:
+    """Convert bind-all hosts into a client-connectable address."""
+    clean = str(host or "").strip()
+    if not clean or clean in ("0.0.0.0", "::", "*"):
+        return "127.0.0.1"
+    return clean
 
 
 # ===========================================================================
@@ -218,7 +227,7 @@ def _get_peers() -> List[Dict]:
                 continue
             peers.append({
                 "login": login,
-                "api_host": os.getenv("API_HOST", "127.0.0.1"),
+                "api_host": _connect_host(os.getenv("MIRROR_CONNECT_HOST") or os.getenv("API_HOST", "127.0.0.1")),
                 "api_port": int(api_port),
             })
     except Exception as exc:
@@ -248,10 +257,10 @@ def _get_peers() -> List[Dict]:
                         if any(p["login"] == login for p in peers):
                             continue
                         api_port = row.get("api_port") or os.getenv("MULTI_ACCOUNT_BASE_API_PORT", "8000")
-                        api_host = row.get("api_host") or os.getenv("API_HOST", "127.0.0.1")
+                        api_host = row.get("api_host") or os.getenv("MIRROR_CONNECT_HOST") or os.getenv("API_HOST", "127.0.0.1")
                         peers.append({
                             "login": login,
-                            "api_host": str(api_host),
+                            "api_host": _connect_host(api_host),
                             "api_port": int(api_port),
                         })
         except Exception as exc:
@@ -264,9 +273,29 @@ def _get_peers() -> List[Dict]:
 # Broadcasting: send signal to all peer accounts
 # ===========================================================================
 def _post_mirror_signal(peer: Dict, signal: Dict, headers: Dict[str, str]) -> Dict:
-    url = f"http://{peer['api_host']}:{peer['api_port']}/api/mirror/signal"
+    host = _connect_host(peer.get("api_host"))
+    url = f"http://{host}:{peer['api_port']}/api/mirror/signal"
+    last_error = "not attempted"
+    for attempt in range(max(1, MIRROR_BROADCAST_RETRIES)):
+        try:
+            resp = requests.post(url, headers=headers, json=signal, timeout=MIRROR_API_TIMEOUT)
+            break
+        except requests.ConnectionError:
+            last_error = "Connection refused"
+            if attempt < MIRROR_BROADCAST_RETRIES - 1:
+                time.sleep(0.35 * (attempt + 1))
+                continue
+            return {"login": peer["login"], "success": False, "action": None, "reason": None, "error": last_error}
+        except requests.Timeout:
+            last_error = "Timeout"
+            if attempt < MIRROR_BROADCAST_RETRIES - 1:
+                time.sleep(0.35 * (attempt + 1))
+                continue
+            return {"login": peer["login"], "success": False, "action": None, "reason": None, "error": last_error}
+        except Exception as exc:
+            return {"login": peer["login"], "success": False, "action": None, "reason": None, "error": str(exc)[:180]}
+
     try:
-        resp = requests.post(url, headers=headers, json=signal, timeout=MIRROR_API_TIMEOUT)
         data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
         action = data.get("action", "accepted") if isinstance(data, dict) else "accepted"
         if resp.ok:
@@ -284,10 +313,6 @@ def _post_mirror_signal(peer: Dict, signal: Dict, headers: Dict[str, str]) -> Di
             "reason": data.get("reason") if isinstance(data, dict) else None,
             "error": f"HTTP {resp.status_code}: {str(data)[:180]}",
         }
-    except requests.ConnectionError:
-        return {"login": peer["login"], "success": False, "action": None, "reason": None, "error": "Connection refused"}
-    except requests.Timeout:
-        return {"login": peer["login"], "success": False, "action": None, "reason": None, "error": "Timeout"}
     except Exception as exc:
         return {"login": peer["login"], "success": False, "action": None, "reason": None, "error": str(exc)[:180]}
 
