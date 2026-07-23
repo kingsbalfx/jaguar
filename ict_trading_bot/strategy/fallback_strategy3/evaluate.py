@@ -66,6 +66,12 @@ def evaluate_fallback3(
     risk_perc = risk_percent if risk_percent is not None else config.RISK_PERCENT
     min_rr = minimum_rr if minimum_rr is not None else config.MIN_RR
     
+    # Debug: validate inputs before using them
+    if not isinstance(ict_setup, dict):
+        LOGGER.warning("[%s] FALLBACK3 | ict_setup type=%s value=%s", symbol, type(ict_setup).__name__, ict_setup)
+    if not isinstance(kingsbalfx_setup, dict):
+        LOGGER.warning("[%s] FALLBACK3 | kingsbalfx_setup type=%s value=%s", symbol, type(kingsbalfx_setup).__name__, kingsbalfx_setup)
+    
     fb3_logger.log_fallback3_activation(
         symbol,
         "skip" if not ict_setup.get("executable") else "valid",
@@ -77,7 +83,13 @@ def evaluate_fallback3(
     # ============================================================
     # STEP 0: Risk Gate (pre-checks before analysis)
     # ============================================================
-    risk_passed, risk_reason = check_risk_gate(symbol, direction or "", account, positions, ict_setup, kingsbalfx_setup)
+    try:
+        risk_passed, risk_reason = check_risk_gate(symbol, direction or "", account, positions, ict_setup, kingsbalfx_setup)
+    except Exception as _rg_exc:
+        LOGGER.warning("[%s] FALLBACK3 | check_risk_gate error: %s", symbol, _rg_exc, exc_info=True)
+        return _skip_result(f"risk_gate_error: {_rg_exc}", {
+            "risk_error": str(_rg_exc),
+        })
     if not risk_passed:
         return _skip_result(f"risk_gate: {risk_reason}", {
             "risk_gate_passed": False,

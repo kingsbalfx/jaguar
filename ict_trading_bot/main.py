@@ -1188,7 +1188,7 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
         except ImportError:
             LOGGER.debug("[%s] FALLBACK3 | module not available", symbol)
         except Exception as _fb3_exc:
-            LOGGER.warning("[%s] FALLBACK3 | error: %s", symbol, _fb3_exc)
+            LOGGER.warning("[%s] FALLBACK3 | error: %s", symbol, _fb3_exc, exc_info=True)
         # --- END FALLBACK STRATEGY 3 ---
 
         # --- FALLBACK STRATEGY 4 ---
@@ -1222,7 +1222,7 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
         except ImportError:
             LOGGER.debug("[%s] FALLBACK4 | module not available", symbol)
         except Exception as _fb4_exc:
-            LOGGER.warning("[%s] FALLBACK4 | error: %s", symbol, _fb4_exc)
+            LOGGER.warning("[%s] FALLBACK4 | error: %s", symbol, _fb4_exc, exc_info=True)
         # --- END FALLBACK STRATEGY 4 ---
 
         return None, fallback_setup, fallback_safety
