@@ -18,6 +18,7 @@ _BOT_LOGS_INSERT_DISABLED = False
 _BOT_SIGNALS_INSERT_DISABLED = False
 _SIGNAL_LIMIT_CHECK_DISABLED = False
 _BOT_SIGNALS_HAS_BOT_ID = True
+_BOT_TABLE_INSERT_DISABLED = False
 
 _BOT_LIMIT_UNLIMITED = 1000000
 _BOT_TIER_LIMITS = {
@@ -122,6 +123,53 @@ def _with_retries(func, max_attempts=3, base_delay=0.5, *args, **kwargs):
             time.sleep(delay)
     logger.error("Supabase write failed after %d attempts", max_attempts)
     return None
+
+
+def _supabase_try(func):
+    try:
+        return func(), None
+    except Exception as exc:
+        return None, exc
+
+
+def _ensure_bot_row(client, bot_uuid: str, label: str = "") -> bool:
+    """Best-effort creation of a matching `bots` row for schemas with bot_id FK."""
+    global _BOT_TABLE_INSERT_DISABLED
+    if not bot_uuid or _BOT_TABLE_INSERT_DISABLED:
+        return False
+
+    existing, error = _supabase_try(
+        lambda: client.table("bots").select("id").eq("id", bot_uuid).limit(1).execute()
+    )
+    if error:
+        if "does not exist" in str(error).lower() or "schema cache" in str(error).lower():
+            _BOT_TABLE_INSERT_DISABLED = True
+            return False
+    elif getattr(existing, "data", None):
+        return True
+
+    name = str(label or os.getenv("BOT_ID") or os.getenv("PERSISTENT_BOT_ID") or "KINGSBALFX Bot").strip()
+    candidate_records = [
+        {"id": bot_uuid, "name": name, "status": "active"},
+        {"id": bot_uuid, "name": name},
+        {"id": bot_uuid, "status": "active"},
+        {"id": bot_uuid},
+    ]
+    last_error = None
+    for record in candidate_records:
+        def _upsert(record=record):
+            try:
+                return client.table("bots").upsert(record, on_conflict="id").execute()
+            except TypeError:
+                return client.table("bots").upsert(record).execute()
+
+        _, error = _supabase_try(_upsert)
+        if not error:
+            return True
+        last_error = error
+
+    logger.warning("Unable to auto-create bots row for bot_id=%s: %s", bot_uuid, last_error)
+    return False
 
 
 def _fetch_user_bot_limits(client, user_uuid: str) -> Dict[str, Any]:
@@ -331,7 +379,16 @@ def persist_signal_to_supabase(signal: Dict[str, Any]):
         "status": signal.get("status") or "pending",
     }
     if _BOT_SIGNALS_HAS_BOT_ID:
-        record["bot_id"] = bot_uuid if _env_bool("BOT_SIGNAL_REQUIRE_BOT_ID", False) else None
+        bot_label = (
+            signal.get("botId")
+            or signal.get("bot_id")
+            or os.getenv("BOT_ID")
+            or os.getenv("BOT_ACCOUNT_ID")
+            or os.getenv("PERSISTENT_BOT_ID")
+            or "KINGSBALFX Bot"
+        )
+        bot_row_ready = _ensure_bot_row(client, bot_uuid, bot_label)
+        record["bot_id"] = bot_uuid if (bot_row_ready or _env_bool("BOT_SIGNAL_REQUIRE_BOT_ID", False)) else None
     if user_uuid:
         record["user_id"] = user_uuid
     if _BOT_SIGNALS_HAS_CREATED_AT:
@@ -341,6 +398,11 @@ def persist_signal_to_supabase(signal: Dict[str, Any]):
         return client.table(table).insert(record).execute()
 
     res = _with_retries(_insert_signal)
+    if res is None and "bot_id" in record and not record.get("bot_id"):
+        bot_row_ready = _ensure_bot_row(client, bot_uuid, os.getenv("BOT_ID") or "KINGSBALFX Bot")
+        if bot_row_ready or _env_bool("BOT_SIGNAL_REQUIRE_BOT_ID", False):
+            record["bot_id"] = bot_uuid
+            res = _with_retries(_insert_signal)
     if res is None and "bot_id" in record and record.get("bot_id"):
         record["bot_id"] = None
         res = _with_retries(_insert_signal)

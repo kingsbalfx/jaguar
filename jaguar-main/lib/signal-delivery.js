@@ -1,12 +1,20 @@
 import crypto from "crypto";
 import { emailLayout, getSmtpStatus, sendLifecycleEmail } from "./mailer";
 import { createInAppNotification } from "./notifications";
-import { BOT_UNLIMITED_LIMIT, PRICING_TIERS, getBotTierDefaults, getPricingTier, normalizeBotLimit } from "./pricing-config";
+import {
+  BOT_UNLIMITED_LIMIT,
+  PRICING_TIERS,
+  getBotTierDefaults,
+  getPricingTier,
+  normalizeBotLimit,
+} from "./pricing-config";
 import { assertSignalDeliveryOpen } from "./signal-gate";
 import { ROLE_RANK, isSubscriptionActive } from "./subscription-status";
 
 const VALID_DIRECTIONS = new Set(["BUY", "SELL"]);
-const VALID_PLANS = new Set(Object.values(PRICING_TIERS).map((tier) => tier.id));
+const VALID_PLANS = new Set(
+  Object.values(PRICING_TIERS).map((tier) => tier.id),
+);
 
 function escapeHtml(value) {
   return String(value || "")
@@ -18,7 +26,9 @@ function escapeHtml(value) {
 }
 
 function cleanPlan(value) {
-  const plan = String(value || "").trim().toLowerCase();
+  const plan = String(value || "")
+    .trim()
+    .toLowerCase();
   return VALID_PLANS.has(plan) ? plan : "";
 }
 
@@ -30,13 +40,17 @@ function cleanNumber(value) {
 
 function cleanUuid(value) {
   const raw = String(value || "").trim();
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw)
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    raw,
+  )
     ? raw.toLowerCase()
     : "";
 }
 
 function deterministicUuid(value) {
-  const seed = String(value || "kingsbalfx-default-bot").trim() || "kingsbalfx-default-bot";
+  const seed =
+    String(value || "kingsbalfx-default-bot").trim() ||
+    "kingsbalfx-default-bot";
   const hex = crypto.createHash("sha256").update(seed).digest("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
@@ -56,35 +70,112 @@ function resolveBotId(payload = {}) {
   return cleanUuid(raw) || deterministicUuid(raw);
 }
 
+function isBotIdInsertError(error) {
+  const text =
+    `${error?.message || ""} ${error?.details || ""} ${error?.hint || ""}`.toLowerCase();
+  return (
+    text.includes("bot_id") &&
+    (text.includes("not-null") ||
+      text.includes("not null") ||
+      text.includes("foreign key") ||
+      text.includes("bot_signals_bot_id_fkey") ||
+      text.includes("not present in table") ||
+      text.includes("violates foreign key constraint"))
+  );
+}
+
+async function ensureBotRow(supabaseAdmin, botId, label = "") {
+  if (!botId) return false;
+
+  const existing = await supabaseAdmin
+    .from("bots")
+    .select("id")
+    .eq("id", botId)
+    .limit(1);
+  if (!existing.error && existing.data?.length) return true;
+  if (
+    existing.error &&
+    /does not exist|schema cache/i.test(existing.error.message || "")
+  )
+    return false;
+
+  const name = String(
+    label ||
+      process.env.BOT_ID ||
+      process.env.DEFAULT_BOT_ID ||
+      "KINGSBALFX Bot",
+  ).trim();
+  const candidates = [
+    { id: botId, name, status: "active" },
+    { id: botId, name },
+    { id: botId, status: "active" },
+    { id: botId },
+  ];
+
+  for (const record of candidates) {
+    const result = await supabaseAdmin
+      .from("bots")
+      .upsert(record, { onConflict: "id" })
+      .select("id")
+      .maybeSingle();
+    if (!result.error) return true;
+  }
+
+  return false;
+}
+
 function cleanSignalPayload(input = {}) {
-  const symbol = String(input.symbol || "").trim().toUpperCase().replace(/[^A-Z0-9._-]/g, "").slice(0, 24);
-  const direction = String(input.direction || "").trim().toUpperCase();
+  const symbol = String(input.symbol || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9._-]/g, "")
+    .slice(0, 24);
+  const direction = String(input.direction || "")
+    .trim()
+    .toUpperCase();
   if (!symbol) throw new Error("symbol is required");
-  if (!VALID_DIRECTIONS.has(direction)) throw new Error("direction must be BUY or SELL");
+  if (!VALID_DIRECTIONS.has(direction))
+    throw new Error("direction must be BUY or SELL");
   const signal = {
     symbol,
     direction,
-    entryPrice: cleanNumber(input.entryPrice ?? input.entry_price ?? input.entry),
+    entryPrice: cleanNumber(
+      input.entryPrice ?? input.entry_price ?? input.entry,
+    ),
     stopLoss: cleanNumber(input.stopLoss ?? input.stop_loss ?? input.sl),
     takeProfit: cleanNumber(input.takeProfit ?? input.take_profit ?? input.tp),
     confidence: cleanNumber(input.confidence),
-    timeframe: String(input.timeframe || input.interval || "").trim().slice(0, 24),
-    strategy: String(input.strategy || input.source || "KINGSBALFX Bot").trim().slice(0, 80),
-    note: String(input.note || input.message || input.reason || "").trim().slice(0, 600),
-    status: String(input.status || "delivered").trim().toLowerCase().slice(0, 40),
+    timeframe: String(input.timeframe || input.interval || "")
+      .trim()
+      .slice(0, 24),
+    strategy: String(input.strategy || input.source || "KINGSBALFX Bot")
+      .trim()
+      .slice(0, 80),
+    note: String(input.note || input.message || input.reason || "")
+      .trim()
+      .slice(0, 600),
+    status: String(input.status || "delivered")
+      .trim()
+      .toLowerCase()
+      .slice(0, 40),
   };
   return signal;
 }
 
 function normalizeTargetPlans({ targetPlans, minTier }) {
-  const requested = Array.isArray(targetPlans) ? targetPlans : String(targetPlans || "").split(",");
+  const requested = Array.isArray(targetPlans)
+    ? targetPlans
+    : String(targetPlans || "").split(",");
   const explicit = requested.map(cleanPlan).filter(Boolean);
   if (explicit.length) return [...new Set(explicit)];
   const minimum = cleanPlan(minTier);
   if (minimum) {
     const minRank = ROLE_RANK[minimum] || 0;
     return Object.values(PRICING_TIERS)
-      .filter((tier) => tier.features?.signals && (ROLE_RANK[tier.id] || 0) >= minRank)
+      .filter(
+        (tier) =>
+          tier.features?.signals && (ROLE_RANK[tier.id] || 0) >= minRank,
+      )
       .map((tier) => tier.id);
   }
   return Object.values(PRICING_TIERS)
@@ -104,7 +195,10 @@ function buildSignalSvg(signal) {
     ["Entry", signal.entryPrice ?? "Market"],
     ["Stop Loss", signal.stopLoss ?? "Managed"],
     ["Take Profit", signal.takeProfit ?? "Managed"],
-    ["Confidence", signal.confidence === null ? "Review" : `${signal.confidence}%`],
+    [
+      "Confidence",
+      signal.confidence === null ? "Review" : `${signal.confidence}%`,
+    ],
   ];
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
   <defs>
@@ -127,13 +221,15 @@ function buildSignalSvg(signal) {
   <rect x="98" y="202" width="230" height="86" rx="18" fill="${sideColor}"/>
   <text x="213" y="257" text-anchor="middle" fill="#ffffff" font-family="Arial" font-size="42" font-weight="900">${signal.direction}</text>
   <text x="370" y="270" fill="#ffffff" font-family="Arial" font-size="82" font-weight="900">${escapeHtml(signal.symbol)}</text>
-  ${rows.map((row, index) => {
-    const x = 98 + (index % 2) * 510;
-    const y = 350 + Math.floor(index / 2) * 112;
-    return `<rect x="${x}" y="${y}" width="456" height="84" rx="18" fill="rgba(255,255,255,0.07)" stroke="rgba(255,255,255,0.1)"/>
+  ${rows
+    .map((row, index) => {
+      const x = 98 + (index % 2) * 510;
+      const y = 350 + Math.floor(index / 2) * 112;
+      return `<rect x="${x}" y="${y}" width="456" height="84" rx="18" fill="rgba(255,255,255,0.07)" stroke="rgba(255,255,255,0.1)"/>
       <text x="${x + 24}" y="${y + 32}" fill="#94a3b8" font-family="Arial" font-size="18">${escapeHtml(row[0])}</text>
       <text x="${x + 24}" y="${y + 64}" fill="#f8fafc" font-family="Arial" font-size="28" font-weight="800">${escapeHtml(row[1])}</text>`;
-  }).join("")}
+    })
+    .join("")}
   <text x="98" y="584" fill="#cbd5e1" font-family="Arial" font-size="18">${escapeHtml(signal.note || "Educational signal. Manage risk carefully; this is not financial advice.")}</text>
   <text x="1102" y="584" text-anchor="end" fill="#64748b" font-family="Arial" font-size="16">${new Date().toLocaleString("en-NG")}</text>
 </svg>`;
@@ -149,9 +245,12 @@ function buildSignalAttachment(signal) {
 }
 
 function buildProvidedImageAttachment(imageData, signal) {
-  const match = String(imageData || "").match(/^data:image\/(png|jpe?g|webp);base64,(.+)$/i);
+  const match = String(imageData || "").match(
+    /^data:image\/(png|jpe?g|webp);base64,(.+)$/i,
+  );
   if (!match) return null;
-  if (imageData.length > 6_500_000) throw new Error("Signal image is too large. Keep screenshots under 6 MB.");
+  if (imageData.length > 6_500_000)
+    throw new Error("Signal image is too large. Keep screenshots under 6 MB.");
   const extension = match[1].toLowerCase().replace("jpeg", "jpg");
   return {
     filename: `KINGSBALFX_${signal.symbol}_${signal.direction}_signal.${extension}`,
@@ -162,19 +261,34 @@ function buildProvidedImageAttachment(imageData, signal) {
 }
 
 async function loadAudience(supabaseAdmin, targetPlans) {
-  const [{ data: profiles, error: profileError }, { data: subscriptions, error: subscriptionError }] = await Promise.all([
-    supabaseAdmin.from("profiles").select("id,email,name,username,role,bot_tier,bot_max_signals_per_day,bot_signal_quality"),
-    supabaseAdmin.from("subscriptions").select("email,plan,status,started_at,ended_at"),
+  const [
+    { data: profiles, error: profileError },
+    { data: subscriptions, error: subscriptionError },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("profiles")
+      .select(
+        "id,email,name,username,role,bot_tier,bot_max_signals_per_day,bot_signal_quality",
+      ),
+    supabaseAdmin
+      .from("subscriptions")
+      .select("email,plan,status,started_at,ended_at"),
   ]);
-  if (profileError) throw new Error(profileError.message || "Unable to load users");
-  if (subscriptionError) throw new Error(subscriptionError.message || "Unable to load subscriptions");
+  if (profileError)
+    throw new Error(profileError.message || "Unable to load users");
+  if (subscriptionError)
+    throw new Error(
+      subscriptionError.message || "Unable to load subscriptions",
+    );
 
   const activeByEmail = new Map();
   for (const subscription of subscriptions || []) {
     if (!isSubscriptionActive(subscription)) continue;
     const plan = cleanPlan(subscription.plan);
     if (!plan) continue;
-    const email = String(subscription.email || "").trim().toLowerCase();
+    const email = String(subscription.email || "")
+      .trim()
+      .toLowerCase();
     const current = activeByEmail.get(email);
     if (!current || (ROLE_RANK[plan] || 0) > (ROLE_RANK[current.plan] || 0)) {
       activeByEmail.set(email, { ...subscription, plan });
@@ -182,25 +296,38 @@ async function loadAudience(supabaseAdmin, targetPlans) {
   }
 
   const targetSet = new Set(targetPlans);
-  return (profiles || []).map((profile) => {
-    const email = String(profile.email || "").trim().toLowerCase();
-    const active = activeByEmail.get(email);
-    const profilePlan = cleanPlan(profile.role);
-    const plan = active?.plan || profilePlan || "free";
-    const tier = getPricingTier(plan) || PRICING_TIERS.FREE;
-    const defaults = getBotTierDefaults(plan);
-    const dailyLimit = normalizeBotLimit(profile.bot_max_signals_per_day, defaults.botMaxSignalsPerDay);
-    return {
-      ...profile,
-      email,
-      plan,
-      tier,
-      dailyLimit,
-      signalQuality: profile.bot_signal_quality || defaults.botSignalQuality,
-      active: Boolean(active) || plan === "free" || String(profile.role || "").toLowerCase() === "admin",
-      eligible: targetSet.has(plan) && Boolean(tier.features?.signals) && dailyLimit > 0,
-    };
-  }).filter((user) => user.email && user.active && user.eligible);
+  return (profiles || [])
+    .map((profile) => {
+      const email = String(profile.email || "")
+        .trim()
+        .toLowerCase();
+      const active = activeByEmail.get(email);
+      const profilePlan = cleanPlan(profile.role);
+      const plan = active?.plan || profilePlan || "free";
+      const tier = getPricingTier(plan) || PRICING_TIERS.FREE;
+      const defaults = getBotTierDefaults(plan);
+      const dailyLimit = normalizeBotLimit(
+        profile.bot_max_signals_per_day,
+        defaults.botMaxSignalsPerDay,
+      );
+      return {
+        ...profile,
+        email,
+        plan,
+        tier,
+        dailyLimit,
+        signalQuality: profile.bot_signal_quality || defaults.botSignalQuality,
+        active:
+          Boolean(active) ||
+          plan === "free" ||
+          String(profile.role || "").toLowerCase() === "admin",
+        eligible:
+          targetSet.has(plan) &&
+          Boolean(tier.features?.signals) &&
+          dailyLimit > 0,
+      };
+    })
+    .filter((user) => user.email && user.active && user.eligible);
 }
 
 function summarizeAudience(users = []) {
@@ -214,14 +341,19 @@ function summarizeAudience(users = []) {
 async function runWithConcurrency(items, limit, worker) {
   const results = [];
   let nextIndex = 0;
-  const workerCount = Math.max(1, Math.min(Number(limit) || 1, items.length || 1));
-  await Promise.all(Array.from({ length: workerCount }, async () => {
-    while (nextIndex < items.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      results[index] = await worker(items[index], index);
-    }
-  }));
+  const workerCount = Math.max(
+    1,
+    Math.min(Number(limit) || 1, items.length || 1),
+  );
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await worker(items[index], index);
+      }
+    }),
+  );
   return results;
 }
 
@@ -237,8 +369,20 @@ async function countDeliveriesToday(supabaseAdmin, userId) {
 
 async function insertMasterSignal(supabaseAdmin, signal, targetPlans, payload) {
   const botId = resolveBotId(payload);
+  const requireBotId =
+    String(process.env.BOT_SIGNAL_REQUIRE_BOT_ID || "").toLowerCase() ===
+    "true";
+  const botRowReady = await ensureBotRow(
+    supabaseAdmin,
+    botId,
+    payload.botId ||
+      payload.bot_id ||
+      payload.raw?.botId ||
+      payload.raw?.bot_id ||
+      signal.strategy,
+  );
   const record = {
-    bot_id: String(process.env.BOT_SIGNAL_REQUIRE_BOT_ID || "").toLowerCase() === "true" ? botId : null,
+    bot_id: botRowReady || requireBotId ? botId : null,
     user_id: null,
     signal: {
       label: `${signal.symbol} ${signal.direction}`,
@@ -255,7 +399,14 @@ async function insertMasterSignal(supabaseAdmin, signal, targetPlans, payload) {
     take_profit: signal.takeProfit,
     signal_quality: targetPlans.join(","),
     confidence: signal.confidence,
-    reason: { ...payload, botId, targetPlans, timeframe: signal.timeframe, strategy: signal.strategy, note: signal.note },
+    reason: {
+      ...payload,
+      botId,
+      targetPlans,
+      timeframe: signal.timeframe,
+      strategy: signal.strategy,
+      note: signal.note,
+    },
     status: signal.status || "delivered",
     created_at: new Date().toISOString(),
   };
@@ -266,10 +417,26 @@ async function insertMasterSignal(supabaseAdmin, signal, targetPlans, payload) {
     .select("id")
     .maybeSingle();
 
+  if (result.error && isBotIdInsertError(result.error) && !record.bot_id) {
+    const readyOnRetry = await ensureBotRow(
+      supabaseAdmin,
+      botId,
+      signal.strategy,
+    );
+    if (readyOnRetry || requireBotId) {
+      result = await supabaseAdmin
+        .from("bot_signals")
+        .insert({ ...record, bot_id: botId })
+        .select("id")
+        .maybeSingle();
+    }
+  }
+
   if (
     result.error &&
-    /bot_id/i.test(String(result.error.message || "")) &&
-    /does not exist|schema cache|column|foreign key|not present/i.test(`${result.error.message || ""} ${result.error.details || ""}`)
+    isBotIdInsertError(result.error) &&
+    record.bot_id &&
+    !requireBotId
   ) {
     const { bot_id: _botId, ...withoutBotId } = record;
     result = await supabaseAdmin
@@ -285,23 +452,51 @@ async function insertMasterSignal(supabaseAdmin, signal, targetPlans, payload) {
 }
 
 function shouldExecuteMt5(payload = {}) {
-  const value = payload.executeMt5 ?? payload.executeOnMt5 ?? payload.mt5Execution ?? payload.execute;
+  const value =
+    payload.executeMt5 ??
+    payload.executeOnMt5 ??
+    payload.mt5Execution ??
+    payload.execute;
   if (value === true) return true;
-  return ["true", "1", "yes", "mt5", "execute"].includes(String(value || "").trim().toLowerCase());
+  return ["true", "1", "yes", "mt5", "execute"].includes(
+    String(value || "")
+      .trim()
+      .toLowerCase(),
+  );
 }
 
-async function forwardSignalToMt5Bot({ signal, signalId, targetPlans, payload }) {
-  if (!shouldExecuteMt5(payload)) return { attempted: false, reason: "not_requested" };
-  const baseUrl = String(process.env.BOT_API_INTERNAL || process.env.BOT_API_URL || "").trim().replace(/\/$/, "");
-  const token = String(process.env.BOT_API_TOKEN || process.env.BOT_SIGNAL_SECRET || process.env.ADMIN_API_KEY || "").trim();
-  if (!baseUrl) return { attempted: true, ok: false, reason: "BOT_API_URL_not_configured" };
-  const endpoint = String(process.env.BOT_EXECUTION_ENDPOINT || `${baseUrl}/signals/execute`).trim();
+async function forwardSignalToMt5Bot({
+  signal,
+  signalId,
+  targetPlans,
+  payload,
+}) {
+  if (!shouldExecuteMt5(payload))
+    return { attempted: false, reason: "not_requested" };
+  const baseUrl = String(
+    process.env.BOT_API_INTERNAL || process.env.BOT_API_URL || "",
+  )
+    .trim()
+    .replace(/\/$/, "");
+  const token = String(
+    process.env.BOT_API_TOKEN ||
+      process.env.BOT_SIGNAL_SECRET ||
+      process.env.ADMIN_API_KEY ||
+      "",
+  ).trim();
+  if (!baseUrl)
+    return { attempted: true, ok: false, reason: "BOT_API_URL_not_configured" };
+  const endpoint = String(
+    process.env.BOT_EXECUTION_ENDPOINT || `${baseUrl}/signals/execute`,
+  ).trim();
   try {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}`, "x-bot-api-token": token } : {}),
+        ...(token
+          ? { Authorization: `Bearer ${token}`, "x-bot-api-token": token }
+          : {}),
       },
       body: JSON.stringify({
         signalId,
@@ -325,10 +520,17 @@ async function forwardSignalToMt5Bot({ signal, signalId, targetPlans, payload })
       status: response.status,
       endpoint,
       data,
-      reason: response.ok ? null : data.error || data.message || "bot_execution_failed",
+      reason: response.ok
+        ? null
+        : data.error || data.message || "bot_execution_failed",
     };
   } catch (error) {
-    return { attempted: true, ok: false, endpoint, reason: error.message || "bot_execution_failed" };
+    return {
+      attempted: true,
+      ok: false,
+      endpoint,
+      reason: error.message || "bot_execution_failed",
+    };
   }
 }
 
@@ -336,13 +538,30 @@ export async function deliverBotSignal({ supabaseAdmin, payload }) {
   if (!supabaseAdmin) throw new Error("Supabase admin client not configured");
   await assertSignalDeliveryOpen(supabaseAdmin);
   const signal = cleanSignalPayload(payload);
-  const targetPlans = normalizeTargetPlans({ targetPlans: payload.targetPlans || payload.plans || payload.plan, minTier: payload.minTier });
+  const targetPlans = normalizeTargetPlans({
+    targetPlans: payload.targetPlans || payload.plans || payload.plan,
+    minTier: payload.minTier,
+  });
   if (!targetPlans.length) throw new Error("No valid target plans selected");
   const audience = await loadAudience(supabaseAdmin, targetPlans);
   const audienceByPlan = summarizeAudience(audience);
-  const signalId = await insertMasterSignal(supabaseAdmin, signal, targetPlans, payload);
-  const mt5Execution = await forwardSignalToMt5Bot({ signal, signalId, targetPlans, payload });
-  const attachment = buildProvidedImageAttachment(payload.imageData || payload.image || payload.screenshot, signal) || buildSignalAttachment(signal);
+  const signalId = await insertMasterSignal(
+    supabaseAdmin,
+    signal,
+    targetPlans,
+    payload,
+  );
+  const mt5Execution = await forwardSignalToMt5Bot({
+    signal,
+    signalId,
+    targetPlans,
+    payload,
+  });
+  const attachment =
+    buildProvidedImageAttachment(
+      payload.imageData || payload.image || payload.screenshot,
+      signal,
+    ) || buildSignalAttachment(signal);
   const subject = `${signal.symbol} ${signal.direction} signal from KINGSBALFX`;
   const body = `${signal.symbol} ${signal.direction} signal: entry ${signal.entryPrice ?? "market"}, SL ${signal.stopLoss ?? "managed"}, TP ${signal.takeProfit ?? "managed"}.`;
   const html = emailLayout(
@@ -359,12 +578,18 @@ export async function deliverBotSignal({ supabaseAdmin, payload }) {
   let notified = 0;
   let skippedQuota = 0;
   const errors = [];
-  const concurrency = Math.min(Math.max(Number(process.env.SIGNAL_EMAIL_CONCURRENCY || 8), 1), 20);
+  const concurrency = Math.min(
+    Math.max(Number(process.env.SIGNAL_EMAIL_CONCURRENCY || 8), 1),
+    20,
+  );
 
   await runWithConcurrency(audience, concurrency, async (user) => {
     try {
       const usedToday = await countDeliveriesToday(supabaseAdmin, user.id);
-      if (usedToday >= user.dailyLimit && user.dailyLimit < BOT_UNLIMITED_LIMIT) {
+      if (
+        usedToday >= user.dailyLimit &&
+        user.dailyLimit < BOT_UNLIMITED_LIMIT
+      ) {
         skippedQuota += 1;
         return;
       }
@@ -397,7 +622,9 @@ export async function deliverBotSignal({ supabaseAdmin, payload }) {
         daily_limit: user.dailyLimit,
         used_today_before: usedToday,
         channel: "email,in_app",
-        status: emailResult.sent ? "sent" : emailResult.reason || "email_not_sent",
+        status: emailResult.sent
+          ? "sent"
+          : emailResult.reason || "email_not_sent",
         delivered_at: new Date().toISOString(),
       });
       notified += 1;
@@ -441,5 +668,9 @@ export async function deliverBotSignal({ supabaseAdmin, payload }) {
 }
 
 export function signalDeliverySqlRequired(error) {
-  return error?.code === "42P01" || error?.code === "42703" || /signal_deliveries/i.test(String(error?.message || ""));
+  return (
+    error?.code === "42P01" ||
+    error?.code === "42703" ||
+    /signal_deliveries/i.test(String(error?.message || ""))
+  );
 }
