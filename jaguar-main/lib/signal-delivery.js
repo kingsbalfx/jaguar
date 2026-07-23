@@ -269,7 +269,7 @@ async function insertMasterSignal(supabaseAdmin, signal, targetPlans, payload) {
   if (
     result.error &&
     /bot_id/i.test(String(result.error.message || "")) &&
-    /does not exist|schema cache|column/i.test(String(result.error.message || ""))
+    /does not exist|schema cache|column|foreign key|not present/i.test(`${result.error.message || ""} ${result.error.details || ""}`)
   ) {
     const { bot_id: _botId, ...withoutBotId } = record;
     result = await supabaseAdmin
@@ -293,7 +293,7 @@ function shouldExecuteMt5(payload = {}) {
 async function forwardSignalToMt5Bot({ signal, signalId, targetPlans, payload }) {
   if (!shouldExecuteMt5(payload)) return { attempted: false, reason: "not_requested" };
   const baseUrl = String(process.env.BOT_API_INTERNAL || process.env.BOT_API_URL || "").trim().replace(/\/$/, "");
-  const token = String(process.env.BOT_API_TOKEN || process.env.ADMIN_API_KEY || "").trim();
+  const token = String(process.env.BOT_API_TOKEN || process.env.BOT_SIGNAL_SECRET || process.env.ADMIN_API_KEY || "").trim();
   if (!baseUrl) return { attempted: true, ok: false, reason: "BOT_API_URL_not_configured" };
   const endpoint = String(process.env.BOT_EXECUTION_ENDPOINT || `${baseUrl}/signals/execute`).trim();
   try {

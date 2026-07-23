@@ -124,8 +124,6 @@ def _evaluate_bullish(result: MACDResult, cross_direction: Optional[str], cross_
 
     # Check timing: crossover must be within window of CHOCH
     if cross_index >= 0:
-        candles_since_cross = len(result.macd_line) - 1 - cross_index  # approximate
-        # We use the length of the data minus cross_index as proxy
         age_from_choch = abs(cross_index - choch_index)
         if age_from_choch > config.MACD_MAX_CANDLES_BEFORE_CHOCH + config.MACD_MAX_CANDLES_AFTER_CHOCH:
             # Crossover too far from CHOCH

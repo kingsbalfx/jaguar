@@ -26,6 +26,7 @@ import logging
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -262,6 +263,35 @@ def _get_peers() -> List[Dict]:
 # ===========================================================================
 # Broadcasting: send signal to all peer accounts
 # ===========================================================================
+def _post_mirror_signal(peer: Dict, signal: Dict, headers: Dict[str, str]) -> Dict:
+    url = f"http://{peer['api_host']}:{peer['api_port']}/api/mirror/signal"
+    try:
+        resp = requests.post(url, headers=headers, json=signal, timeout=MIRROR_API_TIMEOUT)
+        data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+        action = data.get("action", "accepted") if isinstance(data, dict) else "accepted"
+        if resp.ok:
+            return {
+                "login": peer["login"],
+                "success": action in ("accepted", "executed"),
+                "action": action,
+                "reason": data.get("reason") if isinstance(data, dict) else None,
+                "error": None,
+            }
+        return {
+            "login": peer["login"],
+            "success": False,
+            "action": action,
+            "reason": data.get("reason") if isinstance(data, dict) else None,
+            "error": f"HTTP {resp.status_code}: {str(data)[:180]}",
+        }
+    except requests.ConnectionError:
+        return {"login": peer["login"], "success": False, "action": None, "reason": None, "error": "Connection refused"}
+    except requests.Timeout:
+        return {"login": peer["login"], "success": False, "action": None, "reason": None, "error": "Timeout"}
+    except Exception as exc:
+        return {"login": peer["login"], "success": False, "action": None, "reason": None, "error": str(exc)[:180]}
+
+
 def broadcast_signal(signal: Dict) -> List[Dict]:
     """Send mirror signal to all peer accounts via HTTP + Supabase + file.
 
@@ -310,51 +340,34 @@ def broadcast_signal(signal: Dict) -> List[Dict]:
     }
 
     for batch_idx, batch in enumerate(batches):
-        for peer in batch:
-            url = f"http://{peer['api_host']}:{peer['api_port']}/api/mirror/signal"
-            try:
-                resp = requests.post(url, headers=headers, json=signal, timeout=MIRROR_API_TIMEOUT)
-                if resp.ok:
-                    data = resp.json()
-                    results.append({
-                        "login": peer["login"], "success": True,
-                        "action": data.get("action", "accepted"), "error": None,
-                    })
-                else:
-                    results.append({
-                        "login": peer["login"], "success": False,
-                        "action": None, "error": f"HTTP {resp.status_code}",
-                    })
-            except requests.ConnectionError:
-                results.append({
-                    "login": peer["login"], "success": False,
-                    "action": None, "error": "Connection refused",
-                })
-            except requests.Timeout:
-                results.append({
-                    "login": peer["login"], "success": False,
-                    "action": None, "error": "Timeout",
-                })
-            except Exception as exc:
-                results.append({
-                    "login": peer["login"], "success": False,
-                    "action": None, "error": str(exc)[:100],
-                })
+        worker_count = max(1, min(len(batch), MIRROR_BROADCAST_BATCH))
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_results = [
+                executor.submit(_post_mirror_signal, peer, signal, headers)
+                for peer in batch
+            ]
+            for future in as_completed(future_results):
+                results.append(future.result())
 
         if batch_idx < len(batches) - 1 and MIRROR_BROADCAST_DELAY > 0:
             time.sleep(MIRROR_BROADCAST_DELAY)
 
     successful = sum(1 for r in results if r.get("success"))
-    logger.info("[MIRROR] Broadcast complete: %s/%s peers reached | %s %s | strategy=%s",
-                 successful, len(peers), signal["symbol"], signal["direction"],
-                 signal.get("source_strategy", "unknown"))
+    executed = sum(1 for r in results if r.get("action") == "executed")
+    skipped = sum(1 for r in results if r.get("action") == "skipped")
+    logger.info(
+        "[MIRROR] Broadcast complete: reached=%s/%s executed=%s skipped=%s failed=%s | %s %s | strategy=%s",
+        successful, len(peers), executed, skipped, len(peers) - successful,
+        signal["symbol"], signal["direction"], signal.get("source_strategy", "unknown"),
+    )
     if successful < len(peers):
         failed = [r for r in results if not r.get("success")]
         for item in failed[:10]:
             logger.warning(
-                "[MIRROR] Broadcast failed | login=%s action=%s error=%s",
+                "[MIRROR] Broadcast failed | login=%s action=%s reason=%s error=%s",
                 item.get("login"),
                 item.get("action"),
+                item.get("reason"),
                 item.get("error"),
             )
     return results

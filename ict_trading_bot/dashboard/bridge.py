@@ -69,6 +69,27 @@ def _stable_bot_uuid(value: Any):
     return normalized or str(uuid5(NAMESPACE_DNS, raw))
 
 
+def _json_safe(value: Any):
+    """Convert NumPy/pandas/datetime objects into Supabase JSON-safe values."""
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if hasattr(value, "item") and callable(value.item):
+        try:
+            return _json_safe(value.item())
+        except Exception:
+            pass
+    if hasattr(value, "tolist") and callable(value.tolist):
+        try:
+            return _json_safe(value.tolist())
+        except Exception:
+            pass
+    return value
+
+
 def _get_supabase_client():
     global _SUPABASE_CLIENT
     if _SUPABASE_CLIENT:
@@ -197,7 +218,7 @@ def persist_log_to_supabase(event_type: str, payload: Dict[str, Any]):
     if _BOT_LOGS_INSERT_DISABLED:
         return
 
-    payload_value = payload or {}
+    payload_value = _json_safe(payload or {})
     record = {
         "payload": payload_value,
     }
@@ -236,6 +257,7 @@ def persist_signal_to_supabase(signal: Dict[str, Any]):
     if _BOT_SIGNALS_INSERT_DISABLED:
         return True
 
+    signal = _json_safe(signal or {})
     table = os.getenv("BOT_SIGNALS_TABLE", "bot_signals")
     allow_text_bot_id = _env_bool("BOT_SIGNAL_TEXT_BOT_ID", False)
     bot_uuid = (

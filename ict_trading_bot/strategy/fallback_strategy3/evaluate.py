@@ -66,6 +66,11 @@ def evaluate_fallback3(
     risk_perc = risk_percent if risk_percent is not None else config.RISK_PERCENT
     min_rr = minimum_rr if minimum_rr is not None else config.MIN_RR
     
+    if not isinstance(ict_setup, dict):
+        ict_setup = {}
+    if not isinstance(kingsbalfx_setup, dict):
+        kingsbalfx_setup = {}
+
     # Debug: validate inputs before using them
     if not isinstance(ict_setup, dict):
         LOGGER.warning("[%s] FALLBACK3 | ict_setup type=%s value=%s", symbol, type(ict_setup).__name__, ict_setup)
