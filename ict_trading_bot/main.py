@@ -948,14 +948,30 @@ def _manage_open_positions() -> None:
 
 
 def _friday_close() -> None:
+    """
+    Close all non-crypto positions (forex + metals) on Friday evening,
+    matching the New York close (typically 5:00 PM NY time).
+
+    - Crypto pairs are intentionally EXCLUDED (they trade 24/7 through the weekend).
+    - Forex and metals are closed when the NY evening close approaches.
+
+    Default close time is 22:00 UTC (5:00 PM New York / the FX & metals
+    daily close), consistent with `asset_trading_open`.
+    Override via FRIDAY_CLOSE_HOUR_UTC.
+    """
     now = datetime.datetime.now(datetime.timezone.utc)
-    close_hour = int(os.getenv("FRIDAY_CLOSE_HOUR_UTC", "16"))
+    close_hour = int(os.getenv("FRIDAY_CLOSE_HOUR_UTC", "22"))
     if now.weekday() != 4 or now.hour < close_hour:
         return
     for position in get_open_positions() or []:
-        if infer_asset_class(position.get("symbol")) == "crypto" or not position.get("ticket"):
+        symbol = position.get("symbol")
+        if not symbol or not position.get("ticket"):
             continue
-        close_position(position["ticket"], position["symbol"], position.get("direction"), position.get("volume", 0.0))
+        asset_class = infer_asset_class(symbol)
+        # Never close crypto pairs on Friday close (24/7 markets).
+        if asset_class == "crypto":
+            continue
+        close_position(position["ticket"], symbol, position.get("direction"), position.get("volume", 0.0))
 
 
 def _session_force_close() -> None:
@@ -1192,6 +1208,7 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
         # --- END FALLBACK STRATEGY 3 ---
 
         # --- FALLBACK STRATEGY 4 ---
+        _fb4_setup = None
         try:
             from strategy.fallback_strategy4 import evaluate_fallback4 as _evaluate_fallback4
 
@@ -1224,6 +1241,44 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
         except Exception as _fb4_exc:
             LOGGER.warning("[%s] FALLBACK4 | error: %s", symbol, _fb4_exc, exc_info=True)
         # --- END FALLBACK STRATEGY 4 ---
+
+        # --- FALLBACK STRATEGY 5 ---
+        _fb5_tried = False
+        try:
+            from strategy.fallback_strategy5 import evaluate_fallback5 as _evaluate_fallback5
+            
+            _fb5_tried = True
+            _fb5_request, _fb5_setup, _fb5_safety = _evaluate_fallback5(
+                symbol=symbol,
+                direction=direction,
+                analysis=analysis,
+                tick=tick,
+                account=account,
+                positions=positions,
+                mt5_connector=mt5_connector,
+                ict_setup=setup,
+                kingsbalfx_setup=fallback_setup,
+                fallback3_setup=_fb3_setup,
+                fallback4_setup=_fb4_setup if _fb4_setup else None,
+                risk_percent=_risk_percent(),
+                minimum_rr=1.0,
+            )
+            if _fb5_request:
+                LOGGER.info("[%s] FALLBACK5 | valid trade | direction=%s | model=%s | score=%d | rr=%.2f | entry=%.5f",
+                            symbol,
+                            _fb5_setup.get("direction", direction),
+                            _fb5_setup.get("model", "?"),
+                            _fb5_setup.get("score", 0),
+                            _fb5_setup.get("risk_reward", 0),
+                            _fb5_setup.get("entry_price", 0))
+                return _fb5_request, _fb5_setup, _fb5_safety
+            LOGGER.debug("[%s] FALLBACK5 | skip: %s", symbol,
+                         _fb5_setup.get("rejection_reason", "no_valid_setup") if _fb5_setup else "no_setup")
+        except ImportError:
+            LOGGER.debug("[%s] FALLBACK5 | module not available", symbol)
+        except Exception as _fb5_exc:
+            LOGGER.warning("[%s] FALLBACK5 | error: %s", symbol, _fb5_exc, exc_info=True)
+        # --- END FALLBACK STRATEGY 5 ---
 
         return None, fallback_setup, fallback_safety
 
@@ -1293,7 +1348,7 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
     _report_setup(symbol, setup, safety, request)
     if not request:
         bot_log("setup_observed", f"[{symbol}] skipped: {safety.get('reason') or setup.get('reason')}", {"setup": setup, "safety": safety}, persist=False)
-        return {"evaluated": 1, "trades_opened": 0, "errors": 0}
+        return {"evaluated": 1, "trade s_opened": 0, "errors": 0}
 
     positions = get_open_positions() or []
     if len(positions) >= max_trades:
@@ -1325,6 +1380,7 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
         "kingsbalfx": "Kingsbalfx fallback",
         "fallback3": "Fallback 3",
         "fallback4": "Fallback 4",
+        "fallback5": "Fallback 5",
     }
     label = strategy_labels.get(strategy_name, strategy_name)
     bot_log("trade_opened", f"[{symbol}] {label} confirmed and trade opened", payload)

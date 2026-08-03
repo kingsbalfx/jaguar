@@ -32,6 +32,7 @@ export default function BotLogs() {
   const [signalsError, setSignalsError] = useState("");
   const [signalStats, setSignalStats] = useState(null);
   const [generatedSignalStats, setGeneratedSignalStats] = useState(null);
+  const [strategyOutcomeStats, setStrategyOutcomeStats] = useState(null);
   const [signalStatsError, setSignalStatsError] = useState("");
   const [loading, setLoading] = useState(true);
   const [sendingSignal, setSendingSignal] = useState(false);
@@ -98,6 +99,7 @@ export default function BotLogs() {
         setSignalsError(data.signalsError || "");
         setSignalStats(data.signalStats || null);
         setGeneratedSignalStats(data.generatedSignalStats || null);
+        setStrategyOutcomeStats(data.strategyOutcomeStats || null);
         setSignalStatsError(data.signalStatsError || "");
       } catch (e) {
         console.error("Failed to fetch logs:", e);
@@ -211,6 +213,7 @@ export default function BotLogs() {
       setLogs(refreshedData.logs || []);
       setSignalStats(refreshedData.signalStats || null);
       setGeneratedSignalStats(refreshedData.generatedSignalStats || null);
+      setStrategyOutcomeStats(refreshedData.strategyOutcomeStats || null);
       setSignalStatsError(refreshedData.signalStatsError || "");
     } catch (error) {
       setSignalStatus(error.message || "Unable to deliver signal.");
@@ -230,6 +233,46 @@ export default function BotLogs() {
       ))}
     </div>
   );
+
+  const renderStrategyBars = (items = []) => {
+    const maxValue = Math.max(1, ...items.map((item) => Math.max(item.opened || 0, item.takeProfit || 0, item.loss || 0, item.closed || 0)));
+    if (!items.length) {
+      return <div className="rounded border border-white/10 bg-black/20 p-4 text-sm text-gray-400">No strategy outcome data yet. Open trades will appear first; TP/loss bars appear when close/outcome logs are recorded.</div>;
+    }
+    return (
+      <div className="space-y-4">
+        {items.map((item) => (
+          <div key={item.strategy} className="rounded-xl border border-white/10 bg-black/30 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="font-semibold text-white">{item.strategy}</div>
+                <div className="text-xs text-gray-400">
+                  Closed: {item.totalClosed} | Win rate: {(Number(item.winRate || 0) * 100).toFixed(1)}% | Net PnL: {item.netPnl}
+                </div>
+              </div>
+              <div className="text-xs text-gray-400">Opened {item.opened}</div>
+            </div>
+            {[
+              ["Opened", item.opened, "bg-sky-400"],
+              ["Take profit", item.takeProfit, "bg-emerald-400"],
+              ["Loss / SL", item.loss, "bg-red-400"],
+              ["Other closed", item.closed, "bg-amber-300"],
+            ].map(([label, value, color]) => (
+              <div key={label} className="mt-3">
+                <div className="mb-1 flex justify-between text-xs text-gray-300">
+                  <span>{label}</span>
+                  <span>{value}</span>
+                </div>
+                <div className="h-3 overflow-hidden rounded-full bg-white/10">
+                  <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.max(3, (Number(value || 0) / maxValue) * 100)}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   if (loading) return <main className="container mx-auto p-4 sm:p-6">Loading...</main>;
 
@@ -365,6 +408,42 @@ export default function BotLogs() {
               <div className="text-xs text-gray-400">Total pairs</div>
               {renderPairList(generatedSignalStats?.topGeneratedPairsTotal || [])}
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-white/5 rounded-lg p-4 mb-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs uppercase tracking-widest text-purple-200">Strategy Outcome Analytics</div>
+            <h2 className="text-lg font-semibold">Executed strategy logs by open, take profit, and loss</h2>
+            <p className="text-sm text-gray-400">Bars are grouped by the strategy that executed the trade. TP/loss counts require close/outcome logs from the bot.</p>
+          </div>
+          <div className="rounded bg-black/30 px-3 py-2 text-xs text-gray-300">
+            Opened {strategyOutcomeStats?.totals?.opened ?? 0} | TP {strategyOutcomeStats?.totals?.takeProfit ?? 0} | Loss {strategyOutcomeStats?.totals?.loss ?? 0}
+          </div>
+        </div>
+        {renderStrategyBars(strategyOutcomeStats?.strategies || [])}
+        <div className="mt-4 rounded-md border border-white/10 bg-black/30 p-3">
+          <div className="mb-2 text-xs uppercase tracking-widest text-gray-300">Recent strategy outcomes</div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {(strategyOutcomeStats?.recent || []).length === 0 && <div className="text-sm text-gray-400">No recent strategy outcome records yet.</div>}
+            {(strategyOutcomeStats?.recent || []).map((item) => (
+              <div key={item.id} className="flex items-center justify-between gap-3 rounded bg-white/5 px-3 py-2 text-xs">
+                <div>
+                  <div className="font-semibold text-white">{item.strategy}</div>
+                  <div className="text-gray-400">{item.symbol} {item.direction}</div>
+                </div>
+                <div className={
+                  item.outcome === "takeProfit" ? "text-emerald-200" :
+                  item.outcome === "loss" ? "text-red-200" :
+                  item.outcome === "opened" ? "text-sky-200" : "text-amber-200"
+                }>
+                  {item.outcome === "takeProfit" ? "TP" : item.outcome === "loss" ? "Loss" : item.outcome}
+                  {item.pnl !== null ? ` ${item.pnl}` : ""}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>

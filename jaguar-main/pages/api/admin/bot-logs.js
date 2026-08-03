@@ -75,6 +75,106 @@ function buildGeneratedSignalStats(signals = []) {
   };
 }
 
+function normalizeStrategyName(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "Unknown";
+  const labels = {
+    ict_state_machine: "ICT 12-gate",
+    kingsbalfx: "Kingsbalfx",
+    fallback3: "Fallback 3",
+    fallback4: "Fallback 4",
+    fallback5: "Fallback 5",
+    mirror_trade: "Mirror Trade",
+  };
+  const key = raw.toLowerCase();
+  return labels[key] || raw.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function pickStrategy(payload = {}) {
+  return normalizeStrategyName(
+    payload.strategy ||
+    payload.source_strategy ||
+    payload.execution_route ||
+    payload.state_machine?.strategy ||
+    payload.setup?.strategy ||
+    payload.raw?.strategy
+  );
+}
+
+function classifyOutcome(log = {}) {
+  const event = String(log.event || "").toLowerCase();
+  const payload = log.payload || {};
+  const reason = String(payload.outcome || payload.close_reason || payload.reason || payload.status || event).toLowerCase();
+  const profit = Number(payload.profit ?? payload.pnl ?? payload.realized_profit ?? payload.net_profit);
+
+  if (event === "trade_opened" || reason === "open") return "opened";
+  if (/take[_\s-]?profit|\btp\b|target/.test(reason)) return "takeProfit";
+  if (/stop[_\s-]?loss|\bsl\b|loss|stopped/.test(reason)) return "loss";
+  if (/closed|close|exit|settled/.test(event) || /closed|close|exit|settled/.test(reason)) {
+    if (Number.isFinite(profit)) return profit >= 0 ? "takeProfit" : "loss";
+    return "closed";
+  }
+  return null;
+}
+
+function buildStrategyOutcomeStats(logs = []) {
+  const byStrategy = new Map();
+  const recent = [];
+
+  for (const log of logs || []) {
+    const outcome = classifyOutcome(log);
+    if (!outcome) continue;
+    const payload = log.payload || {};
+    const strategy = pickStrategy(payload);
+    const current = byStrategy.get(strategy) || {
+      strategy,
+      opened: 0,
+      takeProfit: 0,
+      loss: 0,
+      closed: 0,
+      totalClosed: 0,
+      netPnl: 0,
+    };
+
+    current[outcome] = (current[outcome] || 0) + 1;
+    if (outcome !== "opened") current.totalClosed += 1;
+    const pnl = Number(payload.profit ?? payload.pnl ?? payload.realized_profit ?? payload.net_profit);
+    if (Number.isFinite(pnl)) current.netPnl += pnl;
+    byStrategy.set(strategy, current);
+
+    recent.push({
+      id: log.id || `${strategy}-${recent.length}`,
+      strategy,
+      outcome,
+      symbol: payload.symbol || payload.raw?.symbol || "UNKNOWN",
+      direction: payload.direction || payload.raw?.direction || "",
+      pnl: Number.isFinite(pnl) ? pnl : null,
+      created_at: log.created_at || null,
+    });
+  }
+
+  const strategies = Array.from(byStrategy.values())
+    .map((item) => ({
+      ...item,
+      winRate: item.totalClosed > 0 ? item.takeProfit / item.totalClosed : 0,
+      netPnl: Number(item.netPnl.toFixed(2)),
+    }))
+    .sort((a, b) => (b.opened + b.totalClosed) - (a.opened + a.totalClosed) || a.strategy.localeCompare(b.strategy));
+
+  return {
+    strategies,
+    totals: strategies.reduce((acc, item) => ({
+      opened: acc.opened + item.opened,
+      takeProfit: acc.takeProfit + item.takeProfit,
+      loss: acc.loss + item.loss,
+      closed: acc.closed + item.closed,
+      totalClosed: acc.totalClosed + item.totalClosed,
+      netPnl: Number((acc.netPnl + item.netPnl).toFixed(2)),
+    }), { opened: 0, takeProfit: 0, loss: 0, closed: 0, totalClosed: 0, netPnl: 0 }),
+    recent: recent.slice(-20).reverse(),
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).end();
 
@@ -144,6 +244,7 @@ export default async function handler(req, res) {
       signalStats: deliveriesError ? null : buildSignalStats(deliveries || []),
       signalStatsError: deliveriesError?.message || null,
       generatedSignalStats: signalsError ? null : buildGeneratedSignalStats(signals || []),
+      strategyOutcomeStats: buildStrategyOutcomeStats(data || []),
     });
   } catch (e) {
     console.error(e);

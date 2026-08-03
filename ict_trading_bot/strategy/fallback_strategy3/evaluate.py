@@ -29,7 +29,7 @@ from .risk import (
 )
 from .signal import generate_fallback3_signal, setup_identity as fb3_identity
 from .state_machine import Fallback3StateMachine
-from .indicators import atr, find_swing_points, sma_values
+from .indicators import atr, find_swing_points, sma_values, _to_float
 
 import logging
 LOGGER = logging.getLogger("fallback3")
@@ -175,6 +175,8 @@ def evaluate_fallback3(
     # STEP 2: Map Liquidity Levels
     # ============================================================
     levels = identify_key_levels(working_candles)
+    # Defensive: `levels` may be None if identify_key_levels fails.
+    levels = levels if isinstance(levels, dict) else {}
     liq_zones = identify_liquidity_zones(levels, trade_direction, price)
     
     if not liq_zones:
@@ -259,15 +261,28 @@ def evaluate_fallback3(
         entry_price = tick.get("ask", price) if trade_direction == "buy" else tick.get("bid", price)
     
     # Stop loss from structure
-    structure_low = (
-        levels.get("protected_low", {}).get("level", liq_level * 0.99) if trade_direction == "buy"
-        else liq_level * 0.99
-    )
-    structure_high = (
-        levels.get("protected_high", {}).get("level", liq_level * 1.01) if trade_direction == "sell"
-        else liq_level * 1.01
-    )
-    
+    # Defensive: `levels` may be None or protected_high/protected_low may be None/non-dict
+    levels = levels if isinstance(levels, dict) else {}
+    protected_low_level = liq_level * 0.99 if liq_level else 0.0
+    _pl = levels.get("protected_low") or {}
+    if isinstance(_pl, dict):
+        _pl_level = _to_float(_pl.get("level"), protected_low_level)
+        if _pl_level and _pl_level > 0:
+            protected_low_level = _pl_level
+    protected_high_level = liq_level * 1.01 if liq_level else 0.0
+    _ph = levels.get("protected_high") or {}
+    if isinstance(_ph, dict):
+        _ph_level = _to_float(_ph.get("level"), protected_high_level)
+        if _ph_level and _ph_level > 0:
+            protected_high_level = _ph_level
+    structure_low = protected_low_level if trade_direction == "buy" else (liq_level * 0.99 if liq_level else 0.0)
+    structure_high = protected_high_level if trade_direction == "sell" else (liq_level * 1.01 if liq_level else 0.0)
+
+    if not liq_level or liq_level <= 0 or not entry_price:
+        return _skip_result("invalid_liquidity_level", {
+            "liq_level": liq_level, "direction": trade_direction,
+        })
+
     sl, risk_dist = calculate_sl(
         entry_price, trade_direction, liq_level,
         structure_low, structure_high, avg_rng, point, spread,
