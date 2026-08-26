@@ -5,6 +5,25 @@ import { activateSubscription } from "../../../lib/subscription-lifecycle";
 import { SUCCESSFUL_PAYMENT_STATUSES, validatePlanPayment } from "../../../lib/payment-amount";
 import { emailLayout, getSmtpStatus, sendEmail, verifySmtpConnection } from "../../../lib/mailer";
 
+const SUBSCRIPTION_STATUSES = new Set(["active", "expired", "cancelled", "canceled", "revoked", "inactive", "pending"]);
+
+function cleanSubscriptionStatus(value, fallback = "active") {
+  const status = String(value || fallback || "active").trim().toLowerCase();
+  return SUBSCRIPTION_STATUSES.has(status) ? status : fallback;
+}
+
+function parseEndedAt(value) {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    const error = new Error("invalid expiration date");
+    error.statusCode = 400;
+    throw error;
+  }
+  return date.toISOString();
+}
+
 async function requireAdmin(req, res) {
   const supabase = createPagesServerClient({ req, res });
   const { data: { session } } = await supabase.auth.getSession();
@@ -54,6 +73,33 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "POST") {
+    if (req.body?.action === "update_expiration") {
+      const email = String(req.body?.email || "").trim().toLowerCase();
+      const plan = String(req.body?.plan || "").trim().toLowerCase();
+      if (!email || !plan) return res.status(400).json({ error: "subscription email and plan required" });
+
+      let endedAt;
+      try {
+        endedAt = parseEndedAt(req.body?.endedAt);
+      } catch (error) {
+        return res.status(error.statusCode || 400).json({ error: error.message || "invalid expiration date" });
+      }
+
+      const payload = {
+        status: cleanSubscriptionStatus(req.body?.status, "active"),
+      };
+      if (endedAt !== undefined) payload.ended_at = endedAt;
+
+      const { error } = await supabaseAdmin
+        .from("subscriptions")
+        .update(payload)
+        .ilike("email", email)
+        .ilike("plan", plan);
+      if (error) return res.status(500).json({ error: error.message || "failed to update subscription" });
+
+      return res.status(200).json({ ok: true });
+    }
+
     if (req.body?.action === "test_email") {
       const verification = await verifySmtpConnection();
       if (!verification.ok) {

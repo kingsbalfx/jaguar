@@ -11,6 +11,7 @@ const ROLE_OPTIONS = ["user", "premium", "vip", "pro", "lifetime", "admin"];
 const SEGMENT_FILTERS = ["all", "user", "premium", "vip", "pro", "lifetime", "admin"];
 const QUALITY_OPTIONS = ["none", "sample", "basic", "standard", "academy", "premium", "vip", "pro", "lifetime", "elite"];
 const TRADING_PROFILE_OPTIONS = ["aggressive", "balanced", "conservative"];
+const SUBSCRIPTION_STATUS_OPTIONS = ["active", "expired", "cancelled", "revoked", "inactive", "pending"];
 const ROLE_TO_TIER = {
   user: "FREE",
   premium: "PREMIUM",
@@ -46,6 +47,34 @@ function formatLimit(value) {
   return String(value ?? 0);
 }
 
+function formatDateTimeLocal(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60 * 1000);
+  return local.toISOString().slice(0, 16);
+}
+
+function extendDate(value, days) {
+  const base = value && new Date(value) > new Date() ? new Date(value) : new Date();
+  base.setDate(base.getDate() + days);
+  return base.toISOString();
+}
+
+function getPlanLabel(plan) {
+  const tier = PRICING_TIERS[String(plan || "").toUpperCase()];
+  return tier?.displayName || String(plan || "user").toUpperCase();
+}
+
+function getExpiryTone(user) {
+  if (!user.endedAt) return "text-emerald-300";
+  const diff = new Date(user.endedAt).getTime() - Date.now();
+  if (diff <= 0) return "text-red-300";
+  if (diff <= 7 * 24 * 60 * 60 * 1000) return "text-amber-300";
+  return "text-emerald-300";
+}
+
 function userWithTierDefaults(user, tierValue = user?.bot_tier || getTierKeyForRole(user?.role)) {
   const defaults = getBotTierDefaults(tierValue);
   return {
@@ -58,6 +87,9 @@ function userWithTierDefaults(user, tierValue = user?.bot_tier || getTierKeyForR
 }
 
 function buildUserPayload(user) {
+  const role = String(user.role || "user").toLowerCase();
+  const paidRole = ["premium", "vip", "pro", "lifetime"].includes(role);
+  const currentStatus = String(user.planStatus || "").toLowerCase();
   return {
     id: user.id,
     role: user.role,
@@ -67,6 +99,12 @@ function buildUserPayload(user) {
     botMaxConcurrentTrades: normalizeBotLimit(user.bot_max_concurrent_trades, 0),
     botSignalQuality: user.bot_signal_quality || "none",
     tradingProfile: user.trading_profile || "balanced",
+    subscriptionEndedAt: user.endedAt === undefined ? undefined : user.endedAt,
+    subscriptionStatus: paidRole && (!currentStatus || currentStatus === "none" || currentStatus === "inactive")
+      ? "active"
+      : currentStatus === "none"
+        ? "inactive"
+        : user.planStatus || (paidRole ? "active" : "inactive"),
   };
 }
 
@@ -115,6 +153,25 @@ export default function Users() {
     () => users.filter((user) => (user.role || "user") === groupDraft.role).length,
     [users, groupDraft.role]
   );
+
+  const summary = useMemo(() => {
+    const now = Date.now();
+    return users.reduce(
+      (acc, user) => {
+        const role = String(user.role || "user").toLowerCase();
+        const statusValue = String(user.planStatus || "").toLowerCase();
+        const endedAt = user.endedAt ? new Date(user.endedAt).getTime() : null;
+        acc.total += 1;
+        if (role === "admin") acc.admin += 1;
+        else if (role === "user" || role === "free") acc.free += 1;
+        if (statusValue === "active") acc.active += 1;
+        if (statusValue === "expired" || (endedAt && endedAt <= now)) acc.expired += 1;
+        if (endedAt && endedAt > now && endedAt <= now + 7 * 24 * 60 * 60 * 1000) acc.expiringSoon += 1;
+        return acc;
+      },
+      { total: 0, active: 0, expiringSoon: 0, expired: 0, free: 0, admin: 0 }
+    );
+  }, [users]);
 
   const patchUser = (userId, patch) => {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, ...patch } : u)));
@@ -206,7 +263,7 @@ export default function Users() {
           >
             {SEGMENT_FILTERS.map((seg) => (
               <option key={seg} value={seg}>
-                {seg.toUpperCase()}
+                {seg === "all" ? "ALL" : getPlanLabel(seg)}
               </option>
             ))}
           </select>
@@ -220,6 +277,23 @@ export default function Users() {
       </div>
 
       {loading && <div className="mt-3 text-sm text-gray-400">Loading users...</div>}
+
+      <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        {[
+          ["Total users", summary.total, "All registered accounts"],
+          ["Active plans", summary.active, "Can access paid areas"],
+          ["Expiring soon", summary.expiringSoon, "Within 7 days"],
+          ["Expired", summary.expired, "Needs renewal or edit"],
+          ["Free tier", summary.free, "Intro access"],
+          ["Admins", summary.admin, "Control accounts"],
+        ].map(([label, value, hint]) => (
+          <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 shadow-lg shadow-black/20">
+            <div className="text-xs uppercase tracking-wide text-gray-400">{label}</div>
+            <div className="mt-2 text-2xl font-bold text-white">{value}</div>
+            <div className="mt-1 text-xs text-gray-500">{hint}</div>
+          </div>
+        ))}
+      </section>
 
       <section className="mt-6 card p-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -249,7 +323,7 @@ export default function Users() {
             >
               {ROLE_OPTIONS.filter((role) => role !== "admin").map((role) => (
                 <option key={role} value={role}>
-                  {role.toUpperCase()}
+                  {getPlanLabel(role)}
                 </option>
               ))}
             </select>
@@ -349,7 +423,7 @@ export default function Users() {
                   </div>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-8">
                   <label className="text-xs text-gray-400">
                     Role
                     <select
@@ -364,12 +438,14 @@ export default function Users() {
                           bot_max_signals_per_day: defaults.botMaxSignalsPerDay,
                           bot_max_concurrent_trades: defaults.botMaxConcurrentTrades,
                           bot_signal_quality: defaults.botSignalQuality,
+                          planStatus: ["premium", "vip", "pro", "lifetime"].includes(next) ? "active" : "inactive",
+                          endedAt: next === "lifetime" ? null : ["premium", "vip", "pro"].includes(next) ? extendDate(null, 30) : null,
                         });
                       }}
                     >
                       {ROLE_OPTIONS.map((role) => (
                         <option key={role} value={role}>
-                          {role.toUpperCase()}
+                          {getPlanLabel(role)}
                         </option>
                       ))}
                     </select>
@@ -387,6 +463,29 @@ export default function Users() {
                         </option>
                       ))}
                     </select>
+                  </label>
+                  <label className="text-xs text-gray-400">
+                    Plan status
+                    <select
+                      className="mt-1 w-full rounded-md bg-black/40 border border-white/10 px-3 py-2 text-sm text-white"
+                      value={user.planStatus === "none" ? "inactive" : user.planStatus || "active"}
+                      onChange={(e) => patchUser(user.id, { planStatus: e.target.value })}
+                    >
+                      {SUBSCRIPTION_STATUS_OPTIONS.map((statusOption) => (
+                        <option key={statusOption} value={statusOption}>
+                          {statusOption.toUpperCase()}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-xs text-gray-400">
+                    Expiration day
+                    <input
+                      type="datetime-local"
+                      className={`mt-1 w-full rounded-md bg-black/40 border border-white/10 px-3 py-2 text-sm text-white ${getExpiryTone(user)}`}
+                      value={formatDateTimeLocal(user.endedAt)}
+                      onChange={(e) => patchUser(user.id, { endedAt: e.target.value || null })}
+                    />
                   </label>
                   <label className="text-xs text-gray-400">
                     Signals/day
@@ -452,6 +551,13 @@ export default function Users() {
                       Tier defaults
                     </button>
                     <button
+                      onClick={() => updateUser(user, { endedAt: extendDate(user.endedAt, 30), planStatus: "active" })}
+                      disabled={savingId === user.id}
+                      className="px-3 py-2 rounded-md bg-cyan-600/80 text-xs text-white disabled:opacity-60"
+                    >
+                      +30 days
+                    </button>
+                    <button
                       onClick={() => updateUser(user)}
                       disabled={savingId === user.id}
                       className="px-4 py-2 rounded-md bg-emerald-600 text-white text-sm disabled:opacity-60"
@@ -466,6 +572,9 @@ export default function Users() {
                 {tags.length === 0 && (
                   <span className="text-xs text-gray-400">No active features.</span>
                 )}
+                <span className={`text-xs px-2 py-1 rounded-md bg-white/10 ${getExpiryTone(user)}`}>
+                  {getPlanLabel(user.plan)} expires: {user.endedAt ? new Date(user.endedAt).toLocaleString() : "No expiry"}
+                </span>
                 {tags.map((tag) => (
                   <span key={tag} className="text-xs px-2 py-1 rounded-md bg-white/10 text-gray-200">
                     {tag}

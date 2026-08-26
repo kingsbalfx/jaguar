@@ -33,6 +33,20 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
+# Lazy import guard: the macro rule engine must not hard-fail the mirror system
+# if this module is used before Supabase wiring is present.
+try:  # pragma: no cover - optional coupling
+    from macro_rule_engine import get_rule_engine as _get_rule_engine
+
+    def _macro_gate(symbol: str, direction: str):
+        return _get_rule_engine().validate_trade_against_rule(symbol, direction)
+except Exception:  # pragma: no cover - keep mirror importable standalone
+    def _macro_gate(symbol: str, direction: str):
+        # Fail-open on import problems: mirror is a secondary path; authoritative
+        # gating is done on the leader side. We simply forward the signal.
+        return {"approved": True, "reason": "macro_gate_unavailable"}
+
+
 logger = logging.getLogger(__name__)
 
 # ===========================================================================
@@ -509,6 +523,32 @@ def process_mirror_signal(signal: Dict) -> Dict:
 
     logger.info("[MIRROR] Processing: %s %s | strategy=%s | source=%s",
                  symbol, direction.upper(), source_strategy, source_login)
+
+    # ---- STRICT DAILY MACRO RULE GATE (mirror receiving side) ----
+    # Even on a follower account, no trade should open if today's macro rule
+    # forbids the direction. This keeps Fallback 3 / Fallback 5 (and every other
+    # leader strategy) consistent with the broker-side gate in main.py.
+    if os.getenv("MACRO_RULE_ENABLED", "true").lower() in ("1", "true", "yes", "on"):
+        try:
+            macro_check = _macro_gate(symbol, direction.upper())
+            if not macro_check.get("approved"):
+                reason = macro_check.get("reason") or "macro_rule_blocked"
+                logger.warning(
+                    "[MIRROR] Macro gate BLOCKED: %s %s | strategy=%s | reason=%s",
+                    symbol, direction.upper(), source_strategy, reason,
+                )
+                return {"action": "skipped", "reason": f"macro_rule_blocked:{reason}",
+                        "symbol": symbol, "direction": direction,
+                        "source_strategy": source_strategy,
+                        "signal_id": signal.get("signal_id", "")}
+        except Exception as macro_exc:
+            logger.warning("[MIRROR] Macro gate error (fail closed): %s", macro_exc)
+            return {"action": "skipped",
+                    "reason": f"macro_rule_error:{macro_exc}",
+                    "symbol": symbol, "direction": direction,
+                    "source_strategy": source_strategy,
+                    "signal_id": signal.get("signal_id", "")}
+    # ---- END STRICT DAILY MACRO RULE GATE ----
 
     try:
         import MetaTrader5 as mt5

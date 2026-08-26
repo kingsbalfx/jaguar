@@ -868,5 +868,50 @@
     "created_at": "2026-08-05T18:10:13.605169Z",
     "expires_at": 1785953713.6051798,
     "bot_id": "bot_acc_2"
+  },
+  {
+    "signal_id": "MIRROR_4485839_BNB_sell_1787480260579_6862",
+    "type": "mirror_trade",
+    "symbol": "BNB",
+    "direction": "sell",
+    "entry_price": 689.4,
+    "stop_loss": 694.6959999999999,
+    "take_profit": 676.6,
+    "source_login": "4485839",
+    "source_strategy": "kingsbalfx",
+    "reason": "trade_executed_kingsbalfx",
+    "created_at": "2026-08-23T10:17:40.579434Z",
+    "expires_at": 1787480560.5794501,
+    "bot_id": "bot_acc_2"
+  },
+  {
+    "signal_id": "MIRROR_4485839_BCH_sell_1787500998609_a8a3",
+    "type": "mirror_trade",
+    "symbol": "BCH",
+    "direction": "sell",
+    "entry_price": 274.5,
+    "stop_loss": 278.498,
+    "take_profit": 269.1,
+    "source_login": "4485839",
+    "source_strategy": "kingsbalfx",
+    "reason": "trade_executed_kingsbalfx",
+    "created_at": "2026-08-23T16:03:18.609779Z",
+    "expires_at": 1787501298.6097949,
+    "bot_id": "bot_acc_2"
+  },
+  {
+    "signal_id": "MIRROR_4485839_BTC_buy_1787517218538_a1d6",
+    "type": "mirror_trade",
+    "symbol": "BTC",
+    "direction": "buy",
+    "entry_price": 77349.73,
+    "stop_loss": 77046.146,
+    "take_profit": 77757.77,
+    "source_login": "4485839",
+    "source_strategy": "kingsbalfx",
+    "reason": "trade_executed_kingsbalfx",
+    "created_at": "2026-08-23T20:33:38.538907Z",
+    "expires_at": 1787517518.5389178,
+    "bot_id": "bot_acc_2"
   }
 ]

@@ -11,6 +11,7 @@ const USER_SELECT_EXT = `${USER_SELECT_BASE},trading_profile`;
 
 const BOT_QUALITY_OPTIONS = new Set(["none", "sample", "basic", "standard", "academy", "premium", "vip", "pro", "lifetime", "elite"]);
 const PAID_ROLES = new Set(["premium", "vip", "pro", "lifetime"]);
+const SUBSCRIPTION_STATUSES = new Set(["active", "expired", "cancelled", "canceled", "revoked", "inactive", "pending"]);
 
 function cleanBotTier(value) {
   return String(value || "free").trim().toLowerCase();
@@ -21,18 +22,65 @@ function cleanBotQuality(value, fallback = "none") {
   return BOT_QUALITY_OPTIONS.has(quality) ? quality : fallback;
 }
 
-async function syncSubscriptionForRole(supabaseAdmin, { id, role }) {
+function cleanSubscriptionStatus(value, fallback = "active") {
+  const status = String(value || fallback || "active").trim().toLowerCase();
+  return SUBSCRIPTION_STATUSES.has(status) ? status : fallback;
+}
+
+function parseSubscriptionEndedAt(value) {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    const error = new Error("invalid subscription expiration date");
+    error.statusCode = 400;
+    throw error;
+  }
+  return date.toISOString();
+}
+
+async function loadProfileIdentity(supabaseAdmin, id) {
+  const { data: profile, error } = await supabaseAdmin
+    .from("profiles")
+    .select("email,role")
+    .eq("id", id)
+    .maybeSingle();
+  if (error || !profile?.email) return null;
+  return {
+    email: String(profile.email).trim().toLowerCase(),
+    role: String(profile.role || "user").trim().toLowerCase(),
+  };
+}
+
+async function loadBestSubscription(supabaseAdmin, email) {
+  const { data } = await supabaseAdmin
+    .from("subscriptions")
+    .select("email,plan,status,started_at,ended_at")
+    .ilike("email", email)
+    .order("started_at", { ascending: false });
+  let best = null;
+  (data || []).forEach((sub) => {
+    if (!best) {
+      best = sub;
+      return;
+    }
+    if (isSubscriptionActive(sub) && !isSubscriptionActive(best)) {
+      best = sub;
+      return;
+    }
+    if ((sub.started_at || "") > (best.started_at || "")) best = sub;
+  });
+  return best;
+}
+
+async function syncSubscriptionForRole(supabaseAdmin, { id, role, endedAt, status }) {
   const normalizedRole = String(role || "").trim().toLowerCase();
   if (!normalizedRole) return;
 
-  const { data: profile, error: profileError } = await supabaseAdmin
-    .from("profiles")
-    .select("email")
-    .eq("id", id)
-    .maybeSingle();
-  if (profileError || !profile?.email) return;
+  const identity = await loadProfileIdentity(supabaseAdmin, id);
+  if (!identity?.email) return;
 
-  const email = String(profile.email).trim().toLowerCase();
+  const email = identity.email;
   const now = new Date();
 
   if (!PAID_ROLES.has(normalizedRole)) {
@@ -47,9 +95,9 @@ async function syncSubscriptionForRole(supabaseAdmin, { id, role }) {
   const payload = {
     email,
     plan: normalizedRole,
-    status: "active",
+    status: cleanSubscriptionStatus(status, "active"),
     started_at: now.toISOString(),
-    ended_at: subscriptionEndDate(normalizedRole, now),
+    ended_at: endedAt !== undefined ? endedAt : subscriptionEndDate(normalizedRole, now),
   };
 
   const existing = await supabaseAdmin
@@ -80,6 +128,69 @@ async function syncSubscriptionForRole(supabaseAdmin, { id, role }) {
   if (insert.error?.code === "42703" || String(insert.error?.message || "").toLowerCase().includes("column")) {
     await supabaseAdmin.from("subscriptions").insert({ email, plan: normalizedRole, status: "active" });
   }
+}
+
+async function updateSubscriptionFields(supabaseAdmin, { id, role, endedAt, status }) {
+  const identity = await loadProfileIdentity(supabaseAdmin, id);
+  if (!identity?.email) return null;
+  const normalizedRole = String(role || identity.role || "").trim().toLowerCase();
+  const bestSubscription = await loadBestSubscription(supabaseAdmin, identity.email);
+  const targetPlan = PAID_ROLES.has(normalizedRole)
+    ? normalizedRole
+    : String(bestSubscription?.plan || "").trim().toLowerCase();
+  if (!targetPlan) return null;
+
+  const payload = {
+    status: status !== undefined
+      ? cleanSubscriptionStatus(status, "active")
+      : endedAt && new Date(endedAt) <= new Date()
+        ? "expired"
+        : "active",
+  };
+  if (endedAt !== undefined) payload.ended_at = endedAt;
+
+  const existing = await supabaseAdmin
+    .from("subscriptions")
+    .select("email,plan")
+    .ilike("email", identity.email)
+    .ilike("plan", targetPlan)
+    .limit(1);
+  if (existing.error) throw existing.error;
+
+  if (existing.data?.[0]) {
+    const update = await supabaseAdmin
+      .from("subscriptions")
+      .update(payload)
+      .ilike("email", identity.email)
+      .ilike("plan", targetPlan);
+    if (update.error) throw update.error;
+  } else {
+    const insert = await supabaseAdmin.from("subscriptions").insert({
+      email: identity.email,
+      plan: targetPlan,
+      started_at: new Date().toISOString(),
+      ...payload,
+    });
+    if (insert.error) throw insert.error;
+  }
+
+  return loadBestSubscription(supabaseAdmin, identity.email);
+}
+
+function decorateUserWithSubscription(profile, subscription) {
+  return {
+    ...profile,
+    plan: subscription?.plan || profile.role || "user",
+    planStatus: subscription
+      ? isSubscriptionActive(subscription)
+        ? "active"
+        : subscription.status === "active"
+          ? "expired"
+          : subscription.status
+      : "none",
+    startedAt: subscription?.started_at || null,
+    endedAt: subscription?.ended_at || null,
+  };
 }
 
 async function requireAdmin(req, res) {
@@ -206,6 +317,8 @@ export default async function handler(req, res) {
       botSignalQuality,
       applyTierDefaults,
       tradingProfile,
+      subscriptionEndedAt,
+      subscriptionStatus,
     } = req.body || {};
     if (!id) return res.status(400).json({ error: "user id required" });
 
@@ -248,10 +361,17 @@ export default async function handler(req, res) {
       updates.bot_tier_updated_at = new Date().toISOString();
     }
 
+    let parsedEndedAt;
+    try {
+      parsedEndedAt = parseSubscriptionEndedAt(subscriptionEndedAt);
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ error: err.message || "invalid subscription expiration date" });
+    }
+
     // Use extended select when available; fall back if trading_profile column isn't migrated yet.
     let data = null;
     let error = null;
-    {
+    if (Object.keys(updates).length > 0) {
       const resUpdate = await supabaseAdmin
         .from("profiles")
         .update(updates)
@@ -260,24 +380,61 @@ export default async function handler(req, res) {
         .maybeSingle();
       data = resUpdate.data || null;
       error = resUpdate.error || null;
+    } else {
+      const resProfile = await supabaseAdmin
+        .from("profiles")
+        .select(USER_SELECT_EXT)
+        .eq("id", id)
+        .maybeSingle();
+      data = resProfile.data || null;
+      error = resProfile.error || null;
     }
 
     if (error && error.code === "42703") {
       const cleaned = { ...updates };
       delete cleaned.trading_profile;
-      const resUpdate = await supabaseAdmin
-        .from("profiles")
-        .update(cleaned)
-        .eq("id", id)
-        .select(USER_SELECT_BASE)
-        .maybeSingle();
+      const resUpdate = Object.keys(cleaned).length > 0
+        ? await supabaseAdmin
+            .from("profiles")
+            .update(cleaned)
+            .eq("id", id)
+            .select(USER_SELECT_BASE)
+            .maybeSingle()
+        : await supabaseAdmin
+            .from("profiles")
+            .select(USER_SELECT_BASE)
+            .eq("id", id)
+            .maybeSingle();
       data = resUpdate.data || null;
       error = resUpdate.error || null;
     }
 
     if (error) return res.status(500).json({ error: error.message || "failed to update user" });
-    if (role) await syncSubscriptionForRole(supabaseAdmin, { id, role });
-    return res.status(200).json({ user: data });
+    const hasSubscriptionPatch = parsedEndedAt !== undefined || subscriptionStatus !== undefined;
+    let subscription = null;
+    try {
+      if (role) {
+        await syncSubscriptionForRole(supabaseAdmin, {
+          id,
+          role,
+          endedAt: parsedEndedAt,
+          status: subscriptionStatus,
+        });
+      } else if (hasSubscriptionPatch) {
+        subscription = await updateSubscriptionFields(supabaseAdmin, {
+          id,
+          endedAt: parsedEndedAt,
+          status: subscriptionStatus,
+        });
+      }
+      if (!subscription && data?.email) {
+        subscription = await loadBestSubscription(supabaseAdmin, String(data.email).trim().toLowerCase());
+      }
+    } catch (err) {
+      return res.status(500).json({ error: err.message || "failed to update subscription expiration" });
+    }
+
+    return res.status(200).json({ user: decorateUserWithSubscription(data, subscription) });
   }
 
   return res.status(405).json({ error: "Method not allowed" });

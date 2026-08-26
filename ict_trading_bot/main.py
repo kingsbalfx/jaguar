@@ -49,6 +49,7 @@ from utils.logger import bot_log
 from utils.sessions import asset_trading_open, friday_entry_allowed, in_london_session, in_newyork_session
 from utils.symbol_profile import infer_asset_class
 from utils.user_profiles import get_profile_max_trades, get_user_profile
+from macro_rule_engine import get_rule_engine, MacroRuleEngine
 
 
 load_dotenv()
@@ -1336,6 +1337,9 @@ def _evaluate_symbol_safe(symbol: str, account: dict, positions: list) -> dict:
         }
 
 
+_macro_approved: dict = {}
+
+
 def _process_scan_result(result: dict, max_trades: int) -> dict:
     symbol = result["symbol"]
     if result["error"]:
@@ -1348,12 +1352,47 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
     _report_setup(symbol, setup, safety, request)
     if not request:
         bot_log("setup_observed", f"[{symbol}] skipped: {safety.get('reason') or setup.get('reason')}", {"setup": setup, "safety": safety}, persist=False)
-        return {"evaluated": 1, "trade s_opened": 0, "errors": 0}
+        return {"evaluated": 1, "trades_opened": 0, "errors": 0}
 
     positions = get_open_positions() or []
     if len(positions) >= max_trades:
         _console_skip(symbol, "max_open_trades_reached_before_execution", {"open_positions": len(positions), "max_trades": max_trades})
         return {"evaluated": 1, "trades_opened": 0, "errors": 0}
+
+    # ---- STRICT DAILY MACRO RULE GATE (replaces technical strategy approval) ----
+    # Every trade proposed by ANY strategy (ICT, Kingsbalfx, Fallback 3/4/5, mirror)
+    # must pass today's macro/fundamental rule before reaching the broker.
+    # Fails closed: missing rule / network error => no trade.
+    if _truthy("MACRO_RULE_ENABLED", "true"):
+        try:
+            macro_check = get_rule_engine().validate_trade_against_rule(
+                symbol=request["symbol"],
+                proposed_direction=str(request["direction"]).upper(),
+            )
+            if not macro_check.get("approved"):
+                reason = macro_check.get("reason") or "macro_rule_blocked"
+                _console_skip(symbol, "MACRO_RULE_BLOCK", {
+                    "reason": reason,
+                    "allowed": macro_check.get("allowed_direction"),
+                    "attempted": macro_check.get("attempted_direction"),
+                })
+                bot_log("macro_rule_blocked",
+                        f"[{symbol}] trade blocked by daily macro rule: {reason}",
+                        {"symbol": symbol, "reason": reason,
+                         "allowed_direction": macro_check.get("allowed_direction"),
+                         "attempted_direction": macro_check.get("attempted_direction")},
+                        persist=False)
+                return {"evaluated": 1, "trades_opened": 0, "errors": 0}
+            _macro_approved[request["symbol"]] = macro_check
+        except Exception as macro_exc:
+            # Fail closed: never place a trade if the macro gate errors out.
+            _console_skip(symbol, "MACRO_RULE_ERROR", {"error": str(macro_exc)})
+            bot_log("macro_rule_error",
+                    f"[{symbol}] macro rule gate errored (fail closed): {macro_exc}",
+                    {"symbol": symbol, "error": str(macro_exc)}, persist=False)
+            return {"evaluated": 1, "trades_opened": 0, "errors": 0}
+    # ---- END STRICT DAILY MACRO RULE GATE ----
+
     strategy_name = request.get("strategy") or "ict_state_machine"
     trade = execute_trade(
         request["symbol"],
@@ -1369,6 +1408,18 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
         _console_skip(symbol, "broker_rejected_or_failed_market_order", request)
         return {"evaluated": 1, "trades_opened": 0, "errors": 0}
     register_trade(symbol, request["identity"])
+
+    # Attach the real MT5 ticket to the macro rule audit trail (best-effort).
+    try:
+        _macro_approved.pop(symbol, None)
+        get_rule_engine().record_execution_ticket(
+            symbol=request["symbol"],
+            proposed_direction=str(request["direction"]).upper(),
+            mt5_ticket=int(trade["ticket"] if isinstance(trade, dict) and trade.get("ticket") else 0),
+        )
+    except Exception:
+        pass
+
     payload = {**request, "state_machine": setup, "status": "open"}
     delivery = _deliver_signal_to_website(payload)
     if not delivery.get("accepted") and delivery.get("fallback_allowed"):
