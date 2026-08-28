@@ -23,7 +23,7 @@ from .indicators import (
     _to_float, find_swing_points,
 )
 from .trend import get_protected_levels, BULLISH, BEARISH
-from .logging import log_setup_scan
+from .fb5_logging import log_setup_scan
 
 
 def evaluate_model_a(

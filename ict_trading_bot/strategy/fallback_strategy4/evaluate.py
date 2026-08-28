@@ -29,7 +29,7 @@ from .risk import (
     calculate_position_size, calculate_sl_tp, check_spread_allowed,
 )
 from .signal import generate_fallback4_signal, setup_identity
-from .logging import log_fallback4_result
+from .fb4_logging import log_fallback4_result
 
 # Reuse Fallback 3 indicators
 from strategy.fallback_strategy3.indicators import atr as _atr, sma, macd

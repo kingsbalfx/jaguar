@@ -13,7 +13,7 @@ from typing import Dict, Optional, Any
 from . import config
 from .indicators import atr, _to_float
 from .daily_stats import DailyStatsTracker, get_stats
-from .logging import log_management_action
+from .fb5_logging import log_management_action
 
 
 def manage_active_position(

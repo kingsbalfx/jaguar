@@ -1,6 +1,8 @@
 import { getPricingTier } from "./pricing-config.js";
 import { emailLayout, sendLifecycleEmail } from "./mailer.js";
 import { normalizePaymentAmount } from "./payment-amount.js";
+import { buildSubscriptionReceipt } from "./subscription-receipt.js";
+import { createUserNotification } from "./user-notifications.js";
 
 export function subscriptionEndDate(plan, startedAt = new Date()) {
   const tier = getPricingTier(plan);
@@ -138,19 +140,56 @@ export async function activateSubscription({ supabaseAdmin, email, plan, amount,
 
   const tier = getPricingTier(normalizedPlan);
   const expiryText = endedAt ? ` Your access is active until ${new Date(endedAt).toLocaleDateString("en-NG")}.` : "";
+  const receipt = buildSubscriptionReceipt({
+    email: normalizedEmail,
+    plan: normalizedPlan,
+    amount: normalizedAmount,
+    currency: "NGN",
+    reference: normalizedReference,
+    startedAt,
+    endedAt,
+  });
+  const receiptInsert = await supabaseAdmin.from("subscription_receipts").insert({
+    receipt_id: receipt.receiptId,
+    email: normalizedEmail,
+    plan: normalizedPlan,
+    amount: normalizedAmount,
+    currency: "NGN",
+    payment_reference: normalizedReference,
+    started_at: startedAt,
+    ended_at: endedAt,
+    issued_at: receipt.payload.issuedAt,
+    signature: receipt.signature,
+    payload: receipt.payload,
+  });
+  if (receiptInsert.error && receiptInsert.error.code !== "23505") {
+    console.warn("Subscription receipt audit insert failed:", receiptInsert.error.message);
+  }
+
   await sendLifecycleEmail({
     supabaseAdmin,
     email: normalizedEmail,
     type: "subscription_activated",
-    dedupeKey: `subscription_activated:${normalizedEmail}:${normalizedPlan}:${startedAt.slice(0, 10)}`,
+    dedupeKey: `subscription_activated:${normalizedEmail}:${normalizedPlan}:${normalizedReference || startedAt.slice(0, 10)}`,
     subject: `${tier?.displayName || normalizedPlan} subscription activated`,
-    text: `Your KINGSBALFX ${tier?.displayName || normalizedPlan} subscription is active.${expiryText}`,
+    text: `Your KINGSBALFX ${tier?.displayName || normalizedPlan} subscription is active.${expiryText} Receipt: ${receipt.receiptId}.`,
     html: emailLayout(
       "Subscription activated",
-      `<p>Your <strong>${tier?.displayName || normalizedPlan}</strong> access is now active.${expiryText}</p>`,
+      `<p>Your <strong>${tier?.displayName || normalizedPlan}</strong> access is now active.${expiryText}</p><p>Your official KINGSBALFX receipt is attached with original stamp and signature: <strong>${receipt.receiptId}</strong>.</p>`,
       "Open dashboard",
       `/dashboard/${normalizedPlan}`,
     ),
+    attachments: [receipt.attachment],
+  });
+  await createUserNotification({
+    supabaseAdmin,
+    userId,
+    email: normalizedEmail,
+    type: "subscription_activated",
+    dedupeKey: `inapp_subscription_activated:${normalizedEmail}:${normalizedPlan}:${normalizedReference || startedAt.slice(0, 10)}`,
+    title: `${tier?.displayName || normalizedPlan} subscription activated`,
+    body: `Your KINGSBALFX access is active.${expiryText} Receipt: ${receipt.receiptId}.`,
+    link: `/dashboard/${normalizedPlan}`,
   });
   return { active: true, repaired: Boolean(existingActivation?.id), startedAt, endedAt };
 }

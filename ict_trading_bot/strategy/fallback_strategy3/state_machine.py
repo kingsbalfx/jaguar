@@ -12,7 +12,7 @@ from .models import (
     FallbackSetupResult, SweepResult, CHOCHResult, MACDResult, SMAResult,
     ConsolidationResult, EntryZoneResult, make_state,
 )
-from . import logging as fb3_logger
+from . import fb3_logging as fb3_logger
 
 
 class Fallback3StateMachine:

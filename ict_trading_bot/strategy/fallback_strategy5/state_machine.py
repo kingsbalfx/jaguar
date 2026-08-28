@@ -14,7 +14,7 @@ F5_REENTRY_SCAN → (F5_TREND_CONFIRMED / F5_SESSION_CLOSED / F5_SYMBOL_PAUSED /
 from typing import List, Optional, Dict, Any
 
 from . import config
-from .logging import log_state_transition
+from .fb5_logging import log_state_transition
 from .session import is_session_open, is_in_sleep, is_entry_cutoff
 
 

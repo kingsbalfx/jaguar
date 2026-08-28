@@ -3,6 +3,11 @@ FALLBACK STRATEGY 4 - Logging
 ===============================
 Structured logging for Fallback 4 analysis steps.
 Generates detailed log lines compatible with the existing bot logging system.
+
+NOTE: This module was renamed from ``logging.py`` to ``fb4_logging.py`` because a
+package-local ``logging.py`` shadowed the Python standard-library ``logging``
+module (``import logging`` resolved to this file, breaking ``logging.getLogger``).
+Keeping the stdlib name clear lets every other module use ``import logging`` safely.
 """
 
 import logging

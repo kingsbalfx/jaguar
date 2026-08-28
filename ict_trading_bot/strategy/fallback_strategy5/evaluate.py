@@ -23,7 +23,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import config
-from .logging import (
+from .fb5_logging import (
     LOGGER, log_activation, log_skip, log_trend_analysis,
     log_setup_scan, log_trade_open, log_entry_event, log_exception,
 )

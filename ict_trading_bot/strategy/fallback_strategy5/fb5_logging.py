@@ -2,6 +2,11 @@
 FALLBACK STRATEGY 5 — Structured Logging
 ===========================================
 Detailed logging for every analysis step, trade event, and state transition.
+
+NOTE: This module was renamed from ``logging.py`` to ``fb5_logging.py`` because a
+package-local ``logging.py`` shadowed the Python standard-library ``logging``
+module (``import logging`` resolved to this file, breaking ``logging.getLogger``).
+Keeping the stdlib name clear lets every other module use ``import logging`` safely.
 """
 
 import logging

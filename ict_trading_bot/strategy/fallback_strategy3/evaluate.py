@@ -10,7 +10,8 @@ the entire sequence of analysis steps.
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import config
-from . import logging as fb3_logger
+
+from . import fb3_logging as fb3_logger
 from .models import (
     FallbackSetupResult, SweepResult, CHOCHResult, MACDResult, SMAResult,
     ConsolidationResult, EntryZoneResult, make_state,

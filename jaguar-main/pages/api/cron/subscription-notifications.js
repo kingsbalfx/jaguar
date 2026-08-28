@@ -1,6 +1,7 @@
 import { getSupabaseClient } from "../../../lib/supabaseClient";
 import { emailLayout, sendLifecycleEmail } from "../../../lib/mailer";
 import { getPricingTier } from "../../../lib/pricing-config";
+import { createUserNotification } from "../../../lib/user-notifications";
 
 export default async function handler(req, res) {
   const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
@@ -22,6 +23,7 @@ export default async function handler(req, res) {
 
   let warnings = 0;
   let expired = 0;
+  let inAppNotifications = 0;
   const failures = [];
   for (const subscription of data || []) {
     const endDate = new Date(subscription.ended_at);
@@ -40,6 +42,16 @@ export default async function handler(req, res) {
       });
       if (result.sent || result.reason === "already_sent") expired += 1;
       else failures.push({ email: subscription.email, type: "expired", reason: result.reason, details: result.details || null });
+      const notification = await createUserNotification({
+        supabaseAdmin,
+        email: subscription.email,
+        type: "subscription_expired",
+        dedupeKey: `inapp_subscription_expired:${subscription.email}:${subscription.plan}:${subscription.ended_at}`,
+        title: "Your KINGSBALFX subscription has expired",
+        body: `Your ${tier?.displayName || subscription.plan} subscription expired on ${dateLabel}. Renew to restore access.`,
+        link: `/checkout?plan=${subscription.plan}`,
+      });
+      if (notification.notified) inAppNotifications += 1;
     } else {
       const result = await sendLifecycleEmail({
         supabaseAdmin,
@@ -52,7 +64,17 @@ export default async function handler(req, res) {
       });
       if (result.sent || result.reason === "already_sent") warnings += 1;
       else failures.push({ email: subscription.email, type: "warning", reason: result.reason, details: result.details || null });
+      const notification = await createUserNotification({
+        supabaseAdmin,
+        email: subscription.email,
+        type: "subscription_expiry_warning",
+        dedupeKey: `inapp_subscription_expiry_warning:${subscription.email}:${subscription.plan}:${subscription.ended_at}`,
+        title: "Your subscription expires soon",
+        body: `Your ${tier?.displayName || subscription.plan} subscription expires on ${dateLabel}. Renew early so access does not stop.`,
+        link: `/checkout?plan=${subscription.plan}`,
+      });
+      if (notification.notified) inAppNotifications += 1;
     }
   }
-  return res.status(failures.length ? 207 : 200).json({ ok: failures.length === 0, warnings, expired, failures });
+  return res.status(failures.length ? 207 : 200).json({ ok: failures.length === 0, warnings, expired, inAppNotifications, failures });
 }

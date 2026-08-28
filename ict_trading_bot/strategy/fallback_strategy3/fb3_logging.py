@@ -2,6 +2,11 @@
 FALLBACK STRATEGY 3 - Logging
 ===============================
 Structured logging for Fallback 3 analysis steps.
+
+NOTE: This module was renamed from ``logging.py`` to ``fb3_logging.py`` because a
+package-local ``logging.py`` shadowed the Python standard-library ``logging``
+module (``import logging`` resolved to this file, breaking ``logging.getLogger``).
+Keeping the stdlib name clear lets every other module use ``import logging`` safely.
 """
 
 import logging

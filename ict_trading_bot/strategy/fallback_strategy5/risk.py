@@ -12,7 +12,7 @@ from typing import Optional, Tuple, Dict, Any
 
 from . import config
 from .daily_stats import DailyStatsTracker
-from .logging import log_skip
+from .fb5_logging import log_skip
 
 
 # In-memory symbol pause tracking

@@ -16,7 +16,7 @@ from .indicators import (
     ema, ema_values, atr, find_swing_points,
     ema_slope, ema_alignment, adx, _to_float,
 )
-from .logging import log_trend_analysis
+from .fb5_logging import log_trend_analysis
 
 
 # Trend direction constants
