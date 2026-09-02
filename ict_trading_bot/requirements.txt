@@ -17,6 +17,12 @@ waitress>=3.0.0
 requests>=2.31.0
 python-dotenv>=1.0.0
 
+# Macro / Fundamental News Engine (finnhub.py + macro_rule_engine.py)
+# finnhub  -> live market/forex/crypto news
+# google-genai -> Google Gemini model calls + optional Google Search grounding
+finnhub>=2.4.0
+google-genai>=1.0.0
+
 # Real-time & Websockets
 websockets>=11.0.0
 
@@ -44,3 +50,4 @@ python-json-logger>=2.0.7
 black>=23.0.0
 flake8>=6.0.0
 mypy>=1.5.0
+

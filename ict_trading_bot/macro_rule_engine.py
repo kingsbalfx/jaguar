@@ -26,15 +26,22 @@ The engine is deterministic and defensive: if Finnhub, Ollama, Supabase, or the
 rule row is unavailable, it FAILS CLOSED (returns ``approved=False``) so a trade
 is never placed on a missing/stale macro directive.
 
+``MACRO_RULE_ALLOW_BY_DEFAULT`` (default ``true``) relaxes the strict fail-closed
+gating for the *absence of a per-symbol rule* (e.g. no news available for that
+pair on a given day). When a symbol has no today-rule, the engine records
+``no_macro_rule_allowed_by_policy`` and lets the rest of the stack proceed, so the
+bot can still execute on pure technicals when the broker / data / risk are ready.
+
 Environment variables used (see OUTPUT section of the request):
     FINNHUB_API_KEY
     SUPABASE_URL
     SUPABASE_SERVICE_KEY
-    OLLAMA_HOST        (default http://localhost:11434)
-    OLLAMA_MODEL       (default deepseek-r1:8b)
-
-Target symbols are read from the bot's own symbol universe (SYMBOLS env /
-TradingPairs), mirroring how the rest of the bot discovers what to trade.
+    GEMINI_API_KEY            (Google Gemini; used when set)
+    GEMINI_MODEL              (default gemini-2.5-flash)
+    GEMINI_USE_GROUNDING      (default false; enables Google Search tool)
+    OLLAMA_HOST               (default http://localhost:11434)   [fallback]
+    OLLAMA_MODEL              (default deepseek-r1:8b)
+    MACRO_RULE_ALLOW_BY_DEFAULT (default true)
 """
 
 from __future__ import annotations
@@ -106,6 +113,16 @@ def _env_int(name: str, default: int) -> int:
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _allow_by_default() -> bool:
+    """True when a missing per-symbol rule should NOT block the trade.
+
+    Controlled by ``MACRO_RULE_ALLOW_BY_DEFAULT`` (default ``true``). When the
+    macro rule fetch produced no rule for a symbol (e.g. no news that day), this
+    lets the bot proceed on technicals instead of failing closed.
+    """
+    return _env_truthy("MACRO_RULE_ALLOW_BY_DEFAULT", True)
 
 
 # ----------------------------------------------------------------------------
@@ -346,6 +363,83 @@ def _ollama_generate(prompt: str, timeout: float = 90.0) -> str:
     data = resp.json()
     return str(data.get("response") or "")
 
+
+# ----------------------------------------------------------------------------
+# Google Gemini (genai) reasoning
+# ----------------------------------------------------------------------------
+def _gemini_model() -> str:
+    return _env("GEMINI_MODEL") or "gemini-2.5-flash"
+
+
+def _gemini_generate(prompt: str, timeout: float = 90.0) -> str:
+    """Send a prompt to Google Gemini and return the raw response text.
+
+    Uses the official ``google-genai`` SDK. If ``GEMINI_USE_GROUNDING`` is set to
+    ``true``, the Google Search tool is enabled so the model can pull live web
+    results rather than relying only on the supplied Finnhub news body.
+    """
+    api_key = _env("GEMINI_API_KEY")
+    if not api_key:
+        logger.error("macro_rule_engine: GEMINI_API_KEY not set")
+        return ""
+
+    from google import genai  # lazy import so Ollama-only setups still work
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key)
+
+    # Structured JSON output schema (forced by Gemini when response_mime_type=json).
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema={
+            "type": "OBJECT",
+            "properties": {
+                "allowed_direction": {"type": "STRING"},
+                "rule": {"type": "STRING"},
+                "risk_note": {"type": "STRING"},
+            },
+            "required": ["allowed_direction", "rule", "risk_note"],
+        },
+    )
+
+    # Optional live Google Search grounding.
+    if _env_truthy("GEMINI_USE_GROUNDING"):
+        config.tools = [types.Tool(google_search={})]
+
+    response = client.models.generate_content(
+        model=_gemini_model(),
+        contents=prompt,
+        config=config,
+        timeout=timeout,
+    )
+    text = getattr(response, "text", "") or ""
+    if not text and response and getattr(response, "candidates", None):
+        try:
+            text = response.candidates[0].content.parts[0].text or ""
+        except Exception:
+            text = ""
+    return text
+
+
+def _env_truthy(name: str, default: bool = False) -> bool:
+    val = os.getenv(name, "").strip().lower()
+    return val in ("1", "true", "yes", "on") if val else default
+
+
+def _llm_generate(prompt: str, timeout: float = 90.0) -> str:
+    """Prefer Google Gemini when configured, otherwise fall back to local Ollama.
+
+    Returns the raw LLM text (a strict JSON object string).
+    """
+    if _env("GEMINI_API_KEY"):
+        try:
+            raw = _gemini_generate(prompt, timeout=timeout)
+            if raw:
+                return raw
+        except Exception as exc:
+            logger.warning("macro_rule_engine: Gemini generation failed, falling back to Ollama: %s", exc)
+    return _ollama_generate(prompt, timeout=timeout)
+
 # ===============================================================================
 # Prompt templates
 # ===============================================================================
@@ -487,7 +581,16 @@ class MacroRuleEngine:
                 asset_class = _asset_class(symbol)
                 news_items = _finnhub_news(symbol, asset_class)
                 if not news_items:
-                    # Fail closed: no news -> no trade directive.
+                    # No fresh news for this symbol today.
+                    if _allow_by_default():
+                        # Policy: allow the trade on technicals. Do NOT write a
+                        # restrictive NO_TRADE row, so the gate passes by default.
+                        logger.info(
+                            "macro_rule_engine: no macro news for %s; allowed-by-policy",
+                            symbol.upper(),
+                        )
+                        continue
+                    # Strict fail-closed: no news -> no trade directive.
                     rule = {
                         "allowed_direction": "NO_TRADE",
                         "rule": f"IF no fresh actionable fundamental news for {symbol.upper()} THEN NO_TRADE.",
@@ -503,10 +606,10 @@ class MacroRuleEngine:
                         news_body=news_body,
                     )
                     try:
-                        raw = _ollama_generate(prompt)
+                        raw = _llm_generate(prompt)
                         parsed = _extract_json(raw)
                     except Exception as exc:
-                        logger.error("macro_rule_engine: Ollama failed for %s: %s", symbol, exc)
+                        logger.error("macro_rule_engine: LLM failed for %s: %s", symbol, exc)
                         parsed = None
 
                     if not parsed or parsed.get("allowed_direction") not in _ALLOWED_DIRECTIONS:
@@ -547,6 +650,7 @@ class MacroRuleEngine:
                     "strict_rule_text": record["strict_rule_text"],
                     "rule_date": today,
                 })
+
 
             except Exception as exc:
                 logger.exception("macro_rule_engine: error processing %s", symbol)
@@ -598,6 +702,7 @@ class MacroRuleEngine:
         # --- Fail-closed preconditions ----------------------------------------
         if proposed not in _ALLOWED_DIRECTIONS or proposed == "NO_TRADE":
             return self._audit_and_return(
+
                 client, norm_symbol, asset_class, proposed,
                 rule={}, approved=False, mt5_ticket=None,
                 reason=f"proposed_direction_invalid:{proposed}", executed=False,
@@ -620,6 +725,14 @@ class MacroRuleEngine:
         allowed = allowed.upper()
 
         if not rule:
+            if _allow_by_default():
+                # No today-rule (e.g. no news) and policy permits: proceed on
+                # technicals. The broker/data/risk stack remains the final judge.
+                return self._audit_and_return(
+                    client, norm_symbol, asset_class, proposed,
+                    rule={}, approved=True, mt5_ticket=None,
+                    reason="no_macro_rule_allowed_by_policy", executed=False,
+                )
             return self._audit_and_return(
                 client, norm_symbol, asset_class, proposed,
                 rule={}, approved=False, mt5_ticket=None,

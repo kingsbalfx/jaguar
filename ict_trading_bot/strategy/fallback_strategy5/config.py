@@ -90,8 +90,7 @@ EXECUTION_TIMEFRAME: str = "M1"   # Precision execution timing
 
 # ============================================================
 # EMA Trend Filter
-# ============================================================
-EMA_FAST: int = int(os.getenv("FALLBACK5_EMA_FAST", "20"))
+ EMA_FAST: int = int(os.getenv("FALLBACK5_EMA_FAST", "20"))
 EMA_MEDIUM: int = int(os.getenv("FALLBACK5_EMA_MEDIUM", "50"))
 EMA_SLOW: int = int(os.getenv("FALLBACK5_EMA_SLOW", "200"))
 
