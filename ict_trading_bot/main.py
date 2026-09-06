@@ -18,6 +18,7 @@ from bot_state import consume_restart_request, is_running, set_connection, updat
 from config.symbol_mappings import candidates_for
 from config.smt_correlations import correlated_markets
 from config.trading_pairs import TradingPairs
+from config.credentials import get_supabase_credentials, has_supabase_credentials, prompt_for_supabase_credentials
 from dashboard.bridge import persist_account_snapshot_to_supabase, persist_signal_to_supabase, push_trade
 import execution.mt5_connector as mt5_connector
 from execution.mt5_connector import (
@@ -1471,6 +1472,30 @@ def run_bot() -> None:
     # If multi-account parent, launch children and exit
     if _launch_multi_account_children():
         return
+    
+    # Load Supabase credentials from local storage if env vars not set
+    # This checks ~/.ict_trading_bot/credentials.json and falls back to .env
+    from config.credentials import load_credentials, set_supabase_credentials
+    
+    # Try to load from env first
+    env_url = os.getenv("SUPABASE_URL")
+    env_key = os.getenv("SUPABASE_KEY")
+    
+    if not env_url or not env_key:
+        # Try to load from local credentials
+        local_creds = load_credentials()
+        local_url = local_creds.get("supabase_url")
+        local_key = local_creds.get("supabase_key")
+        
+        if local_url and local_key:
+            # Use local credentials
+            os.environ["SUPABASE_URL"] = local_url
+            os.environ["SUPABASE_KEY"] = local_key
+            LOGGER.info("✅ Loaded Supabase credentials from local storage")
+        elif os.getenv("MULTI_ACCOUNT_CHILD") != "true":
+            # Only prompt parent process (not children)
+            LOGGER.info("⚠️  No Supabase credentials found. Starting in local-only mode.")
+            LOGGER.info("   Run 'configure_credentials.py' to set up Supabase cloud persistence.")
     
     # Single account mode or child process
     login_display = os.getenv("MT5_ACCOUNT_LOGIN", "unknown")[:8]

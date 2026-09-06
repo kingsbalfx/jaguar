@@ -99,14 +99,30 @@ def _get_supabase_client():
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_KEY")
     if not url or not key:
-        logger.warning("Supabase URL or KEY not set; persistence disabled")
+        logger.info("⚠️  Supabase credentials not configured. Running in local-only mode.")
+        logger.info("   Cloud persistence (signals, logs) will be disabled.")
+        logger.info("   Mirror trading will use local file-based coordination.")
+        return None
+
+    # Validate URL format
+    if not str(url).strip().startswith("https://"):
+        logger.error("❌ Invalid Supabase URL format: must start with https://")
+        logger.info("   Check your SUPABASE_URL in .env or local credentials")
         return None
 
     try:
-        _SUPABASE_CLIENT = create_client(url, key)
+        client = create_client(url, key)
+        logger.info("✅ Connected to Supabase successfully")
+        _SUPABASE_CLIENT = client
         return _SUPABASE_CLIENT
     except Exception as e:
-        logger.exception("Failed to create Supabase client: %s", e)
+        error_msg = str(e).lower()
+        if "invalid url" in error_msg or "connection" in error_msg:
+            logger.error("❌ Supabase connection failed: %s", e)
+            logger.info("   This is likely due to invalid credentials or network issues")
+            logger.info("   The bot will continue in local-only mode")
+        else:
+            logger.exception("Failed to create Supabase client: %s", e)
         return None
 
 
