@@ -26,11 +26,20 @@ import json
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
-import finnhub
+# Optional SDKs: the bot degrades to the REST implementation in
+# ``fundamentals.news_feed`` when these packages are not installed, so the
+# Finnhub + Gemini feed keeps working in every deployment.
+try:  # pragma: no cover - depends on the installed environment
+    import finnhub
+except Exception:  # pragma: no cover
+    finnhub = None
 
-# Google Generative AI (genai) SDK
-from google import genai
-from google.genai import types as genai_types
+try:  # pragma: no cover - depends on the installed environment
+    from google import genai
+    from google.genai import types as genai_types
+except Exception:  # pragma: no cover
+    genai = None
+    genai_types = None
 
 MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
@@ -39,9 +48,9 @@ _NEWS_CACHE: Dict[str, Dict[str, Any]] = {}
 _NEWS_CACHE_TTL = int(os.getenv("MACRO_NEWS_CACHE_TTL", "300"))
 
 
-def _finnhub_client() -> Optional[finnhub.Client]:
+def _finnhub_client() -> Optional["finnhub.Client"]:
     key = (os.getenv("FINNHUB_API_KEY") or "").strip()
-    if not key:
+    if not key or finnhub is None:
         return None
     try:
         return finnhub.Client(api_key=key)
@@ -51,7 +60,7 @@ def _finnhub_client() -> Optional[finnhub.Client]:
 
 def _gemini_client() -> Optional["genai.Client"]:
     key = (os.getenv("GEMINI_API_KEY") or "").strip()
-    if not key:
+    if not key or genai is None:
         return None
     try:
         return genai.Client(api_key=key)
@@ -66,7 +75,22 @@ def get_finnhub_news(category: str = "general", max_items: int = 5) -> List[Dict
     """Fetch live headlines + summaries from Finnhub. Empty list on any failure."""
     client = _finnhub_client()
     if client is None:
-        return []
+        # REST fallback: keeps the feed alive without the finnhub SDK.
+        try:
+            from fundamentals.news_feed import fetch_headlines
+
+            headlines = fetch_headlines(category, max_items=max_items)
+            return [
+                {
+                    "headline": item.get("headline", ""),
+                    "summary": item.get("summary", ""),
+                    "url": item.get("url", ""),
+                    "datetime": item.get("datetime"),
+                }
+                for item in headlines
+            ]
+        except Exception:
+            return []
     try:
         items = client.general_news(category, min_id=0)
         out = []
@@ -118,19 +142,23 @@ def _infer_asset_class(symbol: str) -> str:
 # ----------------------------------------------------------------------------
 # 2. Gemini AI breakdown + strict direction signal
 # ----------------------------------------------------------------------------
-_CONFIDENCE_SCHEMA = genai_types.Schema(
-    type="OBJECT",
-    properties={
-        "market_direction": genai_types.Schema(
-            type="STRING",
-            enum=["BUY", "SELL", "NO_TRADE"],
-        ),
-        "confidence": genai_types.Schema(type="NUMBER"),
-        "key_sentiment": genai_types.Schema(type="STRING"),
-        "executive_breakdown": genai_types.Schema(type="STRING"),
-        "impact_analysis": genai_types.Schema(type="STRING"),
-    },
-    required=["market_direction", "confidence", "key_sentiment"],
+_CONFIDENCE_SCHEMA = (
+    genai_types.Schema(
+        type="OBJECT",
+        properties={
+            "market_direction": genai_types.Schema(
+                type="STRING",
+                enum=["BUY", "SELL", "NO_TRADE"],
+            ),
+            "confidence": genai_types.Schema(type="NUMBER"),
+            "key_sentiment": genai_types.Schema(type="STRING"),
+            "executive_breakdown": genai_types.Schema(type="STRING"),
+            "impact_analysis": genai_types.Schema(type="STRING"),
+        },
+        required=["market_direction", "confidence", "key_sentiment"],
+    )
+    if genai_types is not None
+    else None
 )
 
 
@@ -169,6 +197,16 @@ def analyze_market(symbol: str, news_data: List[Dict[str, str]]) -> Dict[str, An
 
     client = _gemini_client()
     if client is None:
+        # REST fallback: same Gemini prompt, no google-genai SDK required.
+        try:
+            from fundamentals.news_feed import gemini_breakdown
+
+            rest_result = gemini_breakdown(symbol, news_data)
+            if rest_result:
+                rest_result.setdefault("impact_analysis", "neutral")
+                return rest_result
+        except Exception:
+            pass
         return {
             "market_direction": "NO_TRADE",
             "confidence": 0.0,
@@ -216,8 +254,8 @@ def analyze_market(symbol: str, news_data: List[Dict[str, str]]) -> Dict[str, An
 def fetch_live_web_breakdown(topic: str = "Forex market news today") -> str:
     """Bypass static data; auto-search Google live in real-time via Gemini."""
     client = _gemini_client()
-    if client is None:
-        return "GEMINI_API_KEY not configured."
+    if client is None or genai_types is None:
+        return "Gemini SDK not available: install 'google-genai' or use fundamentals.news_feed."
     try:
         config = genai_types.GenerateContentConfig(
             tools=[{"google_search": {}}],  # enables Google Search tool

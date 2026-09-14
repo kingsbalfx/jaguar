@@ -31,7 +31,10 @@ from .session import (
     is_session_open, is_in_sleep, classify_session, current_session_name,
     get_session_timestamps,
 )
-from .symbol_gate import resolve_symbol, is_allowed_symbol, get_symbol_profile
+from .symbol_gate import (
+    resolve_symbol, resolve_broker_symbol, is_allowed_symbol, get_symbol_profile,
+    symbol_gate_reason, universe_snapshot,
+)
 from .indicators import atr, signal_to_direction, estimate_point, _to_float
 from .trend import classify_trend, trend_supports_direction, BULLISH, BEARISH, NEUTRAL, STRONG, MODERATE
 from .model_a import evaluate_model_a
@@ -105,12 +108,15 @@ def evaluate_fallback5(
     })
 
     # ----------------------------------------------------------
-    # Symbol gate
+    # Symbol gate — only symbols that exist in the live MT5 universe
     # ----------------------------------------------------------
     canonical_symbol = resolve_symbol(symbol)
     if not canonical_symbol:
-        log_skip(symbol, "symbol_not_allowed", {"symbol": symbol})
-        return _skip_result(f"symbol_not_allowed:{symbol}", symbol=symbol)
+        gate_reason = symbol_gate_reason(symbol)
+        log_skip(symbol, gate_reason, {"symbol": symbol, "gate": universe_snapshot()})
+        return _skip_result(f"{gate_reason}:{symbol}", symbol=symbol)
+
+    broker_symbol = resolve_broker_symbol(symbol)
 
     profile = get_symbol_profile(canonical_symbol)
 
@@ -190,7 +196,7 @@ def evaluate_fallback5(
     # ----------------------------------------------------------
     # News filter
     # ----------------------------------------------------------
-    news_ok, news_reason = news_allows_trade(symbol)
+    news_ok, news_reason = news_allows_trade(symbol, direction=resolved_dir)
     if not news_ok:
         log_skip(symbol, f"news_block:{news_reason}")
         return _skip_result(f"news:{news_reason}", failed_stage="news_check", symbol=symbol)
@@ -390,7 +396,7 @@ def evaluate_fallback5(
     # Generate signal
     # ----------------------------------------------------------
     request = generate_fallback5_signal(
-        symbol=canonical_symbol,
+        symbol=broker_symbol or canonical_symbol,
         direction=resolved_dir,
         model=best_model_name,
         entry_price=entry_price,
@@ -406,6 +412,9 @@ def evaluate_fallback5(
             "atr": atr_value,
             "profile": profile,
             "mode": mode,
+            "canonical_symbol": canonical_symbol,
+            "broker_symbol": broker_symbol,
+            "symbol_source": "mt5",
         },
         base_risk=base_risk_pct,
         active_risk=active_risk_pct,

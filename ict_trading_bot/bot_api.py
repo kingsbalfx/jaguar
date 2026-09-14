@@ -189,6 +189,189 @@ def restart():
     return jsonify({"result": "restart requested"})
 
 
+# ============================================================================
+# ADMIN: credentials + integrations (locally insert / save / test)
+# ============================================================================
+@app.route("/admin/credentials", methods=["GET"])
+def admin_credentials_status():
+    """Masked status of every credential the bot resolves at runtime."""
+    denied = _require_auth()
+    if denied:
+        return denied
+
+    payload = {"supabase": {}, "news_feed": {}, "mt5_universe": {}, "mirror": {}}
+    try:
+        from config.supabase_credentials import credential_status
+
+        payload["supabase"] = credential_status()
+    except Exception as exc:
+        payload["supabase"] = {"error": str(exc)}
+
+    try:
+        from fundamentals.news_feed import news_feed_status
+
+        payload["news_feed"] = news_feed_status()
+    except Exception as exc:
+        payload["news_feed"] = {"error": str(exc)}
+
+    try:
+        from config.mt5_universe import universe_snapshot
+
+        payload["mt5_universe"] = universe_snapshot()
+    except Exception as exc:
+        payload["mt5_universe"] = {"error": str(exc)}
+
+    try:
+        import risk.mirror_trading as mirror
+
+        payload["mirror"] = {
+            "enabled": mirror.MIRROR_ENABLED,
+            "auto_open": mirror.MIRROR_AUTO_OPEN,
+            "risk_percent": mirror.MIRROR_RISK_PERCENT,
+            "supabase_table": mirror.MIRROR_SUPABASE_TABLE,
+        }
+    except Exception as exc:
+        payload["mirror"] = {"error": str(exc)}
+
+    return jsonify(payload)
+
+
+@app.route("/admin/credentials/test", methods=["POST"])
+def admin_credentials_test():
+    """Test Supabase connectivity with supplied or already stored credentials."""
+    denied = _require_auth()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    try:
+        from config.supabase_credentials import test_supabase_connection
+
+        result = test_supabase_connection(
+            url=data.get("supabase_url"),
+            key=data.get("supabase_key") or data.get("supabase_service_key"),
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+    return jsonify(result), (200 if result.get("ok") else 400)
+
+
+@app.route("/admin/credentials", methods=["POST"])
+def admin_credentials_save():
+    """Insert/save credentials locally (Supabase, MT5, mirror settings).
+
+    Body (any subset)::
+
+        {
+          "supabase_url": "https://xyz.supabase.co",
+          "supabase_key": "service-or-anon-key",
+          "supabase_service_key": "service-role-key",
+          "test": true,
+          "apply_mt5_env": true,
+          "mt5": {"login": "123456", "password": "...", "server": "Broker-Demo", "path": "C:\\...\\terminal64.exe"},
+          "mirror": {"enabled": true, "risk_percent": 1.0}
+        }
+    """
+    denied = _require_auth()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    url = str(data.get("supabase_url") or "").strip()
+    key = str(data.get("supabase_key") or "").strip()
+    service_key = str(data.get("supabase_service_key") or "").strip()
+    if not url or not (key or service_key):
+        return jsonify({"error": "supabase_url and supabase_key are required"}), 400
+
+    extra = {}
+    mt5 = data.get("mt5") or {}
+    if isinstance(mt5, dict):
+        for field, store_key in (
+            ("login", "mt5_login"),
+            ("password", "mt5_password"),
+            ("server", "mt5_server"),
+            ("path", "mt5_path"),
+        ):
+            if str(mt5.get(field) or "").strip():
+                extra[store_key] = str(mt5[field]).strip()
+
+    mirror = data.get("mirror") or {}
+    if isinstance(mirror, dict):
+        if "enabled" in mirror:
+            extra["mirror_enabled"] = bool(mirror.get("enabled"))
+        if mirror.get("risk_percent") is not None:
+            extra["mirror_risk_percent"] = float(mirror["risk_percent"])
+
+    response = {}
+    try:
+        from config.supabase_credentials import save_supabase_credentials
+
+        response["supabase"] = save_supabase_credentials(
+            url, key or service_key, service_key or key, extra=extra
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"failed to save credentials: {exc}"}), 500
+
+    if extra and data.get("apply_mt5_env", True):
+        if extra.get("mt5_login"):
+            os.environ["MT5_ACCOUNT_LOGIN"] = extra["mt5_login"]
+        if extra.get("mt5_password"):
+            os.environ["MT5_ACCOUNT_PASSWORD"] = extra["mt5_password"]
+        if extra.get("mt5_server"):
+            os.environ["MT5_ACCOUNT_SERVER"] = extra["mt5_server"]
+        if extra.get("mt5_path"):
+            os.environ["MT5_PATH"] = extra["mt5_path"]
+
+    if data.get("test"):
+        try:
+            from config.supabase_credentials import test_supabase_connection
+
+            response["test"] = test_supabase_connection()
+        except Exception as exc:
+            response["test"] = {"ok": False, "error": str(exc)}
+
+    response["restart_required"] = True
+    bot_log(
+        "credentials_saved_locally",
+        "Supabase/MT5 credentials inserted from the admin API and saved locally",
+        {"url": url, "mt5_fields": sorted(extra.keys())},
+        persist=False,
+    )
+    return jsonify(response), 200
+
+
+@app.route("/admin/universe/sync", methods=["POST"])
+def admin_universe_sync():
+    """Re-acquire the MT5 symbol universe on demand."""
+    denied = _require_auth()
+    if denied:
+        return denied
+    try:
+        from config.mt5_universe import refresh_from_mt5, universe_snapshot
+
+        refresh_from_mt5(strict=False)
+        return jsonify({"ok": True, "universe": universe_snapshot()}), 200
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/admin/universe", methods=["GET"])
+def admin_universe_status():
+    """Show which symbols the bot considers tradable right now."""
+    denied = _require_auth()
+    if denied:
+        return denied
+    try:
+        from config.mt5_universe import get_universe, universe_snapshot
+
+        return jsonify({"universe": universe_snapshot(), "symbols": get_universe()}), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 def run_api(host="0.0.0.0", port=8000):
     import os
 

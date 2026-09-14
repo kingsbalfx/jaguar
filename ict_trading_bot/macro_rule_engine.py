@@ -76,6 +76,15 @@ OLLAMA_CHAT_ENDPOINT = "/api/chat"
 # Allowed directions (normalized).
 _ALLOWED_DIRECTIONS = {"BUY", "SELL", "NO_TRADE"}
 
+# Google retires Gemini model names regularly (gemini-2.5-flash now returns 404
+# for new API keys). The configured GEMINI_MODEL is tried first, then these
+# known-good names, so the macro engine keeps working after a retirement.
+_GEMINI_MODEL_FALLBACKS = (
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-flash-latest",
+)
+
 # Basic market identifiers Finnhub understands. Fallback mapping is used when a
 # broker symbol has no direct Finnhub equivalent.
 _FINNHUB_SYMBOL_HINTS = {
@@ -129,8 +138,17 @@ def _allow_by_default() -> bool:
 # Supabase client helpers (service-role key => bypasses RLS)
 # ----------------------------------------------------------------------------
 def _get_supabase_client():
-    supabase_url = _env("SUPABASE_URL")
-    service_key = _env("SUPABASE_SERVICE_KEY", _env("SUPABASE_KEY"))
+    """Create a Supabase client from the canonical credential resolver.
+
+    Uses SUPABASE_SERVICE_KEY when available (bypasses RLS, needed by the macro
+    rule engine + mirror coordination), otherwise SUPABASE_KEY.
+    """
+    from config.supabase_credentials import apply_supabase_env, resolve_supabase_credentials
+
+    apply_supabase_env()
+    resolved = resolve_supabase_credentials()
+    supabase_url = resolved["url"]
+    service_key = resolved["service_key"] or resolved["key"]
     if not supabase_url or not service_key:
         logger.error("macro_rule_engine: SUPABASE_URL / SUPABASE_SERVICE_KEY not set")
         return None
@@ -368,7 +386,20 @@ def _ollama_generate(prompt: str, timeout: float = 90.0) -> str:
 # Google Gemini (genai) reasoning
 # ----------------------------------------------------------------------------
 def _gemini_model() -> str:
-    return _env("GEMINI_MODEL") or "gemini-2.5-flash"
+    model = _env("GEMINI_MODEL")
+    if model and model not in _GEMINI_MODEL_FALLBACKS:
+        return model
+    return _GEMINI_MODEL_FALLBACKS[0]
+
+
+def _gemini_models() -> List[str]:
+    """Configured model first, then known-good fallbacks (Google retires names)."""
+    models: List[str] = []
+    configured = _env("GEMINI_MODEL") or _GEMINI_MODEL_FALLBACKS[0]
+    for model in (configured,) + _GEMINI_MODEL_FALLBACKS:
+        if model and model not in models:
+            models.append(model)
+    return models
 
 
 def _gemini_generate(prompt: str, timeout: float = 90.0) -> str:
@@ -383,8 +414,15 @@ def _gemini_generate(prompt: str, timeout: float = 90.0) -> str:
         logger.error("macro_rule_engine: GEMINI_API_KEY not set")
         return ""
 
-    from google import genai  # lazy import so Ollama-only setups still work
-    from google.genai import types
+    try:
+        from google import genai  # lazy import so Ollama-only setups still work
+        from google.genai import types
+    except Exception as exc:
+        logger.warning(
+            "macro_rule_engine: google-genai SDK unavailable (%s); using REST Gemini fallback",
+            exc,
+        )
+        return _gemini_generate_rest(prompt, api_key, timeout)
 
     client = genai.Client(api_key=api_key)
 
@@ -419,6 +457,37 @@ def _gemini_generate(prompt: str, timeout: float = 90.0) -> str:
         except Exception:
             text = ""
     return text
+
+
+def _gemini_generate_rest(prompt: str, api_key: str, timeout: float = 90.0) -> str:
+    """SDK-free Gemini call (REST) used when ``google-genai`` is not installed."""
+    for model in _gemini_models():
+        try:
+            response = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                params={"key": api_key},
+                json={
+                    "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                    "generationConfig": {"temperature": 0.0, "responseMimeType": "application/json"},
+                },
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            data = response.json()
+        except Exception as exc:
+            logger.warning("macro_rule_engine: REST Gemini model %s failed: %s", model, exc)
+            continue
+
+        candidates = data.get("candidates") or []
+        if not candidates:
+            continue
+        parts = (candidates[0].get("content") or {}).get("parts") or []
+        text = "".join(str(part.get("text") or "") for part in parts)
+        if text:
+            if model != _gemini_model():
+                logger.info("macro_rule_engine: Gemini model fallback in use: %s", model)
+            return text
+    return ""
 
 
 def _env_truthy(name: str, default: bool = False) -> bool:

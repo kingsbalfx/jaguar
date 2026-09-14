@@ -666,6 +666,14 @@ def _resolve_symbol(symbol: str):
             if mt5.symbol_select(candidate, True):
                 tick = mt5.symbol_info_tick(candidate)
                 if tick and float(tick.bid or 0.0) > 0:
+                    # Keep the synchronized MT5 universe in step with on-demand
+                    # resolutions so strategies never reject a live symbol.
+                    try:
+                        from config.mt5_universe import register_symbol
+
+                        register_symbol(candidate)
+                    except Exception:
+                        pass
                     return candidate
         except (AttributeError, RuntimeError, TypeError, ValueError):
             continue
@@ -748,6 +756,66 @@ def _build_symbol_universe():
     stats["allowed_assets"] = ",".join(sorted(allowed_assets)) if allowed_assets else "all"
     stats["groups"] = ",".join(_csv_items("MT5_SYMBOL_GROUPS")) or "all"
     return resolved_symbols, source, stats
+
+
+_last_universe_sync_at = 0.0
+
+
+def _sync_mt5_universe(symbols, source, reason: str = "startup"):
+    """Publish the live MT5 symbol universe to the shared registry."""
+    global _last_universe_sync_at
+    try:
+        from config.mt5_universe import sync_universe
+    except Exception as exc:
+        LOGGER.warning("MT5 UNIVERSE | registry unavailable: %s", exc)
+        return symbols
+
+    snapshot = sync_universe(
+        symbols,
+        source=source,
+        account_id=os.getenv("MT5_ACCOUNT_LOGIN") or None,
+        reason=reason,
+    )
+    _last_universe_sync_at = time.time()
+    LOGGER.info(
+        "MT5 UNIVERSE | source=%s | synced=%s | account=%s | reason=%s | store=%s",
+        snapshot.get("source"),
+        snapshot.get("count"),
+        snapshot.get("account"),
+        reason,
+        snapshot.get("store"),
+    )
+    return symbols
+
+
+def _maybe_resync_symbol_universe(symbols, symbol_source, symbol_stats):
+    """Re-acquire the MT5 symbols periodically so the bot always trades the live set."""
+    global _last_universe_sync_at
+    if not _truthy("AUTO_EXTRACT_MT5_SYMBOLS"):
+        return symbols, symbol_source, symbol_stats
+
+    interval = _int_env("MT5_UNIVERSE_SYNC_SECONDS", 900, minimum=60)
+    if time.time() - _last_universe_sync_at < interval:
+        return symbols, symbol_source, symbol_stats
+
+    try:
+        refreshed, refreshed_source, refreshed_stats = _build_symbol_universe()
+    except Exception as exc:
+        LOGGER.warning("MT5 UNIVERSE | re-sync failed: %s", exc)
+        _last_universe_sync_at = time.time()
+        return symbols, symbol_source, symbol_stats
+
+    _last_universe_sync_at = time.time()
+    if refreshed != symbols:
+        LOGGER.info(
+            "MT5 UNIVERSE | re-synced | before=%s | after=%s | source=%s",
+            len(symbols),
+            len(refreshed),
+            refreshed_source,
+        )
+        _sync_mt5_universe(refreshed, refreshed_source, reason="periodic")
+        return refreshed, refreshed_source, refreshed_stats
+    return symbols, symbol_source, symbol_stats
 
 
 def _canonical_symbol(symbol: str) -> str:
@@ -1112,6 +1180,22 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
     price = (tick["bid"] + tick["ask"]) / 2.0
     analysis = analyze_market_top_down(symbol, price)
     smt_direction = _smt_direction_from_analysis(analysis)
+
+    # --- MACRO NEWS FEED (Finnhub + Gemini) ATTACHED TO EVERY STRATEGY ------
+    # The unified feed is published inside `analysis`, which is handed to the ICT
+    # state machine, Kingsbalfx, Fallback 3/4/5 and the pre-trade analysis layer,
+    # so every strategy sees the same macro/news context.
+    try:
+        from fundamentals.news_feed import attach_news_to_analysis
+
+        news_context = attach_news_to_analysis(
+            analysis,
+            symbol,
+            smt_direction or analysis.get("overall_trend"),
+        )
+    except Exception as exc:
+        news_context = {"allowed": True, "reason": f"news_feed_unavailable:{exc}", "brief": {}}
+    # --- END MACRO NEWS FEED -----------------------------------------------
     try:
         smt = _smt_snapshot(symbol, analysis, smt_direction or analysis.get("overall_trend"))
     except Exception as exc:
@@ -1120,9 +1204,13 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
     setup = evaluate_strategy(symbol, price, analysis, smt=smt, killzone_active=killzone_active)
     try:
         news_allowed = news_allows_trade(symbol)
-        news = {"allowed": news_allowed, "status": "clear" if news_allowed else "high-impact or manual news block"}
+        news = {
+            "allowed": news_allowed,
+            "status": "clear" if news_allowed else "high-impact or manual news block",
+            "feed": news_context,
+        }
     except Exception as exc:
-        news = {"allowed": False, "status": f"news check unavailable: {exc}"}
+        news = {"allowed": False, "status": f"news check unavailable: {exc}", "feed": news_context}
     topdown = analysis.get("topdown") or {}
     setup["advisories"] = {
         "smt": smt,
@@ -1360,6 +1448,52 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
         _console_skip(symbol, "max_open_trades_reached_before_execution", {"open_positions": len(positions), "max_trades": max_trades})
         return {"evaluated": 1, "trades_opened": 0, "errors": 0}
 
+    # ---- FINNHUB + GEMINI NEWS GATE (applies to EVERY strategy) ----
+    # Requirement: when news EXISTS for the pair and the setup is AGAINST the
+    # current news direction, the trade is blocked even if the setup is perfect.
+    # When there is NO news for the pair, the technical setup executes directly.
+    # Fails OPEN on feed errors so a broken API can never freeze the bot.
+    if _truthy("NEWS_FEED_ENABLED", "true") and os.getenv("NEWS_FEED_MODE", "block").strip().lower() == "block":
+        try:
+            from fundamentals.news_feed import news_gate
+
+            news_check = news_gate(request["symbol"], request["direction"])
+            if not news_check.get("allowed"):
+                reason = news_check.get("reason") or "news_blocked"
+                _console_skip(symbol, "NEWS_BLOCK", {
+                    "reason": reason,
+                    "news_direction": news_check.get("news_direction"),
+                    "attempted": news_check.get("proposed_direction"),
+                    "confidence": news_check.get("confidence"),
+                    "headlines": news_check.get("headlines"),
+                })
+                bot_log(
+                    "news_blocked",
+                    f"[{symbol}] trade blocked by market news: {reason}",
+                    {
+                        "symbol": symbol,
+                        "reason": reason,
+                        "news_direction": news_check.get("news_direction"),
+                        "attempted_direction": news_check.get("proposed_direction"),
+                        "confidence": news_check.get("confidence"),
+                        "headlines": news_check.get("headlines"),
+                    },
+                    persist=False,
+                )
+                return {"evaluated": 1, "trades_opened": 0, "errors": 0}
+            if news_check.get("has_news"):
+                LOGGER.info(
+                    "[%s] NEWS | %s | news=%s conf=%.2f | trade=%s allowed",
+                    symbol,
+                    news_check.get("reason"),
+                    news_check.get("news_direction"),
+                    float(news_check.get("confidence") or 0.0),
+                    request["direction"],
+                )
+        except Exception as news_exc:
+            LOGGER.warning("[%s] news gate unavailable (allowing trade): %s", symbol, news_exc)
+    # ---- END FINNHUB + GEMINI NEWS GATE ----
+
     # ---- STRICT DAILY MACRO RULE GATE (replaces technical strategy approval) ----
     # Every trade proposed by ANY strategy (ICT, Kingsbalfx, Fallback 3/4/5, mirror)
     # must pass today's macro/fundamental rule before reaching the broker.
@@ -1469,33 +1603,35 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
 
 
 def run_bot() -> None:
+    # Publish Supabase credentials (env / .env / locally saved by the admin API)
+    # BEFORE anything else, so the multi-account parent AND every child process
+    # inherit the same valid credential set.
+    try:
+        from config.supabase_credentials import bootstrap as _bootstrap_supabase
+
+        _bootstrap_supabase()
+    except Exception as exc:  # pragma: no cover - never block startup
+        LOGGER.warning("Supabase credential bootstrap failed: %s", exc)
+
     # If multi-account parent, launch children and exit
     if _launch_multi_account_children():
         return
     
-    # Load Supabase credentials from local storage if env vars not set
-    # This checks ~/.ict_trading_bot/credentials.json and falls back to .env
-    from config.credentials import load_credentials, set_supabase_credentials
-    
-    # Try to load from env first
-    env_url = os.getenv("SUPABASE_URL")
-    env_key = os.getenv("SUPABASE_KEY")
-    
-    if not env_url or not env_key:
-        # Try to load from local credentials
-        local_creds = load_credentials()
-        local_url = local_creds.get("supabase_url")
-        local_key = local_creds.get("supabase_key")
-        
-        if local_url and local_key:
-            # Use local credentials
-            os.environ["SUPABASE_URL"] = local_url
-            os.environ["SUPABASE_KEY"] = local_key
-            LOGGER.info("✅ Loaded Supabase credentials from local storage")
-        elif os.getenv("MULTI_ACCOUNT_CHILD") != "true":
-            # Only prompt parent process (not children)
-            LOGGER.info("⚠️  No Supabase credentials found. Starting in local-only mode.")
-            LOGGER.info("   Run 'configure_credentials.py' to set up Supabase cloud persistence.")
+    # Supabase credentials were already resolved + published to os.environ by the
+    # bootstrap at the top of run_bot() (env -> .env -> locally saved store).
+    from config.supabase_credentials import credential_status
+
+    credential_summary = credential_status()
+    if credential_summary.get("usable"):
+        LOGGER.info(
+            "SUPABASE | ready | url=%s | url_source=%s | key_source=%s",
+            credential_summary.get("url"),
+            credential_summary.get("url_source"),
+            credential_summary.get("key_source"),
+        )
+    elif os.getenv("MULTI_ACCOUNT_CHILD") != "true":
+        LOGGER.info("⚠️  No Supabase credentials found. Starting in local-only mode.")
+        LOGGER.info("   Insert them with POST /admin/credentials or run 'configure_credentials.py'.")
     
     # Single account mode or child process
     login_display = os.getenv("MT5_ACCOUNT_LOGIN", "unknown")[:8]
@@ -1513,6 +1649,7 @@ def run_bot() -> None:
 
     max_trades = get_profile_max_trades(get_user_profile())
     symbols, symbol_source, symbol_stats = _build_symbol_universe()
+    _sync_mt5_universe(symbols, symbol_source, reason="startup")
     LOGGER.info(
         "ICT state-machine bot started | symbols=%s | symbol_source=%s | raw_symbols=%s | max_trades=%s",
         len(symbols),
@@ -1579,6 +1716,11 @@ def run_bot() -> None:
                 session_name,
                 _yes_no(trading_allowed),
                 next_close_str,
+            )
+
+            # Keep the MT5 symbol universe synchronized with the broker.
+            symbols, symbol_source, symbol_stats = _maybe_resync_symbol_universe(
+                symbols, symbol_source, symbol_stats
             )
 
             evaluated = 0

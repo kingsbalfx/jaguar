@@ -96,18 +96,31 @@ def _get_supabase_client():
     if _SUPABASE_CLIENT:
         return _SUPABASE_CLIENT
 
-    url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_KEY")
+    # Canonical resolver: ignores placeholder values in .env, falls back to the
+    # locally saved credentials (admin API / configure_credentials.py) and
+    # publishes the resolved values to os.environ for every other module.
+    from config.supabase_credentials import (
+        apply_supabase_env,
+        is_valid_supabase_key,
+        is_valid_supabase_url,
+        resolve_supabase_credentials,
+    )
+
+    apply_supabase_env()
+    resolved = resolve_supabase_credentials()
+    url = resolved["url"]
+    key = resolved["service_key"] or resolved["key"]
+
     if not url or not key:
         logger.info("⚠️  Supabase credentials not configured. Running in local-only mode.")
         logger.info("   Cloud persistence (signals, logs) will be disabled.")
         logger.info("   Mirror trading will use local file-based coordination.")
+        logger.info("   Insert credentials via POST /admin/credentials or 'python configure_credentials.py'.")
         return None
 
-    # Validate URL format
-    if not str(url).strip().startswith("https://"):
-        logger.error("❌ Invalid Supabase URL format: must start with https://")
-        logger.info("   Check your SUPABASE_URL in .env or local credentials")
+    if not is_valid_supabase_url(url) or not is_valid_supabase_key(key):
+        logger.error("❌ Invalid Supabase credentials: SUPABASE_URL must start with https://")
+        logger.info("   Check your SUPABASE_URL in .env or the locally saved credentials.")
         return None
 
     try:

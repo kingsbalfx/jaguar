@@ -47,11 +47,18 @@ def _select_fields(has_updated_at, has_owner_fields):
 
 
 def _fetch_mt5_credentials_rows():
-    url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_KEY")
+    from config.supabase_credentials import apply_supabase_env, resolve_supabase_credentials
+
+    apply_supabase_env()
+    _resolved = resolve_supabase_credentials()
+    url = _resolved["url"]
+    key = _resolved["service_key"] or _resolved["key"]
 
     if not url or not key:
-        raise RuntimeError("SUPABASE_URL and SUPABASE_KEY are required to load MT5 credentials")
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_KEY are required to load MT5 credentials. "
+            "Insert them with POST /admin/credentials or `python configure_credentials.py`."
+        )
 
     client = create_client(url, key)
 

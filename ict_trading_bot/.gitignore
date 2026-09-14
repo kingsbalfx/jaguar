@@ -1,0 +1,11 @@
+# Local runtime / credential files (never commit real secrets)
+.env
+.env.local
+data/local_credentials.json
+data/mt5_symbol_universe.json
+*.log
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/

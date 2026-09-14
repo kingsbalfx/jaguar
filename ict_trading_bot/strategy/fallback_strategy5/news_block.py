@@ -25,37 +25,56 @@ def news_allows_trade(
     symbol: str,
     custom_before: Optional[int] = None,
     custom_after: Optional[int] = None,
+    direction: Optional[str] = None,
 ) -> Tuple[bool, str]:
     """
     Check if news conditions allow a trade.
     Returns (allowed, reason).
+
+    Layered checks:
+      1. Configurable high-impact calendar blackout windows (before/after).
+      2. Manual news blocks.
+      3. Unified Finnhub + Gemini feed (fundamentals.news_feed). In the default
+         "advisory" mode the feed never blocks; with NEWS_FEED_MODE=block a
+         confident macro direction that conflicts with the trade blocks it.
     """
     before = custom_before if custom_before is not None else config.NEWS_BLACKOUT_MINUTES_BEFORE
     after = custom_after if custom_after is not None else config.NEWS_BLACKOUT_MINUTES_AFTER
 
-    if before <= 0 and after <= 0:
-        return True, "news_filter_disabled"
+    if before > 0 or after > 0:
+        base, quote = _extract_currencies(symbol)
 
-    base, quote = _extract_currencies(symbol)
+        # Check for high-impact news
+        if before > 0:
+            if is_high_impact_news_soon(base, minutes=before):
+                return False, f"high_impact_news:{base}_within_{before}min"
+            if is_high_impact_news_soon(quote, minutes=before):
+                return False, f"high_impact_news:{quote}_within_{before}min"
 
-    # Check for high-impact news
-    if before > 0:
-        if is_high_impact_news_soon(base, minutes=before):
-            return False, f"high_impact_news:{base}_within_{before}min"
-        if is_high_impact_news_soon(quote, minutes=before):
-            return False, f"high_impact_news:{quote}_within_{before}min"
+        if after > 0:
+            if _news_recently_passed(base, minutes=after):
+                return False, f"news_recently_passed:{base}_within_{after}min"
+            if _news_recently_passed(quote, minutes=after):
+                return False, f"news_recently_passed:{quote}_within_{after}min"
 
-    if after > 0:
-        if _news_recently_passed(base, minutes=after):
-            return False, f"news_recently_passed:{base}_within_{after}min"
-        if _news_recently_passed(quote, minutes=after):
-            return False, f"news_recently_passed:{quote}_within_{after}min"
+        # Manual block
+        if is_manual_news_block(base):
+            return False, f"manual_news_block:{base}"
+        if is_manual_news_block(quote):
+            return False, f"manual_news_block:{quote}"
 
-    # Manual block
-    if is_manual_news_block(base):
-        return False, f"manual_news_block:{base}"
-    if is_manual_news_block(quote):
-        return False, f"manual_news_block:{quote}"
+    # Unified Finnhub + Gemini feed (shared by every strategy).
+    try:
+        from fundamentals.news_feed import news_allows_direction
+
+        allowed, reason, _brief = news_allows_direction(symbol, direction)
+        if not allowed:
+            return False, reason
+        if _brief.get("has_news"):
+            return True, reason
+    except Exception:
+        # Never block trading because the news feed is unavailable.
+        pass
 
     return True, "news_clear"
 

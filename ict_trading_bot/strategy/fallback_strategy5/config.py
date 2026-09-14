@@ -15,9 +15,43 @@ FALLBACK5_ENABLED: bool = os.getenv("FALLBACK5_ENABLED", "true").lower() in ("1"
 
 
 # ============================================================
-# Allowed Symbols & Alias Map
+# Symbol Universe
 # ============================================================
-ALLOWED_SYMBOLS: tuple = ("EURUSD", "XAUUSD", "BTCUSD", "AUDJPY")
+# The bot must trade ONLY symbols that exist in the connected MT5 terminal.
+# main.py synchronizes the live broker universe at startup
+# (config.mt5_universe) and Fallback 5 validates every candidate against it.
+#
+# FALLBACK5_SYMBOL_SOURCE:
+#   "mt5"    (default) -> any symbol present in the MT5 universe is eligible
+#   "custom"           -> only FALLBACK5_ALLOWED_SYMBOLS below
+#   "core"             -> only the original four instruments
+FALLBACK5_SYMBOL_SOURCE: str = os.getenv("FALLBACK5_SYMBOL_SOURCE", "mt5").strip().lower()
+
+# Optional explicit allowlist (CSV). Empty = no explicit restriction.
+_env_allow = os.getenv("FALLBACK5_ALLOWED_SYMBOLS", "").strip()
+ALLOWED_SYMBOLS: tuple = tuple(
+    item.strip().upper() for item in _env_allow.split(",") if item.strip()
+) or ("EURUSD", "XAUUSD", "BTCUSD", "AUDJPY")
+
+# The four instruments that ship with a hand-tuned risk/spread profile.
+CORE_SYMBOLS: tuple = ("EURUSD", "XAUUSD", "BTCUSD", "AUDJPY")
+
+# When the MT5 universe is unavailable, allow the configured universe anyway.
+ALLOW_WHEN_UNIVERSE_EMPTY: bool = os.getenv("MT5_UNIVERSE_ALLOW_WHEN_EMPTY", "true").lower() in ("1", "true", "yes", "on")
+
+# Generic profile applied to symbols that have no hand-tuned profile.
+DEFAULT_SYMBOL_PROFILE: Dict[str, Any] = {
+    "spread_max_pips": float(os.getenv("FALLBACK5_DEFAULT_SPREAD_MAX_PIPS", "80")),
+    "spread_max_points": float(os.getenv("FALLBACK5_DEFAULT_SPREAD_MAX_POINTS", "800")),
+    "atr_min_pips": float(os.getenv("FALLBACK5_DEFAULT_ATR_MIN_PIPS", "0")),
+    "stop_min_pips": float(os.getenv("FALLBACK5_DEFAULT_STOP_MIN_PIPS", "0")),
+    "tp_min_pips": float(os.getenv("FALLBACK5_DEFAULT_TP_MIN_PIPS", "0")),
+    "default_risk_percent": float(os.getenv("FALLBACK5_DEFAULT_RISK_PERCENT", "0.10")),
+    "max_risk_percent": float(os.getenv("FALLBACK5_DEFAULT_MAX_RISK_PERCENT", "0.25")),
+    "single_point_value": 0.0,
+    "stop_buffer_points": 5,
+}
+
 
 SYMBOL_ALIAS_MAP: Dict[str, str] = {
     # EURUSD aliases
@@ -46,9 +80,20 @@ SYMBOL_ALIAS_MAP: Dict[str, str] = {
 
 
 def resolve_canonical_symbol(raw_symbol: str) -> str:
-    """Map a broker symbol to one of the four approved instruments, or return empty string."""
+    """Map a broker symbol to its canonical name.
+
+    Known instruments resolve through ``SYMBOL_ALIAS_MAP`` (``XAUUSD.A`` ->
+    ``XAUUSD``). Any other valid broker symbol is returned in normalized form so
+    the MT5-universe gate can decide whether it is tradable; an empty string is
+    returned only for blank/garbage input.
+    """
     clean = str(raw_symbol or "").strip().upper().replace("/", "").replace("-", "").replace("_", "").replace(".", "")
-    return SYMBOL_ALIAS_MAP.get(clean, "")
+    if not clean:
+        return ""
+    mapped = SYMBOL_ALIAS_MAP.get(clean)
+    if mapped:
+        return mapped
+    return clean
 
 
 # ============================================================

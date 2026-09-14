@@ -115,8 +115,18 @@ def _append_signal_to_file(signal: Dict) -> bool:
 # Supabase-backed coordination (for 100+ accounts / cross-machine)
 # ===========================================================================
 def _supabase_client() -> Optional[Any]:
-    supabase_url = os.getenv("SUPABASE_URL", "").strip()
-    supabase_key = os.getenv("SUPABASE_SERVICE_KEY", os.getenv("SUPABASE_KEY", "")).strip()
+    """Supabase client for cross-machine mirror coordination (resolver based)."""
+    try:
+        from config.supabase_credentials import apply_supabase_env, resolve_supabase_credentials
+
+        apply_supabase_env()
+        resolved = resolve_supabase_credentials()
+        supabase_url = resolved["url"]
+        supabase_key = resolved["service_key"] or resolved["key"]
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("[MIRROR] Supabase resolver unavailable: %s", exc)
+        return None
+
     if not supabase_url or not supabase_key:
         return None
     try:
@@ -550,6 +560,40 @@ def process_mirror_signal(signal: Dict) -> Dict:
                     "signal_id": signal.get("signal_id", "")}
     # ---- END STRICT DAILY MACRO RULE GATE ----
 
+    # ---- MT5 UNIVERSE GATE: never mirror a symbol this broker does not offer ----
+    broker_symbol = symbol
+    try:
+        from config.mt5_universe import is_available, resolve_tradable
+
+        if not is_available(symbol):
+            logger.warning("[MIRROR] Symbol not available in MT5 universe: %s", symbol)
+            return {"action": "skipped", "reason": f"symbol_not_available_in_mt5:{symbol}",
+                    "symbol": symbol, "direction": direction,
+                    "source_strategy": source_strategy,
+                    "signal_id": signal.get("signal_id", "")}
+        broker_symbol = resolve_tradable(symbol) or symbol
+    except Exception as universe_exc:
+        logger.debug("[MIRROR] MT5 universe check unavailable: %s", universe_exc)
+    # ---- END MT5 UNIVERSE GATE ----
+
+    # ---- FINNHUB + GEMINI NEWS GATE (receiving side) ----
+    # Same news feed every strategy uses on the leader side; fails open when the
+    # feed is unavailable so mirroring is never silently disabled.
+    try:
+        from fundamentals.news_feed import news_allows_direction
+
+        news_ok, news_reason, _news_brief = news_allows_direction(symbol, direction.upper())
+        if not news_ok:
+            logger.warning("[MIRROR] News gate BLOCKED: %s %s | reason=%s",
+                           symbol, direction.upper(), news_reason)
+            return {"action": "skipped", "reason": f"news_blocked:{news_reason}",
+                    "symbol": symbol, "direction": direction,
+                    "source_strategy": source_strategy,
+                    "signal_id": signal.get("signal_id", "")}
+    except Exception as news_exc:
+        logger.debug("[MIRROR] News feed unavailable: %s", news_exc)
+    # ---- END FINNHUB + GEMINI NEWS GATE ----
+
     try:
         import MetaTrader5 as mt5
         account_info = mt5.account_info()
@@ -568,7 +612,7 @@ def process_mirror_signal(signal: Dict) -> Dict:
                 "symbol": symbol, "margin_free": margin_free}
 
     try:
-        positions = mt5.positions_get(symbol=symbol) or []
+        positions = mt5.positions_get(symbol=broker_symbol) or []
         buy_type = getattr(mt5, "POSITION_TYPE_BUY", 0)
         for pos in positions:
             pos_dir = "buy" if getattr(pos, "type", buy_type) == buy_type else "sell"
@@ -579,7 +623,9 @@ def process_mirror_signal(signal: Dict) -> Dict:
     except Exception as exc:
         logger.warning("[MIRROR] Position check failed: %s", exc)
 
-    volume = calculate_mirror_lot_size(signal, account_balance, MIRROR_RISK_PERCENT)
+    volume = calculate_mirror_lot_size(
+        {**signal, "symbol": broker_symbol}, account_balance, MIRROR_RISK_PERCENT
+    )
     if volume <= 0:
         return {"action": "skipped", "reason": "lot_size_zero_or_below_minimum",
                 "symbol": symbol, "balance": account_balance}
@@ -587,7 +633,7 @@ def process_mirror_signal(signal: Dict) -> Dict:
     try:
         from execution.trade_executor import execute_trade
         trade_result = execute_trade(
-            symbol=symbol, direction=direction, lot=volume,
+            symbol=broker_symbol, direction=direction, lot=volume,
             sl_price=sl, tp_price=tp, order_type="market", entry_price=entry,
         )
         if trade_result:

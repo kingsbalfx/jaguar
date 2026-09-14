@@ -92,23 +92,22 @@ def setup_supabase_credentials():
     # Test the credentials
     print_info("Testing connection to Supabase...")
     try:
-        from supabase import create_client
-        
-        client = create_client(url, key)
-        print_success("✓ Successfully connected to Supabase!")
-        
-        # Save credentials
-        creds = load_local_credentials()
-        creds["supabase_url"] = url
-        creds["supabase_key"] = key
-        
-        if save_local_credentials(creds):
+        from config.supabase_credentials import save_supabase_credentials, test_supabase_connection
+
+        result = test_supabase_connection(url, key)
+        if not result.get("ok"):
+            print_warning(f"Connection test returned: {result.get('error') or result.get('status')}")
+
+        # Save credentials locally (home store + project store so child
+        # processes and the mirror worker pick them up automatically).
+        saved = save_supabase_credentials(url, key)
+        if saved.get("saved"):
             print_success("Credentials saved successfully!")
-            print_info(f"Location: {Path.home() / '.ict_trading_bot' / 'credentials.json'}")
+            print_info(f"Location: {saved.get('home_store')}")
+            print_info(f"Project copy: {saved.get('project_store')}")
             return True
-        else:
-            print_error("Failed to save credentials. Check file permissions.")
-            return False
+        print_error("Failed to save credentials. Check file permissions.")
+        return False
             
     except Exception as e:
         print_error(f"Failed to connect: {e}")

@@ -67,45 +67,61 @@ def save_credentials(credentials: Dict[str, Any]) -> bool:
 def get_supabase_credentials() -> tuple[Optional[str], Optional[str]]:
     """
     Get Supabase credentials from environment or local storage.
-    
+
+    Delegates to ``config.supabase_credentials`` so placeholder values in .env
+    (e.g. ``SUPABASE_URL=...``) are never used and locally saved credentials are
+    applied consistently for every module.
+
     Returns:
         Tuple of (supabase_url, supabase_key) or (None, None)
     """
-    # First try environment variables
+    try:
+        from config.supabase_credentials import apply_supabase_env, resolve_supabase_credentials
+
+        apply_supabase_env(quiet=True)
+        resolved = resolve_supabase_credentials()
+        url = resolved["url"]
+        key = resolved["service_key"] or resolved["key"]
+        if url and key:
+            return url, key
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        logger.warning(f"Supabase credential resolver unavailable: {exc}")
+
+    # Legacy path: environment variables, then the local credential file.
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_KEY")
-    
+
     if url and key:
         logger.info("Using Supabase credentials from environment")
         return url, key
-    
-    # Try local credentials
+
     creds = load_credentials()
     url = creds.get("supabase_url")
     key = creds.get("supabase_key")
-    
+
     if url and key:
         logger.info("Using Supabase credentials from local storage")
-        # Also set environment variables for consistency
         os.environ["SUPABASE_URL"] = url
         os.environ["SUPABASE_KEY"] = key
         return url, key
-    
+
     logger.warning("No Supabase credentials found in environment or local storage")
     return None, None
 
 
 def set_supabase_credentials(url: str, key: str) -> bool:
-    """Set and save Supabase credentials."""
-    creds = load_credentials()
-    creds["supabase_url"] = url
-    creds["supabase_key"] = key
-    
-    if save_credentials(creds):
-        os.environ["SUPABASE_URL"] = url
-        os.environ["SUPABASE_KEY"] = key
+    """Set and save Supabase credentials (validated, local + project store)."""
+    try:
+        from config.supabase_credentials import save_supabase_credentials
+
+        save_supabase_credentials(url, key)
         return True
-    return False
+    except ValueError as exc:
+        logger.error(f"Rejected Supabase credentials: {exc}")
+        return False
+    except Exception as exc:
+        logger.error(f"Failed to save Supabase credentials: {exc}")
+        return False
 
 
 def prompt_for_supabase_credentials() -> bool:
