@@ -1048,5 +1048,35 @@
     "created_at": "2026-09-17T15:39:46.943255Z",
     "expires_at": 1789659886.943285,
     "bot_id": "bot_acc_3"
+  },
+  {
+    "signal_id": "MIRROR_5941472_AUDCHF_sell_1789676593978_2acb",
+    "type": "mirror_trade",
+    "symbol": "AUDCHF",
+    "direction": "sell",
+    "entry_price": 0.5864,
+    "stop_loss": 0.5870799999999999,
+    "take_profit": 0.58572,
+    "source_login": "5941472",
+    "source_strategy": "kingsbalfx",
+    "reason": "trade_executed_kingsbalfx",
+    "created_at": "2026-09-17T20:23:13.978216Z",
+    "expires_at": 1789676893.978227,
+    "bot_id": "bot_acc_3"
+  },
+  {
+    "signal_id": "MIRROR_5941472_AUDSGD_sell_1789678032742_ae31",
+    "type": "mirror_trade",
+    "symbol": "AUDSGD",
+    "direction": "sell",
+    "entry_price": 0.90716,
+    "stop_loss": 0.9077999999999999,
+    "take_profit": 0.9062049999999999,
+    "source_login": "5941472",
+    "source_strategy": "kingsbalfx",
+    "reason": "trade_executed_kingsbalfx",
+    "created_at": "2026-09-17T20:47:12.742113Z",
+    "expires_at": 1789678332.7421293,
+    "bot_id": "bot_acc_3"
   }
 ]
