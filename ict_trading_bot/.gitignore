@@ -3,6 +3,9 @@
 .env.local
 data/local_credentials.json
 data/mt5_symbol_universe.json
+data/active_accounts.json
+data/accounts_local.json
+data/disabled_accounts.json
 *.log
 __pycache__/
 *.py[cod]

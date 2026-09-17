@@ -372,6 +372,167 @@ def admin_universe_status():
         return jsonify({"error": str(exc)}), 500
 
 
+# ============================================================================
+# ADMIN: MT5 account intake (local submission OR submitted through the web)
+# ============================================================================
+@app.route("/admin/accounts", methods=["GET"])
+def admin_accounts_list():
+    """List every accepted account (passwords masked) and where it came from."""
+    denied = _require_auth()
+    if denied:
+        return denied
+
+    try:
+        from multi_account_runner import (
+            LOCAL_STORE_PATH,
+            describe_accounts,
+            load_accounts,
+            web_accounts_enabled,
+        )
+
+        accounts = load_accounts(strict=False)
+        return jsonify(
+            {
+                "count": len(accounts),
+                "accept_web": web_accounts_enabled(),
+                "local_store": str(LOCAL_STORE_PATH),
+                "sources": sorted({str(a.get("source") or "local") for a in accounts}),
+                "accounts": describe_accounts(accounts),
+            }
+        ), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/admin/accounts", methods=["POST"])
+def admin_accounts_submit():
+    """Accept an account submitted locally or through the web.
+
+    Body::
+
+        {
+          "login": "4485839", "password": "...", "server": "Headway-Demo",
+          "mt5_path": "C:\\\\...\\\\terminal64.exe",   # optional
+          "api_port": 8001, "bot_id": "bot_acc_2",     # optional
+          "user_id": "<supabase user uuid>", "email": "<subscriber>",  # optional
+          "symbols": ["EURUSD", "XAUUSD"],             # optional
+          "save_to_server": true,                      # also upsert to Supabase mt5_credentials
+          "enabled": true
+        }
+
+    The account is saved to the local store (``data/accounts_local.json``) and,
+    when ``save_to_server`` is true and Supabase is configured, upserted into
+    ``mt5_credentials`` so the website / other machines see it too. The running
+    supervisor picks it up within ``MULTI_ACCOUNT_DISCOVERY_SECONDS``.
+    """
+    denied = _require_auth()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    login = str(data.get("login") or "").strip()
+    password = str(data.get("password") or "").strip()
+    server = str(data.get("server") or "").strip()
+    if not login or not password or not server:
+        return jsonify({"error": "login, password and server are required"}), 400
+
+    account = {
+        "login": login,
+        "password": password,
+        "server": server,
+        "source": data.get("source") or "web",
+        "enabled": bool(data.get("enabled", True)),
+    }
+    if data.get("mt5_path"):
+        account["mt5_path"] = str(data["mt5_path"]).strip()
+    if data.get("api_port") is not None:
+        try:
+            account["api_port"] = int(data["api_port"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "api_port must be an integer"}), 400
+    if data.get("bot_id"):
+        account["bot_id"] = str(data["bot_id"]).strip()
+    if data.get("user_id"):
+        account["user_id"] = str(data["user_id"]).strip()
+    if data.get("email"):
+        account["email"] = str(data["email"]).strip()
+    symbols = data.get("symbols")
+    if isinstance(symbols, str):
+        account["symbols"] = [item.strip() for item in symbols.split(",") if item.strip()]
+    elif isinstance(symbols, list):
+        account["symbols"] = [str(item).strip() for item in symbols if str(item).strip()]
+    if isinstance(data.get("extra_env"), dict):
+        account["extra_env"] = data["extra_env"]
+
+    try:
+        from multi_account_runner import save_local_account
+
+        saved = save_local_account(account, enabled=account["enabled"])
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"failed to save account locally: {exc}"}), 500
+
+    response = {
+        "saved_locally": True,
+        "account": {**saved, "password": "***"},
+        "picked_up_within_seconds": int(os.getenv("MULTI_ACCOUNT_DISCOVERY_SECONDS", "45") or 45),
+    }
+    if data.get("save_to_server", True):
+        try:
+            from multi_account_runner import save_server_account
+
+            response["saved_to_server"] = save_server_account(account)
+        except Exception as exc:
+            response["saved_to_server"] = False
+            response["server_error"] = str(exc)
+
+    bot_log(
+        "account_submitted",
+        f"MT5 account {login} accepted ({'web' if response.get('saved_to_server') else 'local'})",
+        {"login": login, "server": server, "source": account.get("source")},
+        persist=False,
+    )
+    return jsonify(response), 200
+
+
+@app.route("/admin/accounts/<login>", methods=["DELETE"])
+def admin_accounts_disable(login):
+    """Disable an account (``?hard=true`` removes it from the local store)."""
+    denied = _require_auth()
+    if denied:
+        return denied
+
+    hard = str(request.args.get("hard", "")).lower() in ("1", "true", "yes")
+    try:
+        from multi_account_runner import delete_local_account, set_local_account_enabled
+
+        if hard:
+            changed = delete_local_account(login)
+            action = "deleted"
+        else:
+            changed = set_local_account_enabled(login, False)
+            action = "disabled"
+        return jsonify({"login": login, "action": action, "changed": changed}), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/admin/accounts/sync", methods=["POST"])
+def admin_accounts_sync():
+    """Re-read accounts from every source (local file, local store, web/Supabase)."""
+    denied = _require_auth()
+    if denied:
+        return denied
+    try:
+        from multi_account_runner import describe_accounts, load_accounts
+
+        accounts = load_accounts(strict=False)
+        return jsonify({"count": len(accounts), "accounts": describe_accounts(accounts)}), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 def run_api(host="0.0.0.0", port=8000):
     import os
 

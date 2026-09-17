@@ -167,6 +167,93 @@ def check_news_policy():
     )
 
 
+def check_account_intake():
+    """Accounts must be accepted from local config AND from the web (Supabase)."""
+    from multi_account_runner import (
+        describe_accounts,
+        load_accounts,
+        plan_supervision,
+        web_accounts_enabled,
+    )
+
+    accounts = load_accounts(strict=False)
+    sources = sorted({str(a.get("source") or "local") for a in accounts})
+    plan = plan_supervision([], accounts)
+    print("   accounts=%s" % json.dumps(describe_accounts(accounts)))
+    record(
+        "Account intake (local + web/Supabase)",
+        PASS if accounts else WARN,
+        f"accepted={len(accounts)} | sources={sources} | accept_web={web_accounts_enabled()} "
+        f"| would_spawn={[a.get('login') for a in plan['to_spawn']]}",
+    )
+
+
+def check_mt5_terminals():
+    """Every accepted account needs a real terminal64.exe (production crash cause)."""
+    from multi_account_runner import describe_accounts, load_accounts
+    from utils.mt5_terminal import master_terminal, multi_root, resolve_terminal
+
+    accounts = load_accounts(strict=False)
+    ok_accounts, bad_accounts = [], []
+    for account in accounts:
+        login = str(account.get("login") or "")
+        if not account.get("password") or not account.get("server"):
+            continue
+        resolved = resolve_terminal(login, account.get("mt5_path"))
+        if resolved.get("ok"):
+            ok_accounts.append(f"{login}->{resolved.get('source')}")
+        else:
+            bad_accounts.append(f"{login} ({resolved.get('reason')})")
+
+    print("   master=%s | multi_root=%s" % (master_terminal(), multi_root()))
+    print("   accounts=%s" % json.dumps(describe_accounts(accounts)))
+    if bad_accounts:
+        latest = (
+            "missing terminals: "
+            + "; ".join(bad_accounts)
+            + " | the bot will create them at spawn (MULTI_ACCOUNT_AUTO_CREATE_TERMINAL="
+            + str(os.getenv("MULTI_ACCOUNT_AUTO_CREATE_TERMINAL", "false"))
+            + ") or run: powershell -ExecutionPolicy Bypass -File setup_multi_account_mt5.ps1"
+        )
+    else:
+        latest = "all credentialled accounts have a terminal | " + ", ".join(ok_accounts)
+    record("MT5 terminals (per account)", PASS if not bad_accounts else FAIL, latest)
+
+
+def check_account_sync_and_mirror():
+    """Local accounts -> Supabase, and mirror peers must be the LIVE accounts."""
+    from multi_account_runner import load_accounts, read_active_accounts, sync_accounts_to_server
+
+    accounts = load_accounts(strict=False)
+    if os.getenv("MULTI_ACCOUNT_SYNC_TO_SERVER", "true").strip().lower() in ("1", "true", "yes", "on"):
+        try:
+            sync = sync_accounts_to_server(accounts)
+        except Exception as exc:
+            sync = {"synced": [], "skipped": [], "failed": [], "reason": str(exc)}
+    else:
+        sync = {"synced": [], "skipped": [], "failed": [], "reason": "sync_disabled"}
+
+    registry = read_active_accounts()
+    try:
+        from risk.mirror_trading import _get_peers
+
+        peers = [peer.get("login") for peer in (_get_peers() or [])]
+    except Exception as exc:
+        peers = [f"error:{exc}"]
+
+    print(
+        "   server_sync=%s | live_registry=%s stale=%s | mirror_peers=%s"
+        % (json.dumps(sync), len(registry.get("accounts") or []), registry.get("stale"), peers)
+    )
+    ok = bool(sync.get("synced")) or bool(accounts)
+    record(
+        "Account sync (local -> Supabase) + mirror peers",
+        PASS if ok else WARN,
+        f"synced={sync.get('synced')} skipped={sync.get('skipped')} failed={sync.get('failed')} "
+        f"| mirror_targets={peers}",
+    )
+
+
 def main() -> int:
     load_dotenv()
     os.environ.setdefault("NEWS_FEED_TIMEOUT", "8")
@@ -182,6 +269,9 @@ def main() -> int:
         check_mt5_universe,
         check_news_feed,
         check_news_policy,
+        check_account_intake,
+        check_mt5_terminals,
+        check_account_sync_and_mirror,
     ):
         try:
             check()

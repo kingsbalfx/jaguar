@@ -79,6 +79,50 @@ def _connect_host(host: Any) -> str:
     return clean
 
 
+_PEER_PROBE_CACHE: Dict[str, float] = {}
+
+
+def _peer_reachable(host: str, port: Any, timeout: float = None) -> bool:
+    """Fast TCP probe so the mirror only broadcasts to LIVE peer APIs.
+
+    Dead logins (accounts that are not running) used to answer
+    "Connection refused" for every signal; this keeps the broadcast list clean.
+    Results are cached briefly to avoid probing on every signal.
+    """
+    if not _truthy_env("MIRROR_PEER_PROBE", "true"):
+        return True
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return False
+    if port <= 0:
+        return False
+
+    key = f"{host}:{port}"
+    now = time.time()
+    ttl = float(os.getenv("MIRROR_PEER_PROBE_TTL_SECONDS", "60") or 60)
+    cached = _PEER_PROBE_CACHE.get(key)
+    if cached is not None and (now - cached) < ttl:
+        return cached > 0
+
+    probe_timeout = float(timeout if timeout is not None else os.getenv("MIRROR_PEER_PROBE_TIMEOUT", "0.35") or 0.35)
+    reachable = False
+    try:
+        import socket
+
+        with socket.create_connection((host, port), timeout=probe_timeout):
+            reachable = True
+    except OSError:
+        reachable = False
+
+    _PEER_PROBE_CACHE[key] = now if reachable else 0.0
+    return reachable
+
+
+def _truthy_env(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
+
+
 # ===========================================================================
 # Shared signal file (fallback channel - local same-machine)
 # ===========================================================================
@@ -227,50 +271,86 @@ def create_mirror_signal(
 # Peer discovery
 # ===========================================================================
 def _get_peers() -> List[Dict]:
-    """Discover peer accounts from multi-account config and/or Supabase.
+    """Discover peer accounts the mirror should broadcast to.
 
-    For 100+ account support, peers are loaded from:
-    1. Multi-account config (local env/multi_account_runner)
-    2. Supabase MT5 credentials table (if configured)
+    Sources (merged, de-duplicated by login):
+      1. the LIVE account registry written by the multi-account supervisor
+         (``data/active_accounts.json``) — only accounts whose child process is
+         actually running, so we never POST to dead logins,
+      2. local multi-account config/env accounts,
+      3. Supabase ``mt5_credentials`` rows (accounts submitted through the web).
+
+    Stale registry entries and accounts that are not currently live are skipped.
     """
-    peers = []
+    peers: List[Dict] = []
+    seen_logins = set()
     my_login = os.getenv("MT5_ACCOUNT_LOGIN", "").strip()
+    live_logins = set()
 
-    # Method 1: Local multi-account config
     try:
-        from multi_account_runner import load_accounts
-        accounts = load_accounts()
-        for account in accounts:
-            login = str(account.get("login") or "").strip()
-            if not login:
-                continue
-            if MIRROR_EXCLUDE_SAME and login == my_login:
-                continue
-            api_port = account.get("api_port")
-            if not api_port:
-                continue
-            peers.append({
-                "login": login,
-                "api_host": _connect_host(os.getenv("MIRROR_CONNECT_HOST") or os.getenv("API_HOST", "127.0.0.1")),
-                "api_port": int(api_port),
-            })
-    except Exception as exc:
-        logger.debug("[MIRROR] Local peer discovery skipped: %s", exc)
+        from multi_account_runner import read_active_accounts
 
-    # Method 2: Supabase peer discovery (for 100+ accounts)
+        registry = read_active_accounts()
+        if not registry.get("stale"):
+            host_default = _connect_host(registry.get("host"))
+            for row in registry.get("accounts") or []:
+                login = str((row or {}).get("login") or "").strip()
+                api_port = (row or {}).get("api_port")
+                if not login or not api_port:
+                    continue
+                live_logins.add(login)
+                if MIRROR_EXCLUDE_SAME and login == my_login:
+                    continue
+                if login in seen_logins:
+                    continue
+                seen_logins.add(login)
+                peers.append({
+                    "login": login,
+                    "api_host": host_default,
+                    "api_port": int(api_port),
+                })
+    except Exception as exc:
+        logger.debug("[MIRROR] Active-account registry unavailable: %s", exc)
+
+    registry_available = bool(seen_logins) or bool(live_logins)
+
+    # Method 1: Local multi-account config (legacy / when no registry exists yet)
+    if not registry_available:
+        try:
+            from multi_account_runner import load_accounts
+
+            for account in load_accounts(strict=False):
+                login = str(account.get("login") or "").strip()
+                if not login:
+                    continue
+                if MIRROR_EXCLUDE_SAME and login == my_login:
+                    continue
+                api_port = account.get("api_port")
+                if not api_port:
+                    continue
+                if login in seen_logins:
+                    continue
+                seen_logins.add(login)
+                peers.append({
+                    "login": login,
+                    "api_host": _connect_host(os.getenv("MIRROR_CONNECT_HOST") or os.getenv("API_HOST", "127.0.0.1")),
+                    "api_port": int(api_port),
+                })
+        except Exception as exc:
+            logger.debug("[MIRROR] Local peer discovery skipped: %s", exc)
+
+    # Method 2: Supabase peer discovery (cross-machine / accounts submitted on the web)
     if os.getenv("MIRROR_SUPABASE_DISCOVERY", "true").lower() in ("1", "true", "yes"):
         try:
-            supabase_url = os.getenv("SUPABASE_URL", "").strip()
-            supabase_key = os.getenv("SUPABASE_SERVICE_KEY", os.getenv("SUPABASE_KEY", "")).strip()
-            supabase_table = os.getenv("MT5_CREDENTIALS_TABLE", "mt5_credentials")
-            if supabase_url and supabase_key:
-                from supabase import create_client
-                sb_client = create_client(supabase_url, supabase_key)
-                response = sb_client.table(supabase_table).select(
+            client = _supabase_client()
+            if client is not None:
+                supabase_table = os.getenv("MT5_CREDENTIALS_TABLE", "mt5_credentials")
+                response = client.table(supabase_table).select(
                     "login, api_port, api_host, bot_id, enabled"
                 ).eq("enabled", True).execute()
-                if hasattr(response, "data") and isinstance(response.data, list):
-                    for row in response.data:
+                rows = getattr(response, "data", None)
+                if isinstance(rows, list):
+                    for row in rows:
                         if not isinstance(row, dict):
                             continue
                         login = str(row.get("login") or "").strip()
@@ -278,10 +358,20 @@ def _get_peers() -> List[Dict]:
                             continue
                         if MIRROR_EXCLUDE_SAME and login == my_login:
                             continue
-                        if any(p["login"] == login for p in peers):
+                        if login in seen_logins:
+                            continue
+                        # Only mirror to accounts we know are running (registry) or
+                        # that expose their own api_host on another machine.
+                        remote_host = str(row.get("api_host") or "").strip()
+                        if live_logins and login not in live_logins and not remote_host:
+                            logger.debug(
+                                "[MIRROR] Supabase peer %s skipped (not running on this host)",
+                                login,
+                            )
                             continue
                         api_port = row.get("api_port") or os.getenv("MULTI_ACCOUNT_BASE_API_PORT", "8000")
-                        api_host = row.get("api_host") or os.getenv("MIRROR_CONNECT_HOST") or os.getenv("API_HOST", "127.0.0.1")
+                        api_host = remote_host or os.getenv("MIRROR_CONNECT_HOST") or os.getenv("API_HOST", "127.0.0.1")
+                        seen_logins.add(login)
                         peers.append({
                             "login": login,
                             "api_host": _connect_host(api_host),
@@ -289,6 +379,21 @@ def _get_peers() -> List[Dict]:
                         })
         except Exception as exc:
             logger.debug("[MIRROR] Supabase peer discovery skipped: %s", exc)
+
+    # Keep only peers whose API actually answers: dead logins must never be
+    # targeted ("Connection refused" spam) and must not appear as mirror peers.
+    live_peers = []
+    for peer in peers:
+        if _peer_reachable(peer.get("api_host"), peer.get("api_port")):
+            live_peers.append(peer)
+        else:
+            logger.debug(
+                "[MIRROR] Peer %s at %s:%s is not responding; skipped",
+                peer.get("login"),
+                peer.get("api_host"),
+                peer.get("api_port"),
+            )
+    peers = live_peers
 
     return peers
 

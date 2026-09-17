@@ -93,6 +93,35 @@ def connect(credentials=None):
 
         return None
 
+    configured_path = os.getenv("MT5_PATH", "").strip()
+    try:
+        from utils.mt5_terminal import ensure_terminal
+
+        terminal = ensure_terminal(
+            login_value,
+            configured_path or None,
+            allow_shared=os.getenv("MULTI_ACCOUNT_ALLOW_SHARED_TERMINAL", "").strip().lower() in ("1", "true", "yes", "on"),
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        terminal = {"ok": True, "path": configured_path, "source": "unresolved", "reason": str(exc)}
+
+    if not terminal.get("ok") and configured_path:
+        raise RuntimeError(
+            "MT5 terminal not found | login=%s | %s | checked=%s | fix: set the correct "
+            "ACCOUNT_n_MT5_PATH (or the submitted mt5_path), run "
+            "'powershell -ExecutionPolicy Bypass -File setup_multi_account_mt5.ps1', or set "
+            "MULTI_ACCOUNT_AUTO_CREATE_TERMINAL=true so the bot creates the portable terminal "
+            "from MT5_PATH." % (login_value, terminal.get("reason"), terminal.get("checked"))
+        )
+
+    resolved_path = str(terminal.get("path") or "").strip()
+    if resolved_path and resolved_path != configured_path:
+        os.environ["MT5_PATH"] = resolved_path
+        print(
+            "[BOT] MT5 terminal resolved | login=%s | path=%s | source=%s | %s"
+            % (login_value, resolved_path, terminal.get("source"), terminal.get("reason"))
+        )
+
     initialize_kwargs = _build_initialize_kwargs(login_value, password, server)
     login_kwargs = _build_login_kwargs(login_value, password, server)
     max_attempts = max(1, _env_int("MT5_INIT_MAX_ATTEMPTS", 4))

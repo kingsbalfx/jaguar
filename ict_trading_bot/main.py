@@ -570,42 +570,65 @@ def _deliver_signal_to_website(signal: dict) -> dict:
 
 
 def _launch_multi_account_children() -> bool:
+    """Run the multi-account supervisor (parent process).
+
+    Accounts are accepted from every source — local ``ACCOUNT_n_*`` env vars,
+    ``accounts.example.json``, the local store written by ``POST /admin/accounts``
+    and rows submitted through the web (Supabase ``mt5_credentials``) — and new
+    submissions are picked up live while the bot is running.
+    """
     if not _truthy("MULTI_ACCOUNT_ENABLED") or _truthy("MULTI_ACCOUNT_CHILD"):
         return False
     import subprocess
+
+    from multi_account_runner import (
+        ensure_account_terminal,
+        load_accounts,
+        next_respawn_backoff,
+        plan_supervision,
+        respawn_allowed,
+        sync_accounts_to_server,
+        write_active_accounts,
+    )
+
+    accept_web = _truthy("MULTI_ACCOUNT_ACCEPT_WEB", "true")
+    supervise = _truthy("MULTI_ACCOUNT_SUPERVISE", "true" if accept_web else "false")
+    discovery_seconds = _int_env("MULTI_ACCOUNT_DISCOVERY_SECONDS", 45, minimum=10)
+    auto_remove = _truthy("MULTI_ACCOUNT_AUTO_REMOVE", "false")
+    max_accounts = _int_env("MULTI_ACCOUNT_MAX_ACCOUNTS", 50, minimum=1)
+    restart_on_exit = _truthy("MULTI_ACCOUNT_RESTART_ON_EXIT", "false")
+    allow_shared = _truthy("MULTI_ACCOUNT_ALLOW_SHARED_TERMINAL", "false")
+    strict = _truthy(
+        "MULTI_ACCOUNT_REQUIRE_ACCOUNTS",
+        "false" if (accept_web or supervise) else "true",
+    )
 
     # Save parent's MT5_ACCOUNT_LOGIN so child processes don't inherit it
     parent_login = os.environ.pop("MT5_ACCOUNT_LOGIN", "")
     parent_password = os.environ.pop("MT5_ACCOUNT_PASSWORD", "")
     parent_server = os.environ.pop("MT5_ACCOUNT_SERVER", "")
 
-    accounts = load_accounts()
-    LOGGER.info(
-        "MULTI ACCOUNT | launching %s child processes",
-        len(accounts),
-    )
+    def _load_accounts_safe():
+        try:
+            return load_accounts(strict=strict)
+        except Exception as exc:
+            LOGGER.error("MULTI ACCOUNT | failed to load accounts: %s", exc)
+            return []
 
-    processes = []
-    for index, account in enumerate(accounts):
+    def _child_env(account, index: int) -> dict:
         env = os.environ.copy()
         login = str(account.get("login") or "").strip()
-        password = str(account.get("password") or "").strip()
-        server = str(account.get("server") or "").strip()
-        if not login or not password or not server:
-            LOGGER.warning(
-                "MULTI ACCOUNT | skipping account index=%s login=%s: missing credentials",
-                index,
-                login or "none",
-            )
-            continue
         env["MULTI_ACCOUNT_CHILD"] = "true"
         env["BOT_ACCOUNT_INDEX"] = str(index)
         env["BOT_ACCOUNT_ID"] = str(account.get("bot_id") or f"bot_acc_{login}")
         env["MT5_ACCOUNT_LOGIN"] = login
-        env["MT5_ACCOUNT_PASSWORD"] = password
-        env["MT5_ACCOUNT_SERVER"] = server
+        if account.get("password"):
+            env["MT5_ACCOUNT_PASSWORD"] = str(account["password"])
+        if account.get("server"):
+            env["MT5_ACCOUNT_SERVER"] = str(account["server"])
         if account.get("user_id"):
             env["BOT_USER_ID"] = str(account["user_id"])
+            env["SIGNAL_USER_ID"] = str(account["user_id"])
         if account.get("email"):
             env["BOT_USER_EMAIL"] = str(account["email"])
         if account.get("mt5_path"):
@@ -615,20 +638,127 @@ def _launch_multi_account_children() -> bool:
             env["SYMBOLS"] = ",".join(account["symbols"])
         if account.get("api_port") is not None:
             env["API_PORT"] = str(account["api_port"])
+        if account.get("backtest_report_path"):
+            env["BACKTEST_REPORT_PATH"] = str(account["backtest_report_path"])
+        for key, value in (account.get("extra_env") or {}).items():
+            env[str(key)] = str(value)
+        return env
+
+    processes = {}
+    used_terminals = set()
+    failures = {}
+    auth_failures = {}
+    auth_failure_limit = _int_env("MULTI_ACCOUNT_AUTH_FAILURE_LIMIT", 3, minimum=1)
+    skip_logged = set()
+
+    def _log_skip_once(login: str, reason: str, message: str, *args) -> None:
+        marker = f"{login}:{reason}"
+        if marker in skip_logged:
+            return
+        skip_logged.add(marker)
+        LOGGER.warning(message, *args)
+
+    def _account_config_signature(account) -> str:
+        return "|".join(
+            [
+                str(account.get("mt5_path") or ""),
+                str(account.get("server") or ""),
+                str(account.get("api_port") or ""),
+            ]
+        )
+
+    def _spawn_child(account, index: int, respect_backoff: bool = True):
+        login = str(account.get("login") or "").strip()
+        server = str(account.get("server") or "").strip()
+        password = str(account.get("password") or "").strip()
+        if not login:
+            return None
+        if login in processes:
+            return None
+        if not password or not server:
+            _log_skip_once(
+                login,
+                "missing_credentials",
+                "MULTI ACCOUNT | skipping login=%s: missing %s (submit it again with credentials)",
+                login,
+                "password and server" if not password and not server else ("password" if not password else "server"),
+            )
+            return None
+
+        signature = _account_config_signature(account)
+        if respect_backoff and not respawn_allowed(login, signature, failures):
+            return None
+        if not respect_backoff or signature != (failures.get(login) or {}).get("signature"):
+            failures.pop(login, None)
+
+        # The terminal must exist for MT5 to launch: resolve it (and, when
+        # MULTI_ACCOUNT_AUTO_CREATE_TERMINAL=true, create the portable copy first).
+        terminal = ensure_account_terminal(account)
+        if not terminal.get("ok"):
+            _log_skip_once(
+                login,
+                "terminal_missing",
+                "MULTI ACCOUNT | skipping login=%s: %s | checked=%s | fix: correct the mt5_path, "
+                "run 'powershell -ExecutionPolicy Bypass -File setup_multi_account_mt5.ps1', or set "
+                "MULTI_ACCOUNT_AUTO_CREATE_TERMINAL=true",
+                login,
+                terminal.get("reason"),
+                terminal.get("checked"),
+            )
+            return None
+        account["mt5_path"] = terminal.get("path")
+
+        terminal_key = str(account.get("mt5_path") or os.getenv("MT5_PATH") or "<default_mt5_terminal>").strip().lower()
+        if not allow_shared and terminal_key in used_terminals:
+            LOGGER.warning(
+                "MULTI ACCOUNT | skipping login=%s: shares MT5 terminal '%s' with a running account",
+                login,
+                terminal_key,
+            )
+            return None
+
         LOGGER.info(
-            "MULTI ACCOUNT | spawning child %s/%s | login=%s | server=%s",
-            index + 1,
-            len(accounts),
+            "MULTI ACCOUNT | spawning child | login=%s | server=%s | source=%s | api_port=%s",
             login,
             server,
+            account.get("source") or "local",
+            account.get("api_port"),
         )
-        processes.append(
-            subprocess.Popen(
-                [sys.executable, str(Path(__file__).resolve())],
-                cwd=str(Path(__file__).parent),
-                env=env,
+        process = subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve())],
+            cwd=str(Path(__file__).parent),
+            env=_child_env(account, index),
+        )
+        processes[login] = process
+        used_terminals.add(terminal_key)
+        return process
+
+    accounts = _load_accounts_safe()
+    LOGGER.info(
+        "MULTI ACCOUNT | %s account(s) accepted | accept_web=%s | supervise=%s | sources=%s",
+        len(accounts),
+        _yes_no(accept_web),
+        _yes_no(supervise),
+        ",".join(sorted({str(a.get("source") or "local") for a in accounts})) or "none",
+    )
+
+    # Push locally configured accounts UP to Supabase so the website / other
+    # machines / mirror see them too (auto-synchronise local -> server).
+    if _truthy("MULTI_ACCOUNT_SYNC_TO_SERVER", "true") and accounts:
+        try:
+            sync_result = sync_accounts_to_server(accounts)
+            LOGGER.info(
+                "MULTI ACCOUNT | server sync | synced=%s | skipped=%s | failed=%s%s",
+                sync_result.get("synced"),
+                sync_result.get("skipped"),
+                sync_result.get("failed"),
+                f" | reason={sync_result.get('reason')}" if sync_result.get("reason") else "",
             )
-        )
+        except Exception as exc:  # pragma: no cover - defensive
+            LOGGER.warning("MULTI ACCOUNT | server sync failed: %s", exc)
+
+    for index, account in enumerate(accounts):
+        _spawn_child(account, index)
         delay = max(2, int(os.getenv("MULTI_ACCOUNT_START_DELAY_SECONDS", "35")))
         if index < len(accounts) - 1:
             LOGGER.info("MULTI ACCOUNT | waiting %ss before next account", delay)
@@ -643,16 +773,163 @@ def _launch_multi_account_children() -> bool:
         os.environ["MT5_ACCOUNT_SERVER"] = parent_server
 
     if not processes:
-        LOGGER.warning("MULTI ACCOUNT | no child processes spawned (no valid accounts)")
-        return False
+        if supervise:
+            LOGGER.warning(
+                "MULTI ACCOUNT | no account spawnable yet; waiting for a submission via "
+                "POST /admin/accounts or a web/Supabase mt5_credentials row"
+            )
+        else:
+            LOGGER.warning("MULTI ACCOUNT | no child processes spawned (no valid accounts)")
+            return False
+
+    if not supervise:
+        # Legacy behaviour: run the configured accounts and stop when they all exit.
+        LOGGER.info("MULTI ACCOUNT | %s child process(es) launched, waiting for them to finish", len(processes))
+        while processes:
+            for login, process in list(processes.items()):
+                if process.poll() is not None:
+                    LOGGER.warning("MULTI ACCOUNT | child login=%s exited rc=%s", login, process.returncode)
+                    del processes[login]
+            time.sleep(5)
+        return True
 
     LOGGER.info(
-        "MULTI ACCOUNT | %s/%s child processes launched, waiting for them to finish",
+        "MULTI ACCOUNT | supervisor running | children=%s | max=%s | discovery=%ss | auto_remove=%s | restart=%s",
         len(processes),
-        len(accounts),
+        max_accounts,
+        discovery_seconds,
+        _yes_no(auto_remove),
+        _yes_no(restart_on_exit),
     )
-    for process in processes:
-        process.wait()
+
+    next_discovery = 0.0
+    try:
+        while True:
+            now = time.time()
+
+            # Reap finished children (and restart them when configured).
+            for login, process in list(processes.items()):
+                if process.poll() is not None:
+                    returncode = process.returncode
+                    del processes[login]
+                    used_terminals.discard(
+                        str(next((a.get("mt5_path") for a in accounts if str(a.get("login")) == login), "") or os.getenv("MT5_PATH") or "<default_mt5_terminal>").strip().lower()
+                    )
+                    LOGGER.warning("MULTI ACCOUNT | child login=%s exited rc=%s", login, returncode)
+
+                    exited_account = next(
+                        (a for a in accounts if str(a.get("login")) == login),
+                        {"login": login},
+                    )
+                    attempts = int((failures.get(login) or {}).get("attempts") or 0) + 1
+                    backoff = next_respawn_backoff(attempts)
+                    failures[login] = {
+                        "attempts": attempts,
+                        "retry_at": time.time() + backoff,
+                        "signature": _account_config_signature(exited_account),
+                        "returncode": returncode,
+                    }
+
+                    if returncode == 2:
+                        # Exit code 2 = MT5 rejected the login/password (auth failed).
+                        auth_failures[login] = int(auth_failures.get(login) or 0) + 1
+                        LOGGER.error(
+                            "MULTI ACCOUNT | login=%s MT5 AUTHORIZATION FAILED (%s/%s) | check the "
+                            "password/server for this account; re-submit it via POST /admin/accounts "
+                            "or fix ACCOUNT_n_PASSWORD",
+                            login,
+                            auth_failures[login],
+                            auth_failure_limit,
+                        )
+                        if auth_failures[login] >= auth_failure_limit:
+                            try:
+                                from multi_account_runner import disable_account, set_local_account_enabled
+
+                                disable_account(login, "mt5_authorization_failed")
+                                set_local_account_enabled(login, False)
+                            except Exception:
+                                pass
+                            failures[login]["retry_at"] = time.time() + 86400
+                            LOGGER.error(
+                                "MULTI ACCOUNT | login=%s disabled after %s authorization failures | "
+                                "fix the password/server then re-submit it via POST /admin/accounts "
+                                "to re-enable it",
+                                login,
+                                auth_failures[login],
+                            )
+                            continue
+
+                    LOGGER.warning(
+                        "MULTI ACCOUNT | login=%s attempts=%s; next retry in %ss (fix the account to retry sooner)",
+                        login,
+                        attempts,
+                        int(backoff),
+                    )
+                    if restart_on_exit and respawn_allowed(login, _account_config_signature(exited_account), failures):
+                        _spawn_child(exited_account, len(processes), respect_backoff=False)
+
+            # Accept newly submitted accounts (local file, admin API, web/Supabase).
+            if now >= next_discovery:
+                next_discovery = now + discovery_seconds
+                try:
+                    refreshed = _load_accounts_safe()
+                except Exception as exc:  # pragma: no cover - defensive
+                    LOGGER.warning("MULTI ACCOUNT | discovery failed: %s", exc)
+                    refreshed = []
+
+                if refreshed:
+                    accounts = refreshed
+                plan = plan_supervision(list(processes.keys()), accounts, auto_remove=auto_remove)
+                if plan["to_spawn"] or plan["to_remove"]:
+                    LOGGER.info(
+                        "MULTI ACCOUNT | discovery | live=%s | new=%s | removed=%s",
+                        sorted(processes.keys()),
+                        [a.get("login") for a in plan["to_spawn"]],
+                        plan["to_remove"],
+                    )
+
+                for account in plan["to_spawn"]:
+                    if len(processes) >= max_accounts:
+                        LOGGER.warning(
+                            "MULTI ACCOUNT | account limit reached (%s); login=%s not started",
+                            max_accounts,
+                            account.get("login"),
+                        )
+                        break
+                    if _spawn_child(account, len(processes)):
+                        LOGGER.info(
+                            "MULTI ACCOUNT | accepted new account login=%s source=%s",
+                            account.get("login"),
+                            account.get("source") or "local",
+                        )
+
+                for login in plan["to_remove"]:
+                    process = processes.pop(login, None)
+                    if process and process.poll() is None:
+                        process.terminate()
+                    LOGGER.info("MULTI ACCOUNT | stopped removed/disabled account login=%s", login)
+
+            # Publish the LIVE account set so the mirror only targets running accounts.
+            try:
+                live_entries = []
+                for login in processes:
+                    live_entries.append(
+                        next(
+                            (a for a in accounts if str(a.get("login")) == login),
+                            {"login": login},
+                        )
+                    )
+                write_active_accounts(live_entries)
+            except Exception as exc:  # pragma: no cover - defensive
+                LOGGER.debug("MULTI ACCOUNT | active-registry update failed: %s", exc)
+
+            time.sleep(5)
+    except KeyboardInterrupt:
+        LOGGER.info("MULTI ACCOUNT | supervisor interrupted, stopping children")
+    finally:
+        for login, process in list(processes.items()):
+            if process.poll() is None:
+                process.terminate()
     return True
 
 
@@ -1642,7 +1919,20 @@ def run_bot() -> None:
         os.getenv("API_PORT", "8000"),
     )
     start_in_thread()
-    connected = connect()
+    try:
+        connected = connect()
+    except RuntimeError as exc:
+        message = str(exc)
+        if "Authorization failed" in message or "-6" in message:
+            # Distinct exit code so the supervisor can count auth failures and
+            # stop retrying an account whose password is wrong.
+            LOGGER.error("MT5 authorization failed for account %s: %s", login_display, message)
+            LOGGER.error(
+                "Fix the password/server for this account (re-submit it via POST /admin/accounts "
+                "or update ACCOUNT_n_PASSWORD) — retrying will not help."
+            )
+            sys.exit(2)
+        raise
     set_connection(connected)
     if not connected:
         raise RuntimeError("Unable to connect to MT5")
