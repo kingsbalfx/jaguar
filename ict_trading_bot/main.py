@@ -46,6 +46,7 @@ from risk.mirror_trading import (
 from kingsbalfx_concept import evaluate as evaluate_kingsbalfx
 from strategy.pre_trade_analysis import analyze_market_top_down
 from strategy.unified_strategy import SEQUENCE, evaluate_strategy
+from strategy.toggles import is_enabled as strategy_enabled
 from utils.logger import bot_log
 from utils.sessions import asset_trading_open, friday_entry_allowed, in_london_session, in_newyork_session
 from utils.symbol_profile import infer_asset_class
@@ -1448,6 +1449,103 @@ def _evaluate_kingsbalfx_fallback(symbol: str, direction: str, analysis: dict, t
     return request, fallback_setup, safety
 
 
+def _disabled_strategy_setup(strategy: str, analysis: dict) -> dict:
+    """Non-executable setup stub used when a strategy is switched OFF.
+
+    Keeps the exact shape the fallback chain expects (``executable`` False plus a
+    ``reason``/``failed_step``), so switching a strategy off locally or from the
+    admin panel never breaks the remaining strategies.
+    """
+    topdown = analysis.get("topdown") or {}
+    return {
+        "strategy": strategy,
+        "executable": False,
+        "direction": analysis.get("overall_trend") or topdown.get("h1_trend"),
+        "trend": analysis.get("overall_trend"),
+        "reason": f"{strategy}_disabled_by_toggle",
+        "failed_step": "strategy_disabled",
+        "states": [],
+        "total_steps": len(SEQUENCE),
+        "plan": None,
+    }
+
+
+def _run_fallback3(symbol, direction, analysis, tick, account, positions,
+                   mt5_connector, ict_setup, kingsbalfx_setup):
+    """Fallback 3, honouring the runtime strategy toggle."""
+    if not strategy_enabled("fallback3"):
+        LOGGER.debug("[%s] FALLBACK3 disabled by strategy toggle", symbol)
+        return (None, _disabled_strategy_setup("fallback3", analysis),
+                {"reason": "fallback3_disabled_by_toggle"})
+    from strategy.fallback_strategy3 import evaluate_fallback3
+
+    return evaluate_fallback3(
+        symbol=symbol,
+        direction=direction,
+        analysis=analysis,
+        tick=tick,
+        account=account,
+        positions=positions,
+        mt5_connector=mt5_connector,
+        ict_setup=ict_setup,
+        kingsbalfx_setup=kingsbalfx_setup,
+        risk_percent=_risk_percent(),
+        minimum_rr=1.0,
+    )
+
+
+def _run_fallback4(symbol, direction, analysis, tick, account, positions,
+                   mt5_connector, ict_setup, kingsbalfx_setup, fallback3_setup):
+    """Fallback 4, honouring the runtime strategy toggle."""
+    if not strategy_enabled("fallback4"):
+        LOGGER.debug("[%s] FALLBACK4 disabled by strategy toggle", symbol)
+        return (None, _disabled_strategy_setup("fallback4", analysis),
+                {"reason": "fallback4_disabled_by_toggle"})
+    from strategy.fallback_strategy4 import evaluate_fallback4
+
+    return evaluate_fallback4(
+        symbol=symbol,
+        direction=direction,
+        analysis=analysis,
+        tick=tick,
+        account=account,
+        positions=positions,
+        mt5_connector=mt5_connector,
+        ict_setup=ict_setup,
+        kingsbalfx_setup=kingsbalfx_setup,
+        fallback3_setup=fallback3_setup,
+        risk_percent=_risk_percent(),
+        minimum_rr=1.0,
+    )
+
+
+def _run_fallback5(symbol, direction, analysis, tick, account, positions,
+                   mt5_connector, ict_setup, kingsbalfx_setup, fallback3_setup,
+                   fallback4_setup):
+    """Fallback 5, honouring the runtime strategy toggle."""
+    if not strategy_enabled("fallback5"):
+        LOGGER.debug("[%s] FALLBACK5 disabled by strategy toggle", symbol)
+        return (None, _disabled_strategy_setup("fallback5", analysis),
+                {"reason": "fallback5_disabled_by_toggle"})
+    from strategy.fallback_strategy5 import evaluate_fallback5
+
+    return evaluate_fallback5(
+        symbol=symbol,
+        direction=direction,
+        analysis=analysis,
+        tick=tick,
+        account=account,
+        positions=positions,
+        mt5_connector=mt5_connector,
+        ict_setup=ict_setup,
+        kingsbalfx_setup=kingsbalfx_setup,
+        fallback3_setup=fallback3_setup,
+        fallback4_setup=fallback4_setup,
+        risk_percent=_risk_percent(),
+        minimum_rr=1.0,
+    )
+
+
 def _evaluate_symbol(symbol: str, account: dict, positions: list):
     resolved_symbol = _resolve_symbol(symbol)
     if not resolved_symbol:
@@ -1478,7 +1576,12 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
     except Exception as exc:
         smt = {"confirmed": False, "direction": None, "reason": f"SMT unavailable: {exc}"}
     killzone_active = _killzone_active_from_analysis(analysis)
-    setup = evaluate_strategy(symbol, price, analysis, smt=smt, killzone_active=killzone_active)
+    if strategy_enabled("ict"):
+        setup = evaluate_strategy(symbol, price, analysis, smt=smt, killzone_active=killzone_active)
+    else:
+        # Strategy 1 switched OFF (locally or from the admin panel).
+        LOGGER.info("[%s] ICT DISABLED by strategy toggle -> fallback chain", symbol)
+        setup = _disabled_strategy_setup("ict", analysis)
     try:
         news_allowed = news_allows_trade(symbol)
         news = {
@@ -1529,16 +1632,22 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
             }
             return None, fallback_setup, {"reason": "h1_narrative_unclear"}
         
-        LOGGER.info("[%s] ICT SKIP -> KINGSBALFX FALLBACK | failed_step=%s | reason=%s", symbol, failed_step, setup.get("reason"))
-        fallback_request, fallback_setup, fallback_safety = _evaluate_kingsbalfx_fallback(
-            symbol,
-            direction,
-            analysis,
-            tick,
-            account,
-            positions,
-            setup,
-        )
+        if strategy_enabled("kingsbalfx"):
+            LOGGER.info("[%s] ICT SKIP -> KINGSBALFX FALLBACK | failed_step=%s | reason=%s", symbol, failed_step, setup.get("reason"))
+            fallback_request, fallback_setup, fallback_safety = _evaluate_kingsbalfx_fallback(
+                symbol,
+                direction,
+                analysis,
+                tick,
+                account,
+                positions,
+                setup,
+            )
+        else:
+            LOGGER.info("[%s] KINGSBALFX DISABLED by strategy toggle", symbol)
+            fallback_request = None
+            fallback_setup = _disabled_strategy_setup("kingsbalfx", analysis)
+            fallback_safety = {"reason": "kingsbalfx_disabled_by_toggle"}
         if fallback_request:
             return fallback_request, fallback_setup, fallback_safety
 
@@ -1547,18 +1656,16 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
         try:
             from strategy.fallback_strategy3 import evaluate_fallback3 as _evaluate_fallback3
             
-            _fb3_request, _fb3_setup, _fb3_safety = _evaluate_fallback3(
-                symbol=symbol,
-                direction=direction,
-                analysis=analysis,
-                tick=tick,
-                account=account,
-                positions=positions,
-                mt5_connector=mt5_connector,
-                ict_setup=setup,
-                kingsbalfx_setup=fallback_setup,
-                risk_percent=_risk_percent(),
-                minimum_rr=1.0,
+            _fb3_request, _fb3_setup, _fb3_safety = _run_fallback3(
+                symbol,
+                direction,
+                analysis,
+                tick,
+                account,
+                positions,
+                mt5_connector,
+                setup,
+                fallback_setup,
             )
             if _fb3_request:
                 LOGGER.info("[%s] FALLBACK3 | valid trade found | score=%s | sweep=%s | choch=%s",
@@ -1579,19 +1686,17 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
         try:
             from strategy.fallback_strategy4 import evaluate_fallback4 as _evaluate_fallback4
 
-            _fb4_request, _fb4_setup, _fb4_safety = _evaluate_fallback4(
-                symbol=symbol,
-                direction=direction,
-                analysis=analysis,
-                tick=tick,
-                account=account,
-                positions=positions,
-                mt5_connector=mt5_connector,
-                ict_setup=setup,
-                kingsbalfx_setup=fallback_setup,
-                fallback3_setup=_fb3_setup,
-                risk_percent=_risk_percent(),
-                minimum_rr=1.0,
+            _fb4_request, _fb4_setup, _fb4_safety = _run_fallback4(
+                symbol,
+                direction,
+                analysis,
+                tick,
+                account,
+                positions,
+                mt5_connector,
+                setup,
+                fallback_setup,
+                _fb3_setup,
             )
             if _fb4_request:
                 LOGGER.info("[%s] FALLBACK4 | valid trade | score=%s | range_w=%.1f sweep=%s entry=%.5f",
@@ -1615,20 +1720,18 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
             from strategy.fallback_strategy5 import evaluate_fallback5 as _evaluate_fallback5
             
             _fb5_tried = True
-            _fb5_request, _fb5_setup, _fb5_safety = _evaluate_fallback5(
-                symbol=symbol,
-                direction=direction,
-                analysis=analysis,
-                tick=tick,
-                account=account,
-                positions=positions,
-                mt5_connector=mt5_connector,
-                ict_setup=setup,
-                kingsbalfx_setup=fallback_setup,
-                fallback3_setup=_fb3_setup,
-                fallback4_setup=_fb4_setup if _fb4_setup else None,
-                risk_percent=_risk_percent(),
-                minimum_rr=1.0,
+            _fb5_request, _fb5_setup, _fb5_safety = _run_fallback5(
+                symbol,
+                direction,
+                analysis,
+                tick,
+                account,
+                positions,
+                mt5_connector,
+                setup,
+                fallback_setup,
+                _fb3_setup,
+                _fb4_setup if _fb4_setup else None,
             )
             if _fb5_request:
                 LOGGER.info("[%s] FALLBACK5 | valid trade | direction=%s | model=%s | score=%d | rr=%.2f | entry=%.5f",
@@ -1849,7 +1952,7 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
     bot_log("trade_opened", f"[{symbol}] {label} confirmed and trade opened", payload)
 
     # --- MIRROR TRADING: Broadcast signal to other accounts ---
-    if MIRROR_ENABLED:
+    if MIRROR_ENABLED and strategy_enabled("mirror"):
         try:
             source_login = os.getenv("MT5_ACCOUNT_LOGIN", "unknown")
             mirror_signal = create_mirror_signal(
@@ -2125,7 +2228,7 @@ def run_bot() -> None:
             )
 
             # --- MIRROR TRADING: Check for pending signals from shared file ---
-            if MIRROR_ENABLED:
+            if MIRROR_ENABLED and strategy_enabled("mirror"):
                 try:
                     pending_results = check_pending_mirror_signals()
                     if pending_results:

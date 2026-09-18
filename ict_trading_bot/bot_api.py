@@ -533,6 +533,80 @@ def admin_accounts_sync():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/admin/strategies", methods=["GET"])
+def admin_strategies_list():
+    """List every strategy and whether it is ON (env default / local file / admin panel)."""
+    denied = _require_auth()
+    if denied:
+        return denied
+    try:
+        from strategy.toggles import snapshot
+
+        strategies = snapshot()
+        return jsonify({
+            "count": len(strategies),
+            "enabled": [name for name, row in strategies.items() if row["enabled"]],
+            "disabled": [name for name, row in strategies.items() if not row["enabled"]],
+            "strategies": strategies,
+        }), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/admin/strategies", methods=["POST"])
+def admin_strategies_set():
+    """Turn one or more strategies ON/OFF at runtime (no restart needed).
+
+    Body:
+      {"strategy": "fallback5", "enabled": false}
+      {"strategies": {"fallback3": false, "fallback5": true}}
+    Optional: "persist_local" (default true), "persist_remote" (default true).
+    """
+    denied = _require_auth()
+    if denied:
+        return denied
+    try:
+        from strategy.toggles import set_enabled, snapshot
+
+        data = request.get_json(silent=True) or {}
+        persist_local = bool(data.get("persist_local", True))
+        persist_remote = bool(data.get("persist_remote", True))
+
+        changes = {}
+        if data.get("strategy"):
+            changes[str(data["strategy"]).strip().lower()] = bool(data.get("enabled", True))
+        raw = data.get("strategies")
+        if isinstance(raw, dict):
+            for name, value in raw.items():
+                changes[str(name).strip().lower()] = bool(value)
+
+        if not changes:
+            return jsonify({"error": "provide 'strategy' + 'enabled' or a 'strategies' object"}), 400
+
+        results = []
+        for name, value in changes.items():
+            try:
+                results.append(set_enabled(
+                    name,
+                    value,
+                    persist_local=persist_local,
+                    persist_remote=persist_remote,
+                    updated_by="bot_api",
+                ))
+            except ValueError as exc:
+                results.append({"strategy": name, "error": str(exc)})
+
+        bot_log(
+            "strategy_toggle",
+            "Strategy toggles updated via bot API: %s" % changes,
+            {"changes": changes, "persist_local": persist_local, "persist_remote": persist_remote},
+            persist=False,
+        )
+        return jsonify({"updated": results, "strategies": snapshot()}), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 def run_api(host="0.0.0.0", port=8000):
     import os
 

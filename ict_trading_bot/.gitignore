@@ -1,11 +1,15 @@
 # Local runtime / credential files (never commit real secrets)
 .env
 .env.local
+.env.bak
+.env.*.bak
 data/local_credentials.json
 data/mt5_symbol_universe.json
 data/active_accounts.json
 data/accounts_local.json
 data/disabled_accounts.json
+data/strategy_toggles.json
+data/strategy_toggles.json.tmp
 *.log
 __pycache__/
 *.py[cod]

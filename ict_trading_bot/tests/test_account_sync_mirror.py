@@ -291,6 +291,8 @@ def test_mirror_peers_only_include_live_accounts(isolated_store, monkeypatch):
     monkeypatch.setenv("MIRROR_EXCLUDE_SAME", "true")
     monkeypatch.setenv("MT5_ACCOUNT_LOGIN", "5941466")
     monkeypatch.setenv("MIRROR_SUPABASE_DISCOVERY", "false")
+    # Strict mode: only accounts in the live registry may be targeted.
+    monkeypatch.setenv("MIRROR_ACCEPT_ANY_ACCOUNT", "false")
     # Reachability probing is exercised separately (test_peer_probe_*).
     monkeypatch.setenv("MIRROR_PEER_PROBE", "false")
 
@@ -330,6 +332,34 @@ def test_mirror_peers_fall_back_to_local_accounts_without_registry(isolated_stor
     monkeypatch.setattr(mirror, "_supabase_client", lambda: None, raising=False)
     peers = mirror._get_peers()
     assert sorted(peer["login"] for peer in peers) == ["222"]
+
+
+def test_mirror_accepts_any_inserted_account(isolated_store, monkeypatch):
+    """MIRROR_ACCEPT_ANY_ACCOUNT: an account inserted anywhere becomes a mirror peer.
+
+    The live registry only knows about login 222, but 333 was inserted locally -
+    it must still be a mirror target (this is the "accept any account" behaviour).
+    """
+    monkeypatch.setenv("MIRROR_TRADING_ENABLED", "true")
+    monkeypatch.setenv("MIRROR_EXCLUDE_SAME", "true")
+    monkeypatch.setenv("MIRROR_SUPABASE_DISCOVERY", "false")
+    monkeypatch.setenv("MIRROR_PEER_PROBE", "false")
+    monkeypatch.setenv("MIRROR_ACCEPT_ANY_ACCOUNT", "true")
+    monkeypatch.setenv("MT5_ACCOUNT_LOGIN", "111")
+    monkeypatch.setenv(
+        "MULTI_ACCOUNT_ACCOUNTS_JSON",
+        json.dumps({"accounts": [
+            {"enabled": True, "login": "222", "api_port": 8001},
+            {"enabled": True, "login": "333", "api_port": 8002},
+        ]}),
+    )
+    write_active_accounts([{"login": "222", "api_port": 8001}], host="127.0.0.1")
+
+    import risk.mirror_trading as mirror
+
+    monkeypatch.setattr(mirror, "_supabase_client", lambda: None, raising=False)
+    logins = sorted(peer["login"] for peer in mirror._get_peers())
+    assert logins == ["222", "333"]
 
 
 def test_load_accounts_accepts_env_web_and_local_store_together(isolated_store, monkeypatch):

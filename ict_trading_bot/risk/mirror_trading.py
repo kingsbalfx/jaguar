@@ -63,6 +63,18 @@ MIRROR_BROADCAST_DELAY = float(os.getenv("MIRROR_BROADCAST_DELAY", "0.5"))
 MIRROR_SUPABASE_TABLE = os.getenv("MIRROR_SUPABASE_TABLE", "mirror_signals")
 MIRROR_BROADCAST_RETRIES = int(os.getenv("MIRROR_BROADCAST_RETRIES", "3"))
 
+
+def accept_any_account() -> bool:
+    """Accept ANY account inserted anywhere as a mirror peer?
+
+    Covers env ``ACCOUNT_n_*``, ``accounts_local.json``, ``accounts.json`` and the
+    web/Supabase ``mt5_credentials`` table - instead of only accounts that are
+    already running on this machine. Read live so a ``.env`` change applies
+    without a restart. Set ``MIRROR_ACCEPT_ANY_ACCOUNT=false`` for the old
+    "live-registry only" behaviour.
+    """
+    return _truthy_env("MIRROR_ACCEPT_ANY_ACCOUNT", "true")
+
 _SHARED_SIGNAL_DIR = Path(__file__).resolve().parent.parent / "data"
 _SHARED_SIGNAL_FILE = _SHARED_SIGNAL_DIR / "mirror_signals.json"
 
@@ -121,6 +133,16 @@ def _peer_reachable(host: str, port: Any, timeout: float = None) -> bool:
 
 def _truthy_env(name: str, default: str = "false") -> bool:
     return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _toggle_enabled(name: str) -> bool:
+    """Runtime strategy toggle (local file / admin panel). Fails open on error."""
+    try:
+        from strategy.toggles import is_enabled
+
+        return bool(is_enabled(name))
+    except Exception:  # pragma: no cover - never let a toggle break mirroring
+        return True
 
 
 # ===========================================================================
@@ -275,17 +297,24 @@ def _get_peers() -> List[Dict]:
 
     Sources (merged, de-duplicated by login):
       1. the LIVE account registry written by the multi-account supervisor
-         (``data/active_accounts.json``) — only accounts whose child process is
-         actually running, so we never POST to dead logins,
-      2. local multi-account config/env accounts,
+         (``data/active_accounts.json``),
+      2. local accounts (env ``ACCOUNT_n_*``, ``data/accounts_local.json``,
+         ``accounts.json``),
       3. Supabase ``mt5_credentials`` rows (accounts submitted through the web).
 
-    Stale registry entries and accounts that are not currently live are skipped.
+    With ``MIRROR_ACCEPT_ANY_ACCOUNT=true`` (default) every account found in any
+    source is accepted as a peer, so an account inserted anywhere starts being
+    mirrored. With it ``false`` the old behaviour applies: only accounts that are
+    actually running on this machine are targeted.
+
+    Peers whose API does not answer a quick TCP probe are still dropped, so a dead
+    login never produces "Connection refused" spam.
     """
     peers: List[Dict] = []
     seen_logins = set()
     my_login = os.getenv("MT5_ACCOUNT_LOGIN", "").strip()
     live_logins = set()
+    accept_any = accept_any_account()
 
     try:
         from multi_account_runner import read_active_accounts
@@ -314,8 +343,10 @@ def _get_peers() -> List[Dict]:
 
     registry_available = bool(seen_logins) or bool(live_logins)
 
-    # Method 1: Local multi-account config (legacy / when no registry exists yet)
-    if not registry_available:
+    # Method 1: Local accounts (env ACCOUNT_n_*, accounts_local.json, accounts.json).
+    # Merged as soon as MIRROR_ACCEPT_ANY_ACCOUNT is on, so an account that was just
+    # inserted locally is a mirror peer even before the live registry catches up.
+    if (not registry_available) or accept_any:
         try:
             from multi_account_runner import load_accounts
 
@@ -363,7 +394,12 @@ def _get_peers() -> List[Dict]:
                         # Only mirror to accounts we know are running (registry) or
                         # that expose their own api_host on another machine.
                         remote_host = str(row.get("api_host") or "").strip()
-                        if live_logins and login not in live_logins and not remote_host:
+                        if (
+                            live_logins
+                            and login not in live_logins
+                            and not remote_host
+                            and not accept_any
+                        ):
                             logger.debug(
                                 "[MIRROR] Supabase peer %s skipped (not running on this host)",
                                 login,
@@ -458,6 +494,9 @@ def broadcast_signal(signal: Dict) -> List[Dict]:
     """
     if not MIRROR_ENABLED:
         logger.info("[MIRROR] Mirror trading is disabled. Signal not broadcast.")
+        return []
+    if not _toggle_enabled("mirror"):
+        logger.info("[MIRROR] Mirror trading is disabled by strategy toggle. Signal not broadcast.")
         return []
 
     _append_signal_to_file(signal)
@@ -555,6 +594,8 @@ def should_execute_mirror(signal: Dict) -> Tuple[bool, str]:
     """Determine if this account should execute the mirror signal."""
     if not MIRROR_ENABLED:
         return False, "mirror_trading_disabled"
+    if not _toggle_enabled("mirror"):
+        return False, "mirror_disabled_by_toggle"
     if not MIRROR_AUTO_OPEN:
         return False, "mirror_auto_open_disabled"
     signal_id = signal.get("signal_id", "")
@@ -775,6 +816,8 @@ def check_pending_mirror_signals() -> List[Dict]:
     """
     if not MIRROR_ENABLED:
         return []
+    if not _toggle_enabled("mirror"):
+        return []
 
     results = []
 
@@ -826,6 +869,8 @@ def register_mirror_api(app):
         from flask import jsonify
         return jsonify({
             "mirror_enabled": MIRROR_ENABLED,
+            "toggle_enabled": _toggle_enabled("mirror"),
+            "accept_any_account": accept_any_account(),
             "auto_open": MIRROR_AUTO_OPEN,
             "account_login": os.getenv("MT5_ACCOUNT_LOGIN", "unknown"),
             "cooldown_seconds": MIRROR_COOLDOWN_SECONDS,
@@ -845,6 +890,8 @@ def register_mirror_api(app):
         from flask import jsonify
         return jsonify({
             "mirror_enabled": MIRROR_ENABLED,
+            "toggle_enabled": _toggle_enabled("mirror"),
+            "accept_any_account": accept_any_account(),
             "auto_open": MIRROR_AUTO_OPEN,
             "duplicate_cache_size": len(_received_signals),
             "active_cooldowns": len(_last_mirror_time),

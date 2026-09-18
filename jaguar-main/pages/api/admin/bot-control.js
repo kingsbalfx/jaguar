@@ -272,6 +272,106 @@ export default async function handler(req, res) {
       });
     }
 
+    // ========== STRATEGY SWITCHES (runtime ON/OFF, no restart) ==========
+    if (action === "get-strategies") {
+      const CATALOG = [
+        { strategy: "ict", label: "Strategy 1 - ICT 12-gate state machine", env_key: "ICT_ENABLED" },
+        { strategy: "kingsbalfx", label: "Strategy 2 - Kingsbalfx fallback", env_key: "KINGSBALFX_ENABLED" },
+        { strategy: "fallback3", label: "Fallback 3 - sweep + CHoCH + MACD", env_key: "FALLBACK3_ENABLED" },
+        { strategy: "fallback4", label: "Fallback 4 - range + displacement", env_key: "FALLBACK4_ENABLED" },
+        { strategy: "fallback5", label: "Fallback 5 - session day-trend scalper", env_key: "FALLBACK5_ENABLED" },
+        { strategy: "mirror", label: "Mirror trading (broadcast + auto-open)", env_key: "MIRROR_TRADING_ENABLED" },
+      ];
+
+      const { data: rows, error: rowsError } = await supabase
+        .from("bot_strategy_settings")
+        .select("strategy,enabled,updated_at,updated_by");
+
+      // PGRST205 / 42P01 = table not created yet; fall back to "all enabled".
+      if (rowsError && rowsError.code !== "PGRST205" && rowsError.code !== "42P01") {
+        throw rowsError;
+      }
+
+      const overrides = new Map((rows || []).map((r) => [r.strategy, r]));
+      const strategies = CATALOG.map((entry) => {
+        const row = overrides.get(entry.strategy);
+        return {
+          ...entry,
+          enabled: row ? Boolean(row.enabled) : true,
+          source: row ? "admin_panel" : "env",
+          updated_at: (row && row.updated_at) || null,
+          updated_by: (row && row.updated_by) || null,
+        };
+      });
+
+      return res.status(200).json({
+        status: "ok",
+        tableReady: !rowsError,
+        strategies,
+        enabled: strategies.filter((s) => s.enabled).map((s) => s.strategy),
+        disabled: strategies.filter((s) => !s.enabled).map((s) => s.strategy),
+      });
+    }
+
+    if (action === "set-strategy") {
+      const { strategy, enabled, updatedBy } = req.body || {};
+      if (!strategy || typeof enabled !== "boolean") {
+        return res.status(400).json({ error: "strategy and enabled (boolean) are required" });
+      }
+
+      const { data: saved, error: saveError } = await supabase
+        .from("bot_strategy_settings")
+        .upsert(
+          {
+            strategy: String(strategy).toLowerCase(),
+            enabled,
+            updated_at: new Date().toISOString(),
+            updated_by: updatedBy || "admin_panel",
+          },
+          { onConflict: "strategy" }
+        )
+        .select();
+
+      if (saveError) throw saveError;
+
+      await supabase.from("bot_logs").insert({
+        event: "strategy_toggle",
+        payload: { strategy, enabled, source: "admin_panel" },
+      });
+
+      return res.status(200).json({ status: "ok", strategy: (saved && saved[0]) || null });
+    }
+
+    // ========== BOT-SIDE STRATEGY SWITCHES (flip on the machine itself) ==========
+    if (action === "get-bot-strategies" || action === "set-bot-strategy") {
+      const botBaseUrl = process.env.BOT_API_INTERNAL || process.env.BOT_API_URL;
+      const token = process.env.BOT_API_TOKEN || process.env.BOT_SIGNAL_SECRET || process.env.ADMIN_API_KEY;
+      if (!botBaseUrl || !token) {
+        return res.status(400).json({
+          error: "BOT_API_INTERNAL (or BOT_API_URL) and BOT_API_TOKEN must be configured",
+        });
+      }
+
+      const url = `${botBaseUrl.replace(/\/$/, "")}/admin/strategies`;
+      const options = {
+        method: action === "get-bot-strategies" ? "GET" : "POST",
+        headers: { "x-bot-api-token": token, "Content-Type": "application/json" },
+      };
+      if (options.method === "POST") {
+        options.body = JSON.stringify({
+          strategy: req.body.strategy,
+          enabled: req.body.enabled,
+          strategies: req.body.strategies,
+        });
+      }
+
+      const botResponse = await fetch(url, options);
+      const payload = await botResponse.json().catch(() => ({}));
+      return res
+        .status(botResponse.status)
+        .json({ status: botResponse.ok ? "ok" : "error", bot: payload });
+    }
+
     return res.status(400).json({ error: "Invalid action" });
   } catch (error) {
     console.error("[bot-control] Error:", error);
