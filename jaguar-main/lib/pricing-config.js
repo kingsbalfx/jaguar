@@ -18,6 +18,11 @@ export const PRICING_TIERS = {
       sampleContent: true,
       riskWarning: true,
       botAccess: false,
+      challengeAccess: false,
+      challengeDays: 0,
+      challengePlatforms: [],
+      challengesPerMonth: 0,
+      challengeMaxConcurrent: 0,
     },
     color: "yellow",
     badge: "Start Here",
@@ -44,6 +49,11 @@ export const PRICING_TIERS = {
       mentorshipType: "group",
       groupSessionsPerMonth: 4,
       botAccess: false,
+      challengeAccess: true,
+      challengeDays: 14,
+      challengePlatforms: ["mt5"],
+      challengesPerMonth: 1,
+      challengeMaxConcurrent: 1,
     },
     color: "blue",
     badge: "Academy",
@@ -72,6 +82,11 @@ export const PRICING_TIERS = {
       priorityQA: true,
       botAccess: false,
       privateTestingOnly: true,
+      challengeAccess: true,
+      challengeDays: 30,
+      challengePlatforms: ["mt5", "tradingview"],
+      challengesPerMonth: 2,
+      challengeMaxConcurrent: 1,
     },
     color: "purple",
     badge: "Review & Mentorship",
@@ -102,6 +117,11 @@ export const PRICING_TIERS = {
       riskReview: true,
       botAccess: false,
       privateTestingOnly: true,
+      challengeAccess: true,
+      challengeDays: 30,
+      challengePlatforms: ["mt5", "tradingview"],
+      challengesPerMonth: 4,
+      challengeMaxConcurrent: 2,
     },
     color: "indigo",
     badge: "Private Mentorship",
@@ -127,11 +147,108 @@ export const PRICING_TIERS = {
       mentorshipType: "content_access",
       oneOnOneSessionsPerMonth: 0,
       botAccess: false,
+      challengeAccess: true,
+      challengeDays: 30,
+      challengePlatforms: ["mt5", "tradingview"],
+      challengesPerMonth: 4,
+      challengeMaxConcurrent: 2,
     },
     color: "pink",
     badge: "Lifetime Content",
   },
 };
+
+/**
+ * Plan ids accepted by the bot / admin panel that are not purchasable tiers.
+ *
+ * The MT5 bot ships with `BOT_SIGNAL_TARGET_PLANS=premium,vip,pro,lifetime,Academy`
+ * and admins type things like "Academy" or "Mentorship" in the admin panel. Without
+ * this map those ids were silently dropped, so subscribers holding an `academy`
+ * subscription or profile role never received a single signal email.
+ */
+export const PLAN_ALIASES = {
+  academy: "premium",
+  "academy-student": "premium",
+  "academy-students": "premium",
+  student: "premium",
+  students: "premium",
+  mentorship: "premium",
+  "group-mentorship": "premium",
+  "pro-mentorship": "pro",
+  "private-mentorship": "pro",
+  "vip-desk": "vip",
+  "lifetime-academy": "lifetime",
+  lifetime_academy: "lifetime",
+};
+
+export const PLAN_RANK = {
+  free: 0,
+  user: 0,
+  premium: 1,
+  academy: 1,
+  vip: 2,
+  pro: 3,
+  lifetime: 4,
+  admin: 99,
+};
+
+/**
+ * Canonical tier id for anything an admin/bot may send us.
+ * Returns "" when the value is not a known plan or alias.
+ */
+export function resolvePlanId(value) {
+  const raw = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+  if (!raw) return "";
+  const tier = getPricingTier(raw);
+  if (tier) return tier.id;
+  const alias = PLAN_ALIASES[raw];
+  if (alias && getPricingTier(alias)) return alias;
+  return "";
+}
+
+/** Every stored spelling that should match a canonical plan id. */
+export function planAliasesFor(value) {
+  const canonical = resolvePlanId(value);
+  if (!canonical) return [];
+  const aliases = Object.entries(PLAN_ALIASES)
+    .filter(([, target]) => target === canonical)
+    .map(([alias]) => alias);
+  return [...new Set([canonical, ...aliases])];
+}
+
+/** Rank of a plan id (aliases included). Unknown values rank 0. */
+export function planRank(value) {
+  const canonical = resolvePlanId(value);
+  if (canonical) return PLAN_RANK[canonical] ?? 0;
+  return PLAN_RANK[String(value || "").trim().toLowerCase()] ?? 0;
+}
+
+export function isPaidPlan(value) {
+  return planRank(value) > 0;
+}
+
+/** Demo-challenge limits for a plan, defaulting to "no access". */
+export function getChallengeRules(planOrTier) {
+  const tier =
+    typeof planOrTier === "string"
+      ? getPricingTier(resolvePlanId(planOrTier) || planOrTier)
+      : planOrTier;
+  const features = tier?.features || {};
+  const platforms = Array.isArray(features.challengePlatforms)
+    ? features.challengePlatforms
+    : [];
+  return {
+    plan: tier?.id || "",
+    enabled: Boolean(features.challengeAccess) && platforms.length > 0,
+    days: normalizeBotLimit(features.challengeDays, 0),
+    platforms,
+    perMonth: normalizeBotLimit(features.challengesPerMonth, 0),
+    maxConcurrent: normalizeBotLimit(features.challengeMaxConcurrent, 0),
+  };
+}
 
 export const BOT_UNLIMITED_LIMIT = 1000000;
 

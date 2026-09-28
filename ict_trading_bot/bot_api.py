@@ -377,29 +377,17 @@ def admin_universe_status():
 # ============================================================================
 @app.route("/admin/accounts", methods=["GET"])
 def admin_accounts_list():
-    """List every accepted account (passwords masked) and where it came from."""
+    """List every account (local + web + env) with its live status (passwords masked)."""
     denied = _require_auth()
     if denied:
         return denied
 
     try:
-        from multi_account_runner import (
-            LOCAL_STORE_PATH,
-            describe_accounts,
-            load_accounts,
-            web_accounts_enabled,
-        )
+        from multi_account_runner import account_inventory, web_accounts_enabled
 
-        accounts = load_accounts(strict=False)
-        return jsonify(
-            {
-                "count": len(accounts),
-                "accept_web": web_accounts_enabled(),
-                "local_store": str(LOCAL_STORE_PATH),
-                "sources": sorted({str(a.get("source") or "local") for a in accounts}),
-                "accounts": describe_accounts(accounts),
-            }
-        ), 200
+        inventory = account_inventory()
+        inventory["accept_web"] = web_accounts_enabled()
+        return jsonify(inventory), 200
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 

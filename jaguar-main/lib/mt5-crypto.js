@@ -20,6 +20,26 @@ export function encryptMt5Password(password) {
   };
 }
 
+export function decryptMt5Password({ password_encrypted, password_iv, password_tag } = {}) {
+  if (!password_encrypted || !password_iv || !password_tag) return "";
+  try {
+    const decipher = crypto.createDecipheriv(
+      "aes-256-gcm",
+      getKey(),
+      Buffer.from(password_iv, "base64"),
+    );
+    decipher.setAuthTag(Buffer.from(password_tag, "base64"));
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(password_encrypted, "base64")),
+      decipher.final(),
+    ]);
+    return decrypted.toString("utf8");
+  } catch (error) {
+    console.error("decryptMt5Password failed:", error);
+    return "";
+  }
+}
+
 export function maskPassword(last4) {
   return last4 ? `****${String(last4).slice(-4)}` : "****";
 }

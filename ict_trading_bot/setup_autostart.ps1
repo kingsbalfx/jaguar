@@ -1,3 +1,8 @@
+param(
+  # Register the plain "run main.py once" task instead of the auto-restarting supervisor.
+  [switch]$NoSupervisor
+)
+
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -19,7 +24,17 @@ if (-not (Test-Path $scriptPath)) {
   exit 1
 }
 
-$action = New-ScheduledTaskAction -Execute $pythonPath -Argument $scriptPath -WorkingDirectory $root
+$supervisorPath = Join-Path $root "run_bot_forever.ps1"
+$useSupervisor = (-not $NoSupervisor) -and (Test-Path $supervisorPath)
+
+if ($useSupervisor) {
+  Write-Host "Registering supervised autostart (auto-restart on crash)." -ForegroundColor Cyan
+  $action = New-ScheduledTaskAction -Execute "powershell.exe" `
+    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$supervisorPath`"" `
+    -WorkingDirectory $root
+} else {
+  $action = New-ScheduledTaskAction -Execute $pythonPath -Argument $scriptPath -WorkingDirectory $root
+}
 $triggers = @(
   New-ScheduledTaskTrigger -AtLogOn -User $currentUser
   New-ScheduledTaskTrigger -AtStartup

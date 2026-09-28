@@ -9,7 +9,12 @@ import {
   normalizeBotLimit,
 } from "./pricing-config";
 import { assertSignalDeliveryOpen } from "./signal-gate";
-import { ROLE_RANK, isSubscriptionActive } from "./subscription-status";
+import {
+  isSubscriptionActive,
+  planRank,
+  resolvePlanFromSubscriptions,
+  resolvePlanId,
+} from "./subscription-status";
 
 const VALID_DIRECTIONS = new Set(["BUY", "SELL"]);
 const VALID_PLANS = new Set(
@@ -29,7 +34,10 @@ function cleanPlan(value) {
   const plan = String(value || "")
     .trim()
     .toLowerCase();
-  return VALID_PLANS.has(plan) ? plan : "";
+  if (VALID_PLANS.has(plan)) return plan;
+  // "Academy" / "Mentorship" / "Academy Student" are valid plan ids for the bot
+  // and the admin panel even though they are stored as alias tiers.
+  return resolvePlanId(plan);
 }
 
 function cleanNumber(value) {
@@ -170,17 +178,25 @@ function normalizeTargetPlans({ targetPlans, minTier }) {
   if (explicit.length) return [...new Set(explicit)];
   const minimum = cleanPlan(minTier);
   if (minimum) {
-    const minRank = ROLE_RANK[minimum] || 0;
+    const minRank = planRank(minimum);
     return Object.values(PRICING_TIERS)
       .filter(
         (tier) =>
-          tier.features?.signals && (ROLE_RANK[tier.id] || 0) >= minRank,
+          tier.features?.signals && planRank(tier.id) >= minRank,
       )
       .map((tier) => tier.id);
   }
   return Object.values(PRICING_TIERS)
     .filter((tier) => tier.features?.signals)
     .map((tier) => tier.id);
+}
+
+/** Raw plan ids that were requested but do not map to a known plan/alias. */
+export function unsupportedTargetPlans(values) {
+  const list = Array.isArray(values) ? values : String(values || "").split(",");
+  return list
+    .map((value) => String(value || "").trim())
+    .filter((value) => value && !cleanPlan(value));
 }
 
 function startOfTodayIso() {
@@ -260,74 +276,181 @@ function buildProvidedImageAttachment(imageData, signal) {
   };
 }
 
-async function loadAudience(supabaseAdmin, targetPlans) {
-  const [
-    { data: profiles, error: profileError },
-    { data: subscriptions, error: subscriptionError },
-  ] = await Promise.all([
-    supabaseAdmin
-      .from("profiles")
-      .select(
-        "id,email,name,username,role,bot_tier,bot_max_signals_per_day,bot_signal_quality",
-      ),
+function roleFallbackEnabled() {
+  return String(process.env.BOT_SIGNAL_ROLE_FALLBACK || "true").toLowerCase() !== "false";
+}
+
+function includeAdminEnabled() {
+  return ["1", "true", "yes"].includes(
+    String(process.env.BOT_SIGNAL_INCLUDE_ADMIN || "").trim().toLowerCase(),
+  );
+}
+
+function quotaFallbackEnabled() {
+  return String(process.env.BOT_SIGNAL_QUOTA_FALLBACK || "true").toLowerCase() !== "false";
+}
+
+function isMissingColumnError(error, column) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    error?.code === "42703" ||
+    message.includes(String(column || "").toLowerCase()) ||
+    (message.includes("column") && message.includes(String(column || "").toLowerCase()))
+  );
+}
+
+/**
+ * Load the profiles needed to build the audience.
+ *
+ * `bot_signals_muted` only exists after `sql/2026-09-28_student_challenges.sql`
+ * (or an equivalent migration) is applied, so fall back to the legacy column set.
+ */
+async function loadProfileRows(supabaseAdmin) {
+  const extended =
+    "id,email,name,username,role,bot_tier,bot_max_signals_per_day,bot_signal_quality,bot_signals_muted";
+  const primary = await supabaseAdmin.from("profiles").select(extended);
+  if (!primary.error) return { data: primary.data || [], error: null, hasMuteColumn: true };
+  if (!isMissingColumnError(primary.error, "bot_signals_muted")) {
+    return { data: null, error: primary.error, hasMuteColumn: false };
+  }
+  const fallback = await supabaseAdmin
+    .from("profiles")
+    .select("id,email,name,username,role,bot_tier,bot_max_signals_per_day,bot_signal_quality");
+  return { data: fallback.data || [], error: fallback.error || null, hasMuteColumn: false };
+}
+
+/**
+ * Build the signal audience.
+ *
+ * A user receives a signal when the plan they resolve to (active subscription →
+ * profile role → bot_tier → free) is one of the targeted plans, their tier
+ * includes signals, and their daily quota is not exhausted.
+ *
+ * Returns `{ audience, excluded, byPlan, counts }` so the admin panel can show
+ * exactly why a subscriber was skipped instead of failing silently.
+ */
+async function loadAudience(supabaseAdmin, targetPlans, options = {}) {
+  const [profileResult, { data: subscriptions, error: subscriptionError }] = await Promise.all([
+    loadProfileRows(supabaseAdmin),
     supabaseAdmin
       .from("subscriptions")
       .select("email,plan,status,started_at,ended_at"),
   ]);
-  if (profileError)
-    throw new Error(profileError.message || "Unable to load users");
+  const profiles = profileResult.data;
+  if (profileResult.error)
+    throw new Error(profileResult.error.message || "Unable to load users");
   if (subscriptionError)
     throw new Error(
       subscriptionError.message || "Unable to load subscriptions",
     );
 
-  const activeByEmail = new Map();
+  const subscriptionsByEmail = new Map();
   for (const subscription of subscriptions || []) {
-    if (!isSubscriptionActive(subscription)) continue;
-    const plan = cleanPlan(subscription.plan);
-    if (!plan) continue;
     const email = String(subscription.email || "")
       .trim()
       .toLowerCase();
-    const current = activeByEmail.get(email);
-    if (!current || (ROLE_RANK[plan] || 0) > (ROLE_RANK[current.plan] || 0)) {
-      activeByEmail.set(email, { ...subscription, plan });
-    }
+    if (!email) continue;
+    const list = subscriptionsByEmail.get(email) || [];
+    list.push(subscription);
+    subscriptionsByEmail.set(email, list);
   }
 
   const targetSet = new Set(targetPlans);
-  return (profiles || [])
-    .map((profile) => {
-      const email = String(profile.email || "")
-        .trim()
-        .toLowerCase();
-      const active = activeByEmail.get(email);
-      const profilePlan = cleanPlan(profile.role);
-      const plan = active?.plan || profilePlan || "free";
-      const tier = getPricingTier(plan) || PRICING_TIERS.FREE;
-      const defaults = getBotTierDefaults(plan);
-      const dailyLimit = normalizeBotLimit(
-        profile.bot_max_signals_per_day,
-        defaults.botMaxSignalsPerDay,
-      );
-      return {
-        ...profile,
-        email,
-        plan,
-        tier,
-        dailyLimit,
-        signalQuality: profile.bot_signal_quality || defaults.botSignalQuality,
-        active:
-          Boolean(active) ||
-          plan === "free" ||
-          String(profile.role || "").toLowerCase() === "admin",
-        eligible:
-          targetSet.has(plan) &&
-          Boolean(tier.features?.signals) &&
-          dailyLimit > 0,
-      };
-    })
-    .filter((user) => user.email && user.active && user.eligible);
+  const allowRoleFallback =
+    options.allowRoleFallback === undefined
+      ? roleFallbackEnabled()
+      : Boolean(options.allowRoleFallback);
+  const includeAdmin =
+    options.includeAdmin === undefined ? includeAdminEnabled() : Boolean(options.includeAdmin);
+  const allowQuotaFallback =
+    options.allowQuotaFallback === undefined
+      ? quotaFallbackEnabled()
+      : Boolean(options.allowQuotaFallback);
+
+  const audience = [];
+  const excluded = [];
+
+  for (const profile of profiles || []) {
+    const email = String(profile.email || "")
+      .trim()
+      .toLowerCase();
+    const role = String(profile.role || "user").toLowerCase();
+    const resolved = resolvePlanFromSubscriptions({
+      role,
+      botTier: profile.bot_tier,
+      subscriptions: subscriptionsByEmail.get(email) || [],
+    });
+    const plan = resolved.plan || "free";
+    const tier = getPricingTier(plan) || PRICING_TIERS.FREE;
+    const defaults = getBotTierDefaults(plan === "admin" ? "free" : plan);
+    const storedQuota = normalizeBotLimit(profile.bot_max_signals_per_day, 0);
+    // A paid subscriber created by editing `profiles.role` (without running the
+    // tier sync) has bot_max_signals_per_day = 0. Honour the plan default in that
+    // case instead of silently starving them of every signal.
+    const dailyLimit =
+      storedQuota > 0
+        ? storedQuota
+        : allowQuotaFallback
+          ? normalizeBotLimit(defaults.botMaxSignalsPerDay, 0)
+          : 0;
+    const record = {
+      ...profile,
+      email,
+      plan,
+      planSource: resolved.source,
+      subscriptionExpired: Boolean(resolved.expired),
+      tier,
+      storedQuota,
+      dailyLimit,
+      muted: Boolean(profile.bot_signals_muted),
+      signalQuality: profile.bot_signal_quality || defaults.botSignalQuality,
+    };
+
+    const reason = (() => {
+      if (!email) return "missing_email";
+      if (record.muted) return "muted_by_profile";
+      if (!allowRoleFallback && resolved.source === "profile_role")
+        return "role_fallback_disabled";
+      if (plan === "admin" && !includeAdmin) return "admin_without_paid_plan";
+      if (!targetSet.has(plan)) {
+        if (!cleanPlan(plan)) return "unknown_plan";
+        return "plan_not_targeted";
+      }
+      if (!tier.features?.signals) return "plan_has_no_signals";
+      if (dailyLimit <= 0) return "daily_limit_zero";
+      return "";
+    })();
+
+    if (reason) {
+      excluded.push({ ...record, reason });
+      continue;
+    }
+    audience.push(record);
+  }
+
+  return {
+    audience,
+    excluded,
+    targetPlans,
+    allowRoleFallback,
+    includeAdmin,
+    allowQuotaFallback,
+    hasMuteColumn: Boolean(profileResult.hasMuteColumn),
+    counts: {
+      profiles: (profiles || []).length,
+      subscriptions: (subscriptions || []).length,
+      included: audience.length,
+      excluded: excluded.length,
+    },
+  };
+}
+
+/** Dry-run view of the audience for the admin panel (no emails are sent). */
+export async function previewSignalAudience({ supabaseAdmin, targetPlans, minTier, options = {} }) {
+  if (!supabaseAdmin) throw new Error("Supabase admin client not configured");
+  const plans = normalizeTargetPlans({ targetPlans, minTier });
+  const result = await loadAudience(supabaseAdmin, plans, options);
+  return { ...result, byPlan: summarizeAudience(result.audience) };
 }
 
 function summarizeAudience(users = []) {
@@ -336,6 +459,16 @@ function summarizeAudience(users = []) {
     summary[plan] = (summary[plan] || 0) + 1;
     return summary;
   }, {});
+}
+
+/** Group the audience skips by reason so the admin panel can explain them. */
+export function summarizeExclusions(excluded = []) {
+  const byReason = excluded.reduce((summary, user) => {
+    const reason = user.reason || "unknown";
+    summary[reason] = (summary[reason] || 0) + 1;
+    return summary;
+  }, {});
+  return { total: excluded.length, byReason };
 }
 
 async function runWithConcurrency(items, limit, worker) {
@@ -543,8 +676,10 @@ export async function deliverBotSignal({ supabaseAdmin, payload }) {
     minTier: payload.minTier,
   });
   if (!targetPlans.length) throw new Error("No valid target plans selected");
-  const audience = await loadAudience(supabaseAdmin, targetPlans);
+  const audienceResult = await loadAudience(supabaseAdmin, targetPlans);
+  const audience = audienceResult.audience;
   const audienceByPlan = summarizeAudience(audience);
+  const exclusionSummary = summarizeExclusions(audienceResult.excluded);
   const signalId = await insertMasterSignal(
     supabaseAdmin,
     signal,
@@ -641,6 +776,17 @@ export async function deliverBotSignal({ supabaseAdmin, payload }) {
         targetPlans,
         audience: audience.length,
         audienceByPlan,
+        excluded: exclusionSummary,
+        excludedUsers: audienceResult.excluded.slice(0, 10).map((user) => ({
+          email: user.email,
+          plan: user.plan,
+          planSource: user.planSource,
+          reason: user.reason,
+        })),
+        audienceRules: {
+          allowRoleFallback: audienceResult.allowRoleFallback,
+          includeAdmin: audienceResult.includeAdmin,
+        },
         emailed,
         notified,
         skippedQuota,
@@ -658,6 +804,11 @@ export async function deliverBotSignal({ supabaseAdmin, payload }) {
     targetPlans,
     audience: audience.length,
     audienceByPlan,
+    excluded: exclusionSummary,
+    audienceRules: {
+      allowRoleFallback: audienceResult.allowRoleFallback,
+      includeAdmin: audienceResult.includeAdmin,
+    },
     emailed,
     notified,
     skippedQuota,

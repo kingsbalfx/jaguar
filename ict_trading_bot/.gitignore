@@ -10,6 +10,8 @@ data/accounts_local.json
 data/disabled_accounts.json
 data/strategy_toggles.json
 data/strategy_toggles.json.tmp
+logs/
+STOP_BOT.flag
 *.log
 __pycache__/
 *.py[cod]

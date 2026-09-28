@@ -481,6 +481,12 @@ def _signal_delivery_endpoint() -> str:
 
 def _signal_delivery_payload(signal: dict) -> dict:
     state_machine = signal.get("state_machine") or {}
+    target_plans = [
+        item.strip()
+        for item in os.getenv("BOT_SIGNAL_TARGET_PLANS", "premium,vip,pro,lifetime").split(",")
+        if item.strip()
+    ]
+    _warn_unknown_signal_plans(target_plans)
     return {
         "symbol": signal.get("symbol"),
         "direction": str(signal.get("direction") or "").upper(),
@@ -492,7 +498,7 @@ def _signal_delivery_payload(signal: dict) -> dict:
         "strategy": signal.get("strategy") or "KINGSBALFX Bot",
         "note": state_machine.get("reason") or signal.get("reason") or "Live MT5 execution signal opened by KINGSBALFX bot.",
         "status": signal.get("status") or "open",
-        "targetPlans": [item.strip() for item in os.getenv("BOT_SIGNAL_TARGET_PLANS", "premium,vip,pro,lifetime").split(",") if item.strip()],
+        "targetPlans": target_plans,
         "source": "ict_trading_bot",
         "botId": os.getenv("BOT_ACCOUNT_ID") or os.getenv("BOT_INSTANCE_ID") or os.getenv("BOT_ID") or os.getenv("PERSISTENT_BOT_ID"),
         "raw": {
@@ -569,6 +575,119 @@ def _deliver_signal_to_website(signal: dict) -> dict:
     bot_log("signal_delivery_api_failed", f"Signal delivery API failed: {last_error}", {"symbol": signal.get("symbol"), "direction": signal.get("direction"), "endpoint": endpoint}, persist=True)
     return {"accepted": False, "fallback_allowed": True, "reason": "request_failed", "error": str(last_error)}
 
+
+_HEARTBEAT_STARTED = False
+
+
+def _bot_process_role() -> str:
+    """Describe this process for heartbeat payloads (supervisor vs account child)."""
+    if os.getenv("MULTI_ACCOUNT_CHILD", "").strip().lower() in ("1", "true", "yes"):
+        return "child"
+    if os.getenv("MULTI_ACCOUNT_ENABLED", "").strip().lower() in ("1", "true", "yes"):
+        return "supervisor"
+    return "main"
+
+
+def _live_account_summary() -> dict:
+    """Cheap account snapshot for heartbeat payloads (never raises)."""
+    summary = {"role": _bot_process_role()}
+    try:
+        from multi_account_runner import read_active_accounts
+
+        registry = read_active_accounts()
+        accounts = registry.get("accounts") or []
+        summary["live_accounts"] = len(accounts)
+        summary["live_registry_stale"] = bool(registry.get("stale"))
+        summary["live_logins"] = [item.get("login") for item in accounts][:10]
+    except Exception:
+        pass
+    if summary.get("live_accounts") is None:
+        login = os.getenv("MT5_ACCOUNT_LOGIN", "").strip()
+        if login:
+            summary["live_accounts"] = 1
+            summary["live_logins"] = [login]
+    return summary
+
+
+def _start_bot_heartbeat() -> None:
+    """Record ``bot_started`` and then a periodic ``bot_heartbeat``.
+
+    The website admin panel reads these events to decide whether the bot is alive.
+    Without them a bot that silently stopped looked exactly like "the bot stopped
+    sending signals to subscribers".
+    """
+    global _HEARTBEAT_STARTED
+    if _HEARTBEAT_STARTED:
+        return
+    _HEARTBEAT_STARTED = True
+
+    try:
+        interval = float(os.getenv("BOT_HEARTBEAT_SECONDS", "300") or 300)
+    except (TypeError, ValueError):
+        interval = 300.0
+
+    started_at = time.time()
+    try:
+        bot_log(
+            "bot_started",
+            "Bot process started",
+            {
+                "pid": os.getpid(),
+                "heartbeat_seconds": interval,
+                **_live_account_summary(),
+            },
+            persist=True,
+        )
+    except Exception as exc:  # never block startup on monitoring
+        LOGGER.debug("bot_started log failed: %s", exc)
+
+    if interval <= 0:
+        LOGGER.info("Bot heartbeat disabled (BOT_HEARTBEAT_SECONDS=%s)", os.getenv("BOT_HEARTBEAT_SECONDS"))
+        return
+
+    import threading
+
+    def _loop() -> None:
+        while True:
+            time.sleep(interval)
+            try:
+                bot_log(
+                    "bot_heartbeat",
+                    "Bot alive",
+                    {
+                        "pid": os.getpid(),
+                        "uptime_seconds": int(time.time() - started_at),
+                        **_live_account_summary(),
+                    },
+                    persist=True,
+                )
+            except Exception as exc:
+                LOGGER.debug("bot heartbeat failed: %s", exc)
+
+    threading.Thread(target=_loop, name="bot-heartbeat", daemon=True).start()
+    LOGGER.info("Bot heartbeat enabled every %ss (BOT_HEARTBEAT_SECONDS, 0 disables)", int(interval))
+
+
+def _warn_unknown_signal_plans(target_plans: list) -> None:
+    """Warn once per unknown target plan so audience gaps are visible in bot logs."""
+    known_raw = os.getenv(
+        "BOT_SIGNAL_KNOWN_PLANS",
+        "free,premium,academy,academy-student,mentorship,student,vip,pro,lifetime,all",
+    )
+    known = {item.strip().lower() for item in known_raw.split(",") if item.strip()}
+    reported = globals().setdefault("_UNKNOWN_SIGNAL_PLANS_REPORTED", set())
+    for plan in target_plans or []:
+        value = str(plan or "").strip().lower()
+        if not value or value in known or value in reported:
+            continue
+        reported.add(value)
+        bot_log(
+            "signal_target_plan_unknown",
+            f"BOT_SIGNAL_TARGET_PLANS contains '{plan}', which is not a known plan id; "
+            "subscribers on that plan will not receive signals.",
+            {"plan": plan, "known_plans": sorted(known), "source": "BOT_SIGNAL_TARGET_PLANS"},
+            persist=True,
+        )
 
 def _launch_multi_account_children() -> bool:
     """Run the multi-account supervisor (parent process).
@@ -1992,6 +2111,9 @@ def run_bot() -> None:
         _bootstrap_supabase()
     except Exception as exc:  # pragma: no cover - never block startup
         LOGGER.warning("Supabase credential bootstrap failed: %s", exc)
+
+    # Heartbeat + bot_started so the website can detect a stopped bot.
+    _start_bot_heartbeat()
 
     # If multi-account parent, launch children and exit
     if _launch_multi_account_children():

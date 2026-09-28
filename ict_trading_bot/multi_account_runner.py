@@ -389,6 +389,106 @@ def save_server_account(account: dict) -> bool:
         return False
 
 
+def read_local_store_raw() -> dict:
+    """Raw local account store (includes disabled rows, unlike _local_store_accounts)."""
+    try:
+        if not LOCAL_STORE_PATH.exists():
+            return {"accounts": []}
+        payload = json.loads(LOCAL_STORE_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:
+        _warn_once("local_store_raw", f"[MULTI] Local account store unreadable: {exc}")
+        return {"accounts": []}
+    rows = payload.get("accounts") if isinstance(payload, dict) else payload
+    return {"accounts": [row for row in (rows or []) if isinstance(row, dict)]}
+
+
+def account_inventory(live_ttl_seconds=None) -> dict:
+    """Every account the bot knows about (local + web + env) with its live status.
+
+    Unlike :func:`load_accounts` nothing is filtered out here, so the admin panel
+    can list *all* logins — including disabled/stale ones — and show why a login is
+    or is not running. Passwords are never returned.
+    """
+    groups = OrderedDict(
+        [
+            ("config_file", _config_file_accounts()),
+            ("local_store", read_local_store_raw().get("accounts") or []),
+            ("web", _server_accounts()),
+            ("env", _json_env_accounts() or _indexed_env_accounts()),
+        ]
+    )
+
+    merged: "OrderedDict[str, dict]" = OrderedDict()
+    for source, accounts in groups.items():
+        for account in accounts or []:
+            if not isinstance(account, dict):
+                continue
+            login = str(account.get("login") or "").strip()
+            if not login:
+                continue
+            entry = merged.get(login)
+            if entry is None:
+                entry = {"login": login, "sources": []}
+                merged[login] = entry
+            for key, value in account.items():
+                if value in (None, "", [], {}):
+                    continue
+                entry[key] = value
+            if source not in entry["sources"]:
+                entry["sources"].append(source)
+
+    resolved = {str(item.get("login")): item for item in _merge_accounts(list(merged.values()))}
+    disabled = disabled_accounts()
+    live = read_active_accounts(live_ttl_seconds)
+    live_stale = bool(live.get("stale"))
+    live_logins = {
+        str((item or {}).get("login") or "").strip() for item in (live.get("accounts") or [])
+    }
+
+    accounts = []
+    for login, entry in merged.items():
+        detail = resolved.get(login, {})
+        for key in (
+            "api_port",
+            "mt5_path",
+            "terminal_ok",
+            "terminal_source",
+            "terminal_reason",
+            "backtest_report_path",
+        ):
+            if entry.get(key) in (None, "", [], {}) and detail.get(key) not in (None, "", [], {}):
+                entry[key] = detail.get(key)
+        disabled_entry = disabled.get(login) or {}
+        password = str(entry.pop("password", "") or "")
+        entry["enabled"] = bool(entry.get("enabled", True)) and not disabled_entry
+        entry["disabled"] = bool(disabled_entry)
+        entry["disabled_reason"] = disabled_entry.get("reason") or None
+        entry["disabled_at"] = disabled_entry.get("disabled_at") or None
+        entry["running"] = bool(login in live_logins and not live_stale)
+        entry["sources"] = sorted(entry.get("sources") or [])
+        entry["source"] = entry.get("source") or ",".join(entry["sources"]) or "local"
+        entry["has_password"] = bool(password)
+        entry["terminal_ok"] = bool(entry.get("terminal_ok"))
+        accounts.append(entry)
+
+    accounts.sort(key=lambda item: (not item.get("running"), str(item.get("login"))))
+    return {
+        "count": len(accounts),
+        "running_count": sum(1 for item in accounts if item.get("running")),
+        "disabled_count": sum(1 for item in accounts if item.get("disabled")),
+        "sources": {
+            source: sum(1 for item in accounts if source in (item.get("sources") or []))
+            for source in groups
+        },
+        "accept_web": web_accounts_enabled(),
+        "local_store": str(LOCAL_STORE_PATH),
+        "active_registry": str(ACTIVE_REGISTRY_PATH),
+        "live": live,
+        "live_stale": live_stale,
+        "accounts": accounts,
+    }
+
+
 def describe_accounts(accounts) -> list:
     """Password-masked view of accepted accounts (admin API / logs)."""
     described = []
