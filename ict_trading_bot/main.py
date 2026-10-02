@@ -504,6 +504,72 @@ def _signal_target_plans() -> list:
     return resolved or raw
 
 
+def _signal_delivery_diagnostics() -> dict:
+    """Report whether subscriber email/in-app delivery is correctly wired.
+
+    A ``401`` from ``/api/bot/signals`` means the website's BOT_SIGNAL_SECRET /
+    BOT_API_TOKEN / ADMIN_API_KEY does not match the bot's - the most common
+    cause of "signals are not reaching subscribers".
+    """
+    endpoint = _signal_delivery_endpoint()
+    token = (
+        os.getenv("BOT_SIGNAL_SECRET")
+        or os.getenv("BOT_API_TOKEN")
+        or os.getenv("ADMIN_API_KEY")
+        or ""
+    ).strip()
+    token_source = (
+        "BOT_SIGNAL_SECRET"
+        if os.getenv("BOT_SIGNAL_SECRET")
+        else "BOT_API_TOKEN"
+        if os.getenv("BOT_API_TOKEN")
+        else "ADMIN_API_KEY"
+        if os.getenv("ADMIN_API_KEY")
+        else None
+    )
+    lowered = token.lower()
+    placeholder = bool(token) and any(
+        marker in lowered
+        for marker in ("replace", "your_", "your-", "changeme", "change_me", "xxx", "example")
+    )
+    diagnostics = {
+        "endpoint": endpoint or None,
+        "token_configured": bool(token),
+        "token_source": token_source,
+        "token_is_placeholder": placeholder,
+        "target_plans": _signal_target_plans(),
+    }
+    if not endpoint:
+        diagnostics["status"] = "MISCONFIGURED: set BOT_SIGNAL_DELIVERY_URL or KINGSBALFX_WEB_URL"
+    elif not token:
+        diagnostics["status"] = "MISCONFIGURED: set BOT_SIGNAL_SECRET"
+    elif placeholder:
+        diagnostics["status"] = (
+            "MISCONFIGURED: BOT_SIGNAL_SECRET is still a placeholder value "
+            "(check for a duplicate BOT_SIGNAL_SECRET line in .env - dotenv uses the LAST one)"
+        )
+    else:
+        diagnostics["status"] = "configured"
+    return diagnostics
+
+
+def _log_signal_delivery_diagnostics() -> None:
+    info = _signal_delivery_diagnostics()
+    LOGGER.info(
+        "SIGNAL DELIVERY | status=%s | endpoint=%s | token_source=%s | targetPlans=%s",
+        info.get("status"),
+        info.get("endpoint"),
+        info.get("token_source"),
+        ",".join(info.get("target_plans") or []),
+    )
+    if info.get("status") != "configured":
+        LOGGER.warning(
+            "SIGNAL DELIVERY | Subscribers will NOT receive email/in-app signals until the website API "
+            "token matches the bot's. Set the website (Vercel) BOT_SIGNAL_SECRET to the SAME value as "
+            "ict_trading_bot/.env, then restart the bot."
+        )
+
+
 def _signal_delivery_payload(signal: dict) -> dict:
     state_machine = signal.get("state_machine") or {}
     target_plans = _signal_target_plans()
@@ -2048,6 +2114,39 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
     # ---- END STRICT DAILY MACRO RULE GATE ----
 
     strategy_name = request.get("strategy") or "ict_state_machine"
+
+    # ---- GOD OF TRADE: holistic pre-trade inspection + advisory ----
+    # Inspects the whole picture (session, R:R, news, macro rule, correlation
+    # exposure, recent performance / loss streaks). Default mode is advisory
+    # (log + attach only); set GOD_OF_TRADE_MODE=enforce to let a VETO block.
+    try:
+        from strategy import god_of_trade
+
+        god_verdict = god_of_trade.inspect(
+            {
+                "symbol": symbol,
+                "direction": request["direction"],
+                "strategy": strategy_name,
+                "entry": request.get("entry"),
+                "sl": request.get("sl"),
+                "tp": request.get("tp"),
+                "positions": positions,
+            }
+        )
+        request["god_of_trade"] = god_verdict
+        setup["god_of_trade"] = god_verdict
+        LOGGER.info("[%s] %s", symbol, god_verdict.get("advisory"))
+        bot_log("god_of_trade", god_verdict.get("advisory") or "", god_verdict, persist=False)
+        if god_of_trade.should_block(god_verdict):
+            _console_skip(symbol, "GOD_OF_TRADE_VETO", {
+                "score": god_verdict.get("score"),
+                "reasons": god_verdict.get("reasons"),
+            })
+            return {"evaluated": 1, "trades_opened": 0, "errors": 0}
+    except Exception as god_exc:
+        LOGGER.warning("[%s] God of Trade inspection unavailable: %s", symbol, god_exc)
+    # ---- END GOD OF TRADE ----
+
     trade = execute_trade(
         request["symbol"],
         request["direction"],
@@ -2062,6 +2161,12 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
         _console_skip(symbol, "broker_rejected_or_failed_market_order", request)
         return {"evaluated": 1, "trades_opened": 0, "errors": 0}
     register_trade(symbol, request["identity"])
+    try:
+        from strategy import god_of_trade as _god
+
+        _god.register_trade_open(symbol, strategy_name, request["direction"])
+    except Exception:
+        pass
 
     # Attach the real MT5 ticket to the macro rule audit trail (best-effort).
     try:
@@ -2078,6 +2183,12 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
     delivery = _deliver_signal_to_website(payload)
     if not delivery.get("accepted") and delivery.get("fallback_allowed"):
         persist_signal_to_supabase(payload)
+        try:
+            from utils.signal_outbox import enqueue as _outbox_enqueue
+
+            _outbox_enqueue(payload, delivery.get("reason") or "delivery_rejected")
+        except Exception:
+            pass
         bot_log("signal_delivery_fallback_supabase", "Signal saved directly to Supabase fallback; SMTP delivery requires BOT_SIGNAL_DELIVERY_URL/KINGSBALFX_WEB_URL and matching BOT_SIGNAL_SECRET.", {"symbol": payload.get("symbol"), "direction": payload.get("direction")}, persist=True)
     push_trade(payload)
     strategy_labels = {
@@ -2134,6 +2245,12 @@ def run_bot() -> None:
 
     # Heartbeat + bot_started so the website can detect a stopped bot.
     _start_bot_heartbeat()
+    # Report whether subscriber signal delivery is correctly wired (endpoint +
+    # token + target plans). This surfaces the 401 token-mismatch immediately.
+    try:
+        _log_signal_delivery_diagnostics()
+    except Exception as exc:  # pragma: no cover - never block startup
+        LOGGER.debug("Signal delivery diagnostics failed: %s", exc)
 
     # If multi-account parent, launch children and exit
     if _launch_multi_account_children():
@@ -2388,6 +2505,17 @@ def run_bot() -> None:
                 except Exception as exc:
                     LOGGER.warning("[MIRROR] Failed to check pending mirror signals: %s", exc)
             # --- END MIRROR TRADING ---
+
+            # --- SIGNAL OUTBOX: retry signals the website API rejected/missed ---
+            try:
+                from utils.signal_outbox import flush as _outbox_flush
+
+                outbox_result = _outbox_flush(_deliver_signal_to_website)
+                if outbox_result.get("retried"):
+                    LOGGER.info("SIGNAL OUTBOX | %s", outbox_result)
+            except Exception as exc:
+                LOGGER.debug("signal_outbox flush failed: %s", exc)
+            # --- END SIGNAL OUTBOX ---
 
             LOGGER.info("SCAN COMPLETE | sleeping=%ss", max(15, int(os.getenv("SCAN_INTERVAL_SECONDS", "60"))))
             time.sleep(max(15, int(os.getenv("SCAN_INTERVAL_SECONDS", "60"))))

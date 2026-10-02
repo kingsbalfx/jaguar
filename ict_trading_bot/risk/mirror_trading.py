@@ -65,6 +65,13 @@ MIRROR_BROADCAST_RETRIES = int(os.getenv("MIRROR_BROADCAST_RETRIES", "3"))
 # How long the login -> web owner (user_id/email) map is cached. Only used for
 # plan gating: it lets accounts discovered without owner metadata be resolved.
 MIRROR_LOGIN_OWNER_TTL = float(os.getenv("MIRROR_LOGIN_OWNER_TTL", "300") or 300)
+# Minimum-lot fallback: a small follower balance (e.g. $10) at 1% risk rounds
+# down to zero lots, so the mirror used to skip the trade entirely and the user
+# saw "only one account executed". When enabled, the follower falls back to the
+# broker's minimum lot, but only when its real risk stays within
+# MIRROR_MAX_RISK_PERCENT of the account balance and free margin allows it.
+MIRROR_MIN_LOT_FALLBACK = os.getenv("MIRROR_MIN_LOT_FALLBACK", "true").lower() in ("1", "true", "yes", "on")
+MIRROR_MAX_RISK_PERCENT = float(os.getenv("MIRROR_MAX_RISK_PERCENT", "5.0"))
 
 # ---------------------------------------------------------------------------
 # Plan gating
@@ -877,6 +884,59 @@ def should_execute_mirror(signal: Dict) -> Tuple[bool, str]:
 # ===========================================================================
 # Calculate position size based on account balance proportion
 # ===========================================================================
+def _mirror_min_lot(symbol: str, direction: str, entry: float, sl: float, account_balance: float) -> float:
+    """Fall back to the broker's minimum lot when risk sizing rounds to zero.
+
+    A tiny follower balance (e.g. $10) at 1% risk produces a sub-minimum lot and
+    the mirror silently skipped the trade. When ``MIRROR_MIN_LOT_FALLBACK`` is on
+    we use the broker minimum lot, but only when its *real* risk (SL distance x
+    lot value) stays within ``MIRROR_MAX_RISK_PERCENT`` of the balance and free
+    margin allows it.
+    """
+    if not MIRROR_MIN_LOT_FALLBACK:
+        return 0.0
+    try:
+        import MetaTrader5 as mt5
+
+        from execution.mt5_connector import get_symbol_spec
+
+        spec = get_symbol_spec(symbol)
+        min_lot = float(spec.get("volume_min") or 0.0)
+        step = float(spec.get("volume_step") or 0.01) or 0.01
+        if min_lot <= 0 or entry <= 0 or sl <= 0:
+            return 0.0
+        order_type = mt5.ORDER_TYPE_BUY if str(direction).lower() == "buy" else mt5.ORDER_TYPE_SELL
+        account = mt5.account_info()
+        margin_free = float(getattr(account, "margin_free", 0.0) or 0.0) if account is not None else 0.0
+        if margin_free <= 0:
+            return 0.0
+        margin = mt5.order_calc_margin(order_type, symbol, min_lot, entry)
+        if margin is None or float(margin) > margin_free:
+            logger.warning(
+                "[MIRROR] Min-lot %s margin %.2f exceeds free %.2f; skipping",
+                symbol, float(margin or 0.0), margin_free,
+            )
+            return 0.0
+        loss = mt5.order_calc_profit(order_type, symbol, min_lot, entry, sl)
+        loss = abs(float(loss)) if loss is not None else 0.0
+        cap = account_balance * (MIRROR_MAX_RISK_PERCENT / 100.0)
+        if cap > 0 and loss > cap:
+            logger.warning(
+                "[MIRROR] Min-lot %s risk %.2f exceeds cap %.2f; skipping",
+                symbol, loss, cap,
+            )
+            return 0.0
+        decimals = max(0, len(str(step).rstrip("0").split(".")[-1]) if "." in str(step) else 0)
+        logger.info(
+            "[MIRROR] Using broker min lot %.3f for %s (risk %.2f <= cap %.2f)",
+            min_lot, symbol, loss, cap,
+        )
+        return round(min_lot, decimals)
+    except Exception as exc:
+        logger.debug("[MIRROR] min-lot fallback unavailable: %s", exc)
+        return 0.0
+
+
 def calculate_mirror_lot_size(signal: Dict, account_balance: float, risk_percent: float = 1.0) -> float:
     """Calculate position size proportional to account balance."""
     from execution.mt5_connector import calculate_volume_for_risk
@@ -906,12 +966,12 @@ def calculate_mirror_lot_size(signal: Dict, account_balance: float, risk_percent
     try:
         volume = calculate_volume_for_risk(symbol, entry, sl, risk_amount)
         if volume <= 0:
-            logger.warning("[MIRROR] Volume <= 0 for %s", symbol)
-            return 0.0
+            logger.warning("[MIRROR] Volume <= 0 for %s; trying broker minimum lot", symbol)
+            return _mirror_min_lot(symbol, direction_lower, entry, sl, account_balance)
         return volume
     except Exception as exc:
         logger.error("[MIRROR] Lot calc error: %s", exc)
-        return 0.0
+        return _mirror_min_lot(symbol, direction_lower, entry, sl, account_balance)
 
 
 # ===========================================================================
@@ -1133,6 +1193,8 @@ def register_mirror_api(app):
             "toggle_enabled": _toggle_enabled("mirror"),
             "accept_any_account": accept_any_account(),
             "auto_open": MIRROR_AUTO_OPEN,
+            "min_lot_fallback": MIRROR_MIN_LOT_FALLBACK,
+            "max_risk_percent": MIRROR_MAX_RISK_PERCENT,
             "account_login": os.getenv("MT5_ACCOUNT_LOGIN", "unknown"),
             "cooldown_seconds": MIRROR_COOLDOWN_SECONDS,
             "risk_percent": MIRROR_RISK_PERCENT,

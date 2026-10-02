@@ -275,7 +275,13 @@ def _gemini_model() -> str:
 # Google retires model names regularly (e.g. gemini-2.5-flash -> 404 for new
 # keys). These known-good names are tried in order when the configured model is
 # unavailable, so the news feed keeps working after a model retirement.
+# Order matters: the configured model is tried first (see
+# ``gemini_model_candidates``) then these known-good names. ``gemini-2.5-flash``
+# is included because Google meters free-tier quota per model, so a 429 on one
+# model can still succeed on another.
 _GEMINI_MODEL_FALLBACKS = (
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
     "gemini-flash-latest",
@@ -294,6 +300,7 @@ def gemini_model_candidates() -> List[str]:
 
 _GEMINI_PROMPT = (
     "You are a macro news analyst for an automated trading bot.\n"
+    "Translate any non-English headline to English before analysing it.\n"
     "Instrument: {symbol} (asset class: {asset_class}).\n"
     "Today's Finnhub headlines:\n{headlines}\n\n"
     "Decide the single directional macro bias for this instrument.\n"
@@ -343,17 +350,304 @@ def _clamp_confidence(value: Any) -> float:
     return max(0.0, min(1.0, number))
 
 
-def gemini_breakdown(symbol: str, headlines: List[Dict[str, str]]) -> Dict[str, Any]:
-    """Ask Gemini for a strict directional read of the fetched headlines."""
-    key = _gemini_key()
-    if not key or not headlines:
-        return {}
+# ---------------------------------------------------------------------------
+# Gemini call budget + quota safety
+# ---------------------------------------------------------------------------
+# Free-tier Gemini keys allow only a small number of requests per model per day
+# (observed: ~20 requests/model/day for gemini-3.x-flash). Calling Gemini once
+# per symbol for a 300+ symbol scan exhausts that within seconds and silently
+# degrades every pair to NO_TRADE. To stay reliable the feed now:
+#   * performs ONE market-wide Gemini "macro read" per TTL covering the whole
+#     Finnhub digest and returns a per-currency bias map (one call, many pairs),
+#   * backs off automatically on HTTP 429 / RESOURCE_EXHAUSTED,
+#   * records a coverage counter (headlines fetched vs actually sent to the LLM).
+_GEMINI_STATE: Dict[str, Any] = {
+    "cooldown_until": 0.0,
+    "last_error": "",
+    "last_status": None,
+    "last_model": "",
+    "calls": 0,
+    "blocked_calls": 0,
+}
+_MACRO_AI_CACHE: Dict[str, Any] = {"fetched_at": 0.0, "payload": {}}
+_AI_COVERAGE: Dict[str, Any] = {
+    "fetched_total": 0,
+    "sent_to_llm": 0,
+    "truncated": 0,
+    "last_at": 0.0,
+}
 
+
+def ai_mode() -> str:
+    """``global`` (default: one shared call per TTL) or ``per_symbol`` (legacy)."""
+    value = _env("NEWS_FEED_AI_MODE", "global").strip().lower()
+    return value if value in ("global", "per_symbol", "off") else "global"
+
+
+def ai_ttl() -> float:
+    # Free-tier Gemini allows only ~20 requests/day, so the shared macro read is
+    # cached for a long window by default (2h -> 12 calls/day). Raise/lower via
+    # NEWS_FEED_AI_TTL, or use a paid key for more frequent refreshes.
+    return max(60.0, _env_float("NEWS_FEED_AI_TTL", 7200.0))
+
+
+def ai_max_headlines() -> int:
+    try:
+        return max(5, min(150, int(_env_float("NEWS_FEED_AI_MAX_HEADLINES", 40))))
+    except (TypeError, ValueError):
+        return 40
+
+
+# Per-model quota cooldowns. Google meters free-tier quota per model, so a 429
+# on one model must not disable the feed - we cool that model down and try the
+# next known-good name instead.
+_MODEL_COOLDOWN: Dict[str, float] = {}
+_QUOTA_WARNED: set = set()
+
+
+def _model_available(model: str) -> bool:
+    return float(_MODEL_COOLDOWN.get(model, 0.0)) <= time.time()
+
+
+def gemini_cooldown_remaining() -> float:
+    now = time.time()
+    remaining = [until - now for until in _MODEL_COOLDOWN.values() if until > now]
+    return max(0.0, min(remaining)) if remaining else 0.0
+
+
+def _retry_after_seconds(message: str) -> float:
+    default = float(_env_float("NEWS_FEED_AI_QUOTA_BACKOFF", 3600.0))
+    match = re.search(r"retry in ([0-9]+)h([0-9]+)m([0-9.]+)s", str(message or ""))
+    if match:
+        return (
+            float(match.group(1)) * 3600
+            + float(match.group(2)) * 60
+            + float(match.group(3))
+            + 30.0
+        )
+    match = re.search(r"retry in ([0-9.]+)s", str(message or ""))
+    if match:
+        return float(match.group(1)) + 30.0
+    return default
+
+
+def _post_gemini(prompt: str) -> Optional[Dict[str, Any]]:
+    """POST one prompt to Gemini with model fallback + quota backoff.
+
+    Returns the parsed JSON object, or ``None`` when the call could not be made
+    (no key, quota exhausted, transient error). Never raises.
+    """
+    key = _gemini_key()
+    if not key:
+        return None
+    if all(not _model_available(model) for model in gemini_model_candidates()):
+        _GEMINI_STATE["blocked_calls"] = int(_GEMINI_STATE.get("blocked_calls", 0)) + 1
+        return None
     try:
         import requests
     except ImportError:  # pragma: no cover
-        return {}
+        return None
 
+    payload: Dict[str, Any] = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.0, "responseMimeType": "application/json"},
+    }
+    if _truthy("GEMINI_USE_GROUNDING", False):
+        payload["tools"] = [{"google_search": {}}]
+
+    for model in gemini_model_candidates():
+        if not _model_available(model):
+            continue
+        try:
+            response = requests.post(
+                f"{GEMINI_BASE_URL}/{model}:generateContent",
+                params={"key": key},
+                json=payload,
+                timeout=_env_float("NEWS_FEED_TIMEOUT", 12.0),
+            )
+        except Exception as exc:
+            _GEMINI_STATE["last_error"] = str(exc)[:200]
+            logger.debug("news_feed: Gemini call failed for %s: %s", model, exc)
+            continue
+
+        status = response.status_code
+        _GEMINI_STATE["last_status"] = status
+        _GEMINI_STATE["last_model"] = model
+        if status == 200:
+            _GEMINI_STATE["calls"] = int(_GEMINI_STATE.get("calls", 0)) + 1
+            _GEMINI_STATE["last_error"] = ""
+            try:
+                data = response.json()
+            except ValueError:
+                return None
+            text = ""
+            candidates = data.get("candidates") or []
+            if candidates:
+                parts = (candidates[0].get("content") or {}).get("parts") or []
+                text = "".join(str(part.get("text") or "") for part in parts)
+            return _extract_json(text) or None
+
+        body = response.text or ""
+        _GEMINI_STATE["last_error"] = f"HTTP {status}: {body[:200]}"
+        if status in (429, 403) or "RESOURCE_EXHAUSTED" in body or "quota" in body.lower():
+            wait = _retry_after_seconds(body)
+            _MODEL_COOLDOWN[model] = time.time() + wait
+            _GEMINI_STATE["cooldown_until"] = max(
+                float(_GEMINI_STATE.get("cooldown_until", 0.0)),
+                _MODEL_COOLDOWN[model],
+            )
+            if model not in _QUOTA_WARNED:
+                _QUOTA_WARNED.add(model)
+                logger.warning(
+                    "news_feed: Gemini quota hit on %s (HTTP %s); cooling down %.0fs",
+                    model, status, wait,
+                )
+            if wait > 900:
+                # Daily quota exhausted (all models share the window) - stop here
+                # so we do not burn more of the free-tier allowance this cycle.
+                break
+            continue
+        # 404/400/5xx -> try the next known-good model.
+        logger.debug("news_feed: Gemini %s returned HTTP %s; trying next model", model, status)
+    return None
+
+
+_CURRENCY_BIAS_KEYS = (
+    "USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD", "CNH",
+    "MXN", "ZAR", "NOK", "SEK", "SGD", "DKK", "HKD", "XAU", "XAG", "BTC", "ETH",
+)
+
+_MACRO_AI_PROMPT = (
+    "You are the macro news desk for an automated multi-asset trading bot.\n"
+    "Below is today's merged Finnhub digest. Some headlines may not be in\n"
+    "English: TRANSLATE them to English before judging.\n\n"
+    "{headlines}\n\n"
+    "Give a single directional bias (BUY, SELL or NEUTRAL) for EACH market in\n"
+    "this list: {keys}.\n"
+    "Then give the overall macro risk sentiment.\n"
+    "Answer with ONLY strict JSON, no markdown, using this schema:\n"
+    '{{"currencies":{{"USD":"BUY|SELL|NEUTRAL"}},"overall":"BUY|SELL|NO_TRADE",'
+    '"confidence":0.0,"key_sentiment":"short label",'
+    '"executive_breakdown":"max 60 words"}}'
+)
+
+
+def global_macro_read(force: bool = False) -> Dict[str, Any]:
+    """ONE Gemini call per TTL covering a broad digest of ALL Finnhub headlines.
+
+    Returns a per-currency bias map plus coverage counters so the whole market is
+    analysed without exhausting the per-day request quota. Never raises.
+    """
+    if not enabled() or ai_mode() == "off":
+        return {}
+    now = time.time()
+    cached = _MACRO_AI_CACHE.get("payload") or {}
+    if not force and cached and (now - float(_MACRO_AI_CACHE.get("fetched_at", 0.0) or 0.0)) < ai_ttl():
+        return dict(cached)
+
+    headlines: List[str] = []
+    seen = set()
+    for item in global_news():
+        if not isinstance(item, dict):
+            continue
+        headline = str(item.get("headline") or "").strip()
+        if not headline or headline.lower() in seen:
+            continue
+        seen.add(headline.lower())
+        summary = str(item.get("summary") or "").strip()
+        headlines.append(f"{headline} :: {summary}"[:400] if summary else headline[:400])
+
+    fetched_total = len(headlines)
+    digest = headlines[: ai_max_headlines()]
+    truncated = max(0, fetched_total - len(digest))
+    _AI_COVERAGE.update(
+        fetched_total=fetched_total,
+        sent_to_llm=len(digest),
+        truncated=truncated,
+        last_at=now,
+    )
+
+    if not digest:
+        result: Dict[str, Any] = {
+            "engine": "finnhub",
+            "currencies": {},
+            "overall": "NO_TRADE",
+            "confidence": 0.0,
+            "key_sentiment": "Neutral",
+            "executive_breakdown": "",
+            "fetched_total": 0,
+            "sent_to_llm": 0,
+            "truncated": 0,
+            "reason": "no_news_available",
+        }
+        _MACRO_AI_CACHE.update(fetched_at=now, payload=result)
+        return dict(result)
+
+    prompt = _MACRO_AI_PROMPT.format(
+        headlines="\n".join(f"[{i}] {line}" for i, line in enumerate(digest, start=1)),
+        keys=", ".join(_CURRENCY_BIAS_KEYS),
+    )
+    parsed = _post_gemini(prompt) or {}
+    currencies: Dict[str, str] = {}
+    raw_map = parsed.get("currencies") if isinstance(parsed, dict) else None
+    if isinstance(raw_map, dict):
+        for code, value in raw_map.items():
+            code_key = str(code or "").strip().upper()
+            if not code_key:
+                continue
+            bias = str(value or "").strip().upper()
+            currencies[code_key] = bias if bias in ("BUY", "SELL", "NEUTRAL") else "NEUTRAL"
+
+    result = {
+        "engine": "gemini-global+finnhub" if parsed else "finnhub",
+        "currencies": currencies,
+        "overall": _normalize_direction(parsed.get("overall")) if parsed else "NO_TRADE",
+        "confidence": _clamp_confidence(parsed.get("confidence")) if parsed else 0.0,
+        "key_sentiment": (str(parsed.get("key_sentiment") or "").strip() or "Neutral"),
+        "executive_breakdown": str(parsed.get("executive_breakdown") or "").strip(),
+        "fetched_total": fetched_total,
+        "sent_to_llm": len(digest),
+        "truncated": truncated,
+        "reason": "ok" if parsed else "ai_unavailable",
+        "ai_cooldown_remaining": round(gemini_cooldown_remaining(), 1),
+    }
+    _MACRO_AI_CACHE.update(fetched_at=now, payload=result)
+    return dict(result)
+
+
+def symbol_direction_from_macro(symbol: str, macro: Dict[str, Any]) -> Tuple[str, float, str]:
+    """Derive one symbol's direction from the global currency bias map."""
+    currencies = macro.get("currencies") if isinstance(macro, dict) else None
+    if not isinstance(currencies, dict) or not currencies:
+        return "NO_TRADE", 0.0, "no_macro_map"
+    clean = re.sub(r"[^A-Z]", "", str(symbol or "").upper())
+    for metal in ("XAU", "XAG", "BTC", "ETH"):
+        if clean.startswith(metal):
+            bias = str(currencies.get(metal) or "NEUTRAL").upper()
+            direction = _normalize_direction(bias)
+            confidence = 0.6 if direction != "NO_TRADE" else 0.0
+            return direction, confidence, f"{metal}={bias}"
+    base, quote = clean[:3], clean[3:6]
+    base_bias = str(currencies.get(base) or "NEUTRAL").upper()
+    quote_bias = str(currencies.get(quote) or "NEUTRAL").upper()
+    score = 0
+    score += 1 if base_bias == "BUY" else 0
+    score -= 1 if base_bias == "SELL" else 0
+    score += 1 if quote_bias == "SELL" else 0
+    score -= 1 if quote_bias == "BUY" else 0
+    note = f"{base}={base_bias}|{quote}={quote_bias}"
+    confidence = min(1.0, 0.35 * abs(score))
+    if score > 0:
+        return "BUY", confidence, note
+    if score < 0:
+        return "SELL", confidence, note
+    return "NO_TRADE", 0.0, note
+
+
+def gemini_breakdown(symbol: str, headlines: List[Dict[str, str]]) -> Dict[str, Any]:
+    """Ask Gemini for a strict directional read of the fetched headlines."""
+    if not _gemini_key() or not headlines:
+        return {}
     try:
         from utils.symbol_profile import infer_asset_class
 
@@ -366,57 +660,7 @@ def gemini_breakdown(symbol: str, headlines: List[Dict[str, str]]) -> Dict[str, 
         for index, item in enumerate(headlines, start=1)
     )
     prompt = _GEMINI_PROMPT.format(symbol=symbol, asset_class=asset_class, headlines=body)
-    payload = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.0, "responseMimeType": "application/json"},
-    }
-    if _truthy("GEMINI_USE_GROUNDING", False):
-        payload["tools"] = [{"google_search": {}}]
-
-    try:
-        response = requests.post(
-            f"{GEMINI_BASE_URL}/{_gemini_model()}:generateContent",
-            params={"key": key},
-            json=payload,
-            timeout=_env_float("NEWS_FEED_TIMEOUT", 12.0),
-        )
-        response.raise_for_status()
-        data = response.json()
-    except Exception as exc:
-        logger.debug("news_feed: Gemini call failed for %s: %s", _gemini_model(), exc)
-        data = None
-
-    if data is None:
-        # Retired/renamed model or transient error: try the fallback chain.
-        for model in gemini_model_candidates()[1:]:
-            try:
-                response = requests.post(
-                    f"{GEMINI_BASE_URL}/{model}:generateContent",
-                    params={"key": key},
-                    json=payload,
-                    timeout=_env_float("NEWS_FEED_TIMEOUT", 12.0),
-                )
-                response.raise_for_status()
-                data = response.json()
-                logger.info("news_feed: Gemini model fallback in use: %s", model)
-                break
-            except Exception as exc:
-                logger.debug("news_feed: Gemini fallback %s failed: %s", model, exc)
-                data = None
-
-    if data is None:
-        return {}
-
-    text = ""
-    try:
-        candidates = data.get("candidates") or []
-        if candidates:
-            parts = (candidates[0].get("content") or {}).get("parts") or []
-            text = "".join(str(part.get("text") or "") for part in parts)
-    except Exception:
-        text = ""
-
-    parsed = _extract_json(text)
+    parsed = _post_gemini(prompt)
     if not parsed:
         return {}
     return {
@@ -458,7 +702,33 @@ def get_news_brief(symbol: str, force: bool = False) -> Dict[str, Any]:
             return dict(cached["payload"])
 
     headlines = fetch_headlines(key) or []
-    analysis = gemini_breakdown(key, headlines) if headlines else {}
+    feed_mode = ai_mode()
+    coverage: Dict[str, Any] = {}
+    if feed_mode == "global":
+        # One shared Gemini read covers the whole market, so a scan never burns a
+        # 20-requests/day free tier on hundreds of per-symbol calls.
+        macro = global_macro_read()
+        coverage = {
+            "fetched_total": macro.get("fetched_total"),
+            "sent_to_llm": macro.get("sent_to_llm"),
+            "truncated": macro.get("truncated"),
+        }
+        if macro and macro.get("currencies"):
+            direction, ai_confidence, bias_note = symbol_direction_from_macro(key, macro)
+            analysis = {
+                "market_direction": direction,
+                "confidence": ai_confidence,
+                "key_sentiment": macro.get("key_sentiment") or "Neutral",
+                "executive_breakdown": macro.get("executive_breakdown") or "",
+                "bias_note": bias_note,
+            }
+            engine = macro.get("engine") or "gemini-global+finnhub"
+        else:
+            analysis = {}
+            engine = "finnhub" if headlines else "none"
+    else:
+        analysis = gemini_breakdown(key, headlines) if headlines else {}
+        engine = "gemini+finnhub" if analysis else ("finnhub" if headlines else "none")
 
     payload = {
         "symbol": key,
@@ -470,8 +740,11 @@ def get_news_brief(symbol: str, force: bool = False) -> Dict[str, Any]:
         "executive_breakdown": analysis.get("executive_breakdown") or "",
         "headlines": [item.get("headline") for item in headlines][:6],
         "sources": sorted({item.get("source") for item in headlines if item.get("source")}),
-        "engine": "gemini+finnhub" if analysis else ("finnhub" if headlines else "none"),
+        "engine": engine,
         "reason": "ok" if headlines else "no_news_available",
+        "ai_mode": feed_mode,
+        "ai_coverage": coverage,
+        "ai_bias_note": analysis.get("bias_note"),
     }
     with _CACHE_LOCK:
         _CACHE[key] = {"fetched_at": now, "payload": payload}
@@ -626,5 +899,16 @@ def news_feed_status() -> Dict[str, Any]:
         "finnhub_configured": bool(_finnhub_key()),
         "gemini_configured": bool(_gemini_key()),
         "gemini_model": _gemini_model(),
+        "gemini_models": gemini_model_candidates(),
+        "ai_mode": ai_mode(),
+        "ai_ttl_seconds": ai_ttl(),
+        "ai_max_headlines": ai_max_headlines(),
+        "gemini_calls": int(_GEMINI_STATE.get("calls", 0)),
+        "gemini_blocked_calls": int(_GEMINI_STATE.get("blocked_calls", 0)),
+        "gemini_last_status": _GEMINI_STATE.get("last_status"),
+        "gemini_last_model": _GEMINI_STATE.get("last_model"),
+        "gemini_last_error": _GEMINI_STATE.get("last_error"),
+        "gemini_cooldown_remaining": round(gemini_cooldown_remaining(), 1),
+        "ai_coverage": dict(_AI_COVERAGE),
         "cached_symbols": sorted(_CACHE.keys()),
     }
