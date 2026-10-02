@@ -62,6 +62,180 @@ MIRROR_BROADCAST_BATCH = int(os.getenv("MIRROR_BROADCAST_BATCH", "10"))
 MIRROR_BROADCAST_DELAY = float(os.getenv("MIRROR_BROADCAST_DELAY", "0.5"))
 MIRROR_SUPABASE_TABLE = os.getenv("MIRROR_SUPABASE_TABLE", "mirror_signals")
 MIRROR_BROADCAST_RETRIES = int(os.getenv("MIRROR_BROADCAST_RETRIES", "3"))
+# How long the login -> web owner (user_id/email) map is cached. Only used for
+# plan gating: it lets accounts discovered without owner metadata be resolved.
+MIRROR_LOGIN_OWNER_TTL = float(os.getenv("MIRROR_LOGIN_OWNER_TTL", "300") or 300)
+
+# ---------------------------------------------------------------------------
+# Plan gating
+# ---------------------------------------------------------------------------
+# The website gates email/in-app signal delivery by plan (lib/signal-delivery.js)
+# but the mirror used to fan every leader trade out to every reachable MT5
+# account. utils.plan_access mirrors the web plan catalogue; here we use it to
+# keep only accounts whose owner's paid plan includes mirror trading.
+_PLAN_GATE_REPORT: Dict[str, Any] = {
+    "enforced": None,
+    "target_plans": [],
+    "checked": 0,
+    "allowed": 0,
+    "skipped": [],
+    "updated_at": 0.0,
+}
+_PLAN_GATE_LOCK = threading.Lock()
+_LOGIN_OWNER_CACHE: Dict[str, Any] = {"fetched_at": 0.0, "owners": {}}
+_LOGIN_OWNER_LOCK = threading.Lock()
+_LOCAL_IDENTITY_CACHE: Dict[str, Tuple[str, str]] = {}
+
+
+def _plan_access():
+    """Lazy handle on utils.plan_access (mirror stays standalone-importable)."""
+    from utils import plan_access
+
+    return plan_access
+
+
+def _plan_enforcement_enabled() -> bool:
+    """True when mirror recipients must resolve to a mirror-target plan."""
+    try:
+        return bool(_plan_access().enforcement_enabled())
+    except Exception as exc:  # pragma: no cover - keep mirroring on any import issue
+        logger.debug("[MIRROR] Plan enforcement flag unavailable: %s", exc)
+        return False
+
+
+def _plan_gate_allowed_by_default(reason: str = "plan_gate_unavailable") -> Dict[str, Any]:
+    return {
+        "allowed": True,
+        "plan": "unknown",
+        "plan_source": reason,
+        "mirror_entitled": True,
+        "reason": reason,
+    }
+
+
+def _peer_plan_decision(login: str, user_id: Any = None, email: Any = None) -> Dict[str, Any]:
+    """Plan gate for one mirror recipient. Never raises, never blocks on errors."""
+    if not _plan_enforcement_enabled():
+        return {**_plan_gate_allowed_by_default("enforcement_off"), "login": str(login or "")}
+    try:
+        decision = _plan_access().account_mirror_decision(
+            login=login, user_id=user_id, email=email
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("[MIRROR] Plan gate unavailable for %s: %s", login, exc)
+        return {**_plan_gate_allowed_by_default(), "login": str(login or "")}
+    return {k: v for k, v in decision.items() if k != "target_plans"}
+
+
+def plan_gate_report() -> Dict[str, Any]:
+    """Snapshot of the last peer scan, for /api/mirror/peers and /api/mirror/status."""
+    with _PLAN_GATE_LOCK:
+        report = dict(_PLAN_GATE_REPORT)
+    report["skipped"] = list(report.get("skipped") or [])
+    try:
+        report["target_plans"] = _plan_access().mirror_target_plans()
+        report["enforced"] = _plan_enforcement_enabled()
+    except Exception:
+        report["target_plans"] = report.get("target_plans") or []
+        report["enforced"] = False
+    return report
+
+
+def _record_plan_scan(checked: int, allowed: int, skipped: List[Dict[str, Any]]) -> None:
+    """Store the outcome of the last peer scan (best effort, never raises)."""
+    try:
+        enforced = _plan_enforcement_enabled()
+    except Exception:
+        enforced = False
+    with _PLAN_GATE_LOCK:
+        _PLAN_GATE_REPORT.update({
+            "enforced": enforced,
+            "checked": checked,
+            "allowed": allowed,
+            "skipped": skipped[:25],
+            "updated_at": time.time(),
+        })
+
+
+def _supabase_login_owners(force: bool = False) -> Dict[str, Dict[str, str]]:
+    """``login -> {user_id, email}`` map from ``mt5_credentials`` (cached + safe).
+
+    Accounts discovered from the live registry / local files may not carry their
+    web owner, so the plan gate backfills that identity from the credentials
+    table at most once per ``MIRROR_LOGIN_OWNER_TTL``.
+    """
+    now = time.time()
+    with _LOGIN_OWNER_LOCK:
+        fetched_at = float(_LOGIN_OWNER_CACHE.get("fetched_at") or 0)
+        if not force and (now - fetched_at) < MIRROR_LOGIN_OWNER_TTL:
+            return dict(_LOGIN_OWNER_CACHE.get("owners") or {})
+
+    owners: Dict[str, Dict[str, str]] = {}
+    try:
+        client = _supabase_client()
+        if client is not None:
+            table = os.getenv("MT5_CREDENTIALS_TABLE", "mt5_credentials")
+            for columns in ("login, user_id, email", "login, user_id", "login, email", "login"):
+                try:
+                    response = client.table(table).select(columns).execute()
+                except Exception:
+                    continue
+                for row in getattr(response, "data", None) or []:
+                    if not isinstance(row, dict):
+                        continue
+                    login = str(row.get("login") or "").strip()
+                    if not login:
+                        continue
+                    owners[login] = {
+                        "user_id": str(row.get("user_id") or "").strip(),
+                        "email": str(row.get("email") or "").strip().lower(),
+                    }
+                break
+    except Exception as exc:
+        logger.debug("[MIRROR] login->owner map unavailable: %s", exc)
+
+    with _LOGIN_OWNER_LOCK:
+        _LOGIN_OWNER_CACHE["fetched_at"] = now
+        _LOGIN_OWNER_CACHE["owners"] = owners
+    return dict(owners)
+
+
+def _local_owner_identity(login: str) -> Tuple[str, str]:
+    """Web owner ``(user_id, email)`` of the account this process trades."""
+    user_id = (os.getenv("BOT_USER_ID") or os.getenv("SIGNAL_USER_ID") or "").strip()
+    email = (os.getenv("BOT_USER_EMAIL") or os.getenv("MT5_ACCOUNT_EMAIL") or "").strip().lower()
+    if user_id and email:
+        return user_id, email
+    if not login:
+        return user_id, email
+    cached = _LOCAL_IDENTITY_CACHE.get(login)
+    if cached is not None:
+        return (user_id or cached[0], email or cached[1])
+    resolved_user_id, resolved_email = user_id, email
+    try:
+        from multi_account_runner import load_accounts
+
+        for account in load_accounts(strict=False):
+            if str(account.get("login") or "").strip() != login:
+                continue
+            resolved_user_id = resolved_user_id or str(account.get("user_id") or "").strip()
+            resolved_email = resolved_email or str(account.get("email") or "").strip().lower()
+            break
+    except Exception as exc:
+        logger.debug("[MIRROR] Local owner lookup skipped: %s", exc)
+    _LOCAL_IDENTITY_CACHE[login] = (resolved_user_id, resolved_email)
+    return resolved_user_id, resolved_email
+
+
+def should_receive_mirror_signal(
+    login: Any = None, user_id: Any = None, email: Any = None
+) -> Tuple[bool, str]:
+    """Is ``login`` (or this account) allowed to receive mirrored trades?"""
+    login_str = str(login or os.getenv("MT5_ACCOUNT_LOGIN", "")).strip()
+    if not user_id and not email:
+        user_id, email = _local_owner_identity(login_str)
+    decision = _peer_plan_decision(login_str, user_id, email)
+    return bool(decision.get("allowed", True)), str(decision.get("reason") or "")
 
 
 def accept_any_account() -> bool:
@@ -307,6 +481,11 @@ def _get_peers() -> List[Dict]:
     mirrored. With it ``false`` the old behaviour applies: only accounts that are
     actually running on this machine are targeted.
 
+    Plan gate (``MIRROR_ENFORCE_PLAN_TARGETS``, default on): accounts that carry a
+    web owner (``user_id`` / ``email``) are only kept when the owner's paid plan
+    resolves to a mirror-target plan (``MIRROR_TARGET_PLANS``). Local / owner
+    accounts with no web owner are never gated.
+
     Peers whose API does not answer a quick TCP probe are still dropped, so a dead
     login never produces "Connection refused" spam.
     """
@@ -337,6 +516,9 @@ def _get_peers() -> List[Dict]:
                     "login": login,
                     "api_host": host_default,
                     "api_port": int(api_port),
+                    "user_id": str((row or {}).get("user_id") or "").strip(),
+                    "email": str((row or {}).get("email") or "").strip().lower(),
+                    "source": "registry",
                 })
     except Exception as exc:
         logger.debug("[MIRROR] Active-account registry unavailable: %s", exc)
@@ -366,6 +548,9 @@ def _get_peers() -> List[Dict]:
                     "login": login,
                     "api_host": _connect_host(os.getenv("MIRROR_CONNECT_HOST") or os.getenv("API_HOST", "127.0.0.1")),
                     "api_port": int(api_port),
+                    "user_id": str(account.get("user_id") or "").strip(),
+                    "email": str(account.get("email") or "").strip().lower(),
+                    "source": "local",
                 })
         except Exception as exc:
             logger.debug("[MIRROR] Local peer discovery skipped: %s", exc)
@@ -376,16 +561,33 @@ def _get_peers() -> List[Dict]:
             client = _supabase_client()
             if client is not None:
                 supabase_table = os.getenv("MT5_CREDENTIALS_TABLE", "mt5_credentials")
-                response = client.table(supabase_table).select(
-                    "login, api_port, api_host, bot_id, enabled"
-                ).eq("enabled", True).execute()
-                rows = getattr(response, "data", None)
+                rows = None
+                for columns in (
+                    "login, api_port, api_host, bot_id, enabled, user_id, email",
+                    "login, api_port, api_host, bot_id, enabled, user_id",
+                    "login, api_port, api_host, bot_id, enabled, email",
+                    "login, api_port, api_host, enabled, user_id, email",
+                    "login, api_port, api_host, enabled",
+                    "login, api_port, api_host",
+                ):
+                    try:
+                        response = client.table(supabase_table).select(columns).execute()
+                    except Exception:
+                        continue
+                    rows = getattr(response, "data", None)
+                    break
                 if isinstance(rows, list):
                     for row in rows:
                         if not isinstance(row, dict):
                             continue
                         login = str(row.get("login") or "").strip()
                         if not login:
+                            continue
+                        # The ``enabled`` filter is applied here (rather than in the
+                        # query) so accounts still get discovered if that column is
+                        # missing from the table/select fallback.
+                        if row.get("enabled") is False:
+                            logger.debug("[MIRROR] Supabase peer %s skipped (disabled)", login)
                             continue
                         if MIRROR_EXCLUDE_SAME and login == my_login:
                             continue
@@ -412,9 +614,62 @@ def _get_peers() -> List[Dict]:
                             "login": login,
                             "api_host": _connect_host(api_host),
                             "api_port": int(api_port),
+                            "user_id": str(row.get("user_id") or "").strip(),
+                            "email": str(row.get("email") or "").strip().lower(),
+                            "source": "supabase",
                         })
         except Exception as exc:
             logger.debug("[MIRROR] Supabase peer discovery skipped: %s", exc)
+
+    # ---- Plan gate: only entitled plans receive mirrored trades ----
+    # Web-submitted accounts (they carry a user_id / email) must resolve to a
+    # mirror-target plan; local / owner accounts without a web owner are never
+    # gated. Accounts missing owner metadata are backfilled from mt5_credentials.
+    login_owners = _supabase_login_owners() if _plan_enforcement_enabled() and peers else {}
+    gated_peers: List[Dict] = []
+    skipped_peers: List[Dict[str, Any]] = []
+    for peer in peers:
+        if not peer.get("user_id") and not peer.get("email"):
+            owner = login_owners.get(str(peer.get("login") or "").strip())
+            if owner:
+                peer["user_id"] = owner.get("user_id", "")
+                peer["email"] = owner.get("email", "")
+        decision = _peer_plan_decision(
+            peer.get("login"), peer.get("user_id"), peer.get("email")
+        )
+        if not decision.get("allowed", True):
+            skipped_peers.append({
+                "login": str(peer.get("login") or ""),
+                "user_id": str(peer.get("user_id") or ""),
+                "email": str(peer.get("email") or ""),
+                "plan": str(decision.get("plan") or ""),
+                "plan_source": str(decision.get("plan_source") or ""),
+                "reason": str(decision.get("reason") or "plan_not_targeted"),
+            })
+            logger.info(
+                "[MIRROR] Peer %s skipped by plan gate | plan=%s source=%s reason=%s",
+                peer.get("login"),
+                decision.get("plan") or "unknown",
+                decision.get("plan_source") or "unknown",
+                decision.get("reason") or "plan_not_targeted",
+            )
+            continue
+        peer["plan"] = str(decision.get("plan") or "")
+        peer["plan_source"] = str(decision.get("plan_source") or "")
+        peer["owner"] = bool(decision.get("owner"))
+        gated_peers.append(peer)
+
+    if skipped_peers:
+        logger.info(
+            "[MIRROR] Plan gate kept %s of %s discovered account(s); %s skipped",
+            len(gated_peers), len(peers), len(skipped_peers),
+        )
+    peers = gated_peers
+    _record_plan_scan(
+        checked=len(peers) + len(skipped_peers),
+        allowed=len(peers),
+        skipped=skipped_peers,
+    )
 
     # Keep only peers whose API actually answers: dead logins must never be
     # targeted ("Connection refused" spam) and must not appear as mirror peers.
@@ -596,6 +851,12 @@ def should_execute_mirror(signal: Dict) -> Tuple[bool, str]:
         return False, "mirror_trading_disabled"
     if not _toggle_enabled("mirror"):
         return False, "mirror_disabled_by_toggle"
+    # Follower-side plan gate: a web-submitted account whose owner's plan does not
+    # include mirror trading must not execute mirrored trades, even if a signal
+    # reaches it (direct API call, Supabase fan-out, stale peer list).
+    plan_allowed, plan_reason = should_receive_mirror_signal()
+    if not plan_allowed:
+        return False, f"plan_not_entitled:{plan_reason or 'plan_not_targeted'}"
     if not MIRROR_AUTO_OPEN:
         return False, "mirror_auto_open_disabled"
     signal_id = signal.get("signal_id", "")
@@ -877,13 +1138,18 @@ def register_mirror_api(app):
             "risk_percent": MIRROR_RISK_PERCENT,
             "api_port": os.getenv("API_PORT", "8000"),
             "bot_id": os.getenv("BOT_ACCOUNT_ID") or os.getenv("BOT_ID") or "unknown",
+            "plan_gate": plan_gate_report(),
         })
 
     @app.route(f"{MIRROR_API_PREFIX}/peers", methods=["GET"])
     def _mirror_peers():
         from flask import jsonify
         peers = _get_peers()
-        return jsonify({"peers": peers, "count": len(peers)})
+        return jsonify({
+            "peers": peers,
+            "count": len(peers),
+            "plan_gate": plan_gate_report(),
+        })
 
     @app.route(f"{MIRROR_API_PREFIX}/health", methods=["GET"])
     def _mirror_health():
@@ -895,6 +1161,7 @@ def register_mirror_api(app):
             "auto_open": MIRROR_AUTO_OPEN,
             "duplicate_cache_size": len(_received_signals),
             "active_cooldowns": len(_last_mirror_time),
+            "plan_gate": plan_gate_report(),
         })
 
     logger.info("[MIRROR] API endpoints registered at %s", MIRROR_API_PREFIX)

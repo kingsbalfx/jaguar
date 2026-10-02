@@ -479,14 +479,34 @@ def _signal_delivery_endpoint() -> str:
     return f"{base}/api/bot/signals" if base else ""
 
 
-def _signal_delivery_payload(signal: dict) -> dict:
-    state_machine = signal.get("state_machine") or {}
-    target_plans = [
+def _signal_target_plans() -> list:
+    """Plans the website should email / notify for a bot signal.
+
+    Delegates to ``utils.plan_access.signal_target_plans`` so the bot and the
+    website gate on the exact same plan ids (aliases such as ``academy`` are
+    canonicalised to ``premium``). Falls back to the raw
+    ``BOT_SIGNAL_TARGET_PLANS`` value when that module is unavailable, so a
+    delivery is never silently dropped.
+    """
+    raw = [
         item.strip()
         for item in os.getenv("BOT_SIGNAL_TARGET_PLANS", "premium,vip,pro,lifetime").split(",")
         if item.strip()
     ]
-    _warn_unknown_signal_plans(target_plans)
+    _warn_unknown_signal_plans(raw)
+    try:
+        from utils.plan_access import signal_target_plans as _resolved_plans
+
+        resolved = _resolved_plans()
+    except Exception as exc:  # pragma: no cover - keep signal delivery working
+        LOGGER.debug("Plan catalogue unavailable for signal targeting: %s", exc)
+        return raw
+    return resolved or raw
+
+
+def _signal_delivery_payload(signal: dict) -> dict:
+    state_machine = signal.get("state_machine") or {}
+    target_plans = _signal_target_plans()
     return {
         "symbol": signal.get("symbol"),
         "direction": str(signal.get("direction") or "").upper(),

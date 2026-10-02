@@ -737,6 +737,10 @@ def write_active_accounts(entries, host: str = None) -> dict:
                 "bot_id": item.get("bot_id"),
                 "server": item.get("server"),
                 "source": item.get("source"),
+                # Owner identity: lets the mirror apply each user's plan gate to
+                # accounts discovered through this registry.
+                "user_id": str(item.get("user_id") or "").strip(),
+                "email": str(item.get("email") or "").strip().lower(),
             }
             for item in (entries or [])
             if str((item or {}).get("login") or "").strip()
