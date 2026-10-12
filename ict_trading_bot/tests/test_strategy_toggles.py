@@ -132,12 +132,108 @@ def test_main_py_wires_every_strategy_toggle():
     """main.py must consult the toggle for all five strategies (plus mirror)."""
     source = open("main.py", encoding="utf-8").read()
     assert "from strategy.toggles import is_enabled as strategy_enabled" in source
-    for name in ("ict", "kingsbalfx", "fallback3", "fallback4", "fallback5", "mirror"):
-        assert 'strategy_enabled("%s")' % name in source, name
+    # Mirror trading is still gated directly in main.py ...
+    assert 'strategy_enabled("mirror")' in source
+    # ... while the five strategies are gated by the unified framework, which
+    # main.py builds and drives instead of an inline if/else ladder.
+    assert "def _get_strategy_chain(" in source
+    assert "from strategy.chain import build_chain" in source
+    assert "disabled_setup=_disabled_strategy_setup" in source
     # Disabling a strategy must degrade gracefully, not crash.
     assert "def _disabled_strategy_setup(" in source
-    for helper in ("_run_fallback3", "_run_fallback4", "_run_fallback5"):
-        assert "def %s(" % helper in source
+    base = open("strategy/base.py", encoding="utf-8").read()
+    assert "from strategy.toggles import is_enabled" in base
+    assert "def enabled(self) -> bool:" in base
+    # The literal per-strategy ladder is gone: no `strategy_enabled("<name>")`
+    # check remains for any of the five strategies.
+    for name in ("ict", "kingsbalfx", "fallback3", "fallback4", "fallback5"):
+        assert 'strategy_enabled("%s")' % name not in source, name
+
+
+def test_framework_gates_every_strategy_on_the_toggle(toggles_env):
+    """Every registered strategy is switchable OFF through the registry.
+
+    The old code checked ``strategy_enabled("<name>")`` inline in main.py; now
+    ``BaseStrategy.enabled`` consults ``strategy.toggles`` and the registry
+    returns the disabled stub *without* running the strategy.
+    """
+    toggles, _ = toggles_env
+
+    from strategy.base import StrategyContext
+    from strategy.chain import build_chain
+
+    chain = build_chain(
+        disabled_setup=lambda name, analysis: {"strategy": name, "executable": False}
+    )
+    ctx = StrategyContext(symbol="EURUSD", analysis={}, tick={}, account={}, positions=[])
+
+    assert set(chain.registry.names()) == {
+        "ict",
+        "kingsbalfx",
+        "fallback3",
+        "fallback4",
+        "fallback5",
+    }
+    for name in chain.registry.names():
+        assert chain.registry.get(name).enabled() is True
+
+    # Switch every strategy off in turn: the registry must short-circuit.
+    for name in chain.registry.names():
+        toggles.set_enabled(name, False, persist_remote=False)
+        result = chain.registry.evaluate_one(name, ctx)
+        assert result.skipped is True, name
+        assert result.signal is None, name
+        assert result.setup.get("disabled_by_toggle") is True, name
+        assert result.setup.get("executable") is False, name
+        assert result.setup.get("strategy") == name, name
+        toggles.set_enabled(name, True, persist_remote=False)
+        assert chain.registry.get(name).enabled() is True, name
+
+
+def test_fallback_entry_points_accept_the_framework_kwargs():
+    """Each fallback's lazy entry point must accept exactly the kwargs we build.
+
+    The adapters call ``evaluate_fallback3/4/5`` with
+    ``symbol/direction/analysis/tick/account/positions/mt5_connector/
+    risk_percent/minimum_rr`` plus the setups the strategy *consumes*.  A
+    mismatch used to be invisible until a signal was actually traded, so this
+    binds the real signatures with ``inspect``.
+    """
+    import importlib
+    import inspect
+
+    from strategy.adapters import (
+        Fallback3Strategy,
+        Fallback4Strategy,
+        Fallback5Strategy,
+    )
+    from strategy.base import StrategyContext
+
+    ctx = StrategyContext(
+        symbol="EURUSD",
+        analysis={},
+        tick={},
+        account={},
+        positions=[],
+        mt5_connector=None,
+        direction="buy",
+    )
+
+    checked = {}
+    for cls in (Fallback3Strategy, Fallback4Strategy, Fallback5Strategy):
+        strategy = cls()
+        kwargs = strategy._call_kwargs(ctx)
+        runner = getattr(importlib.import_module(strategy.module_path), strategy.entry_point)
+        inspect.signature(runner).bind(**kwargs)  # raises TypeError on a mismatch
+        checked[strategy.name] = set(kwargs)
+
+    # Fallback 3 sees ICT + Kingsbalfx only; 4 adds F3; 5 adds F4 as well.
+    assert checked["fallback3"] == {
+        "symbol", "direction", "analysis", "tick", "account", "positions",
+        "mt5_connector", "risk_percent", "minimum_rr", "ict_setup", "kingsbalfx_setup",
+    }
+    assert "fallback3_setup" in checked["fallback4"]
+    assert {"fallback3_setup", "fallback4_setup"} <= checked["fallback5"]
 
 
 def test_bot_api_exposes_strategy_endpoints():

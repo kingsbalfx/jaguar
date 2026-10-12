@@ -45,12 +45,13 @@ from risk.mirror_trading import (
 )
 from kingsbalfx_concept import evaluate as evaluate_kingsbalfx
 from strategy.pre_trade_analysis import analyze_market_top_down
-from strategy.unified_strategy import SEQUENCE, evaluate_strategy
+from strategy.unified_strategy import SEQUENCE
 from strategy.toggles import is_enabled as strategy_enabled
 from utils.logger import bot_log
 from utils.sessions import asset_trading_open, friday_entry_allowed, in_london_session, in_newyork_session
 from utils.symbol_profile import infer_asset_class
 from utils.user_profiles import get_profile_max_trades, get_user_profile
+from utils.signal_dispatch import dispatch as dispatch_signal, verify as verify_delivery
 from macro_rule_engine import get_rule_engine, MacroRuleEngine
 
 
@@ -660,6 +661,25 @@ def _deliver_signal_to_website(signal: dict) -> dict:
     LOGGER.error("Signal delivery API failed after %s attempt(s): %s", attempts, last_error)
     bot_log("signal_delivery_api_failed", f"Signal delivery API failed: {last_error}", {"symbol": signal.get("symbol"), "direction": signal.get("direction"), "endpoint": endpoint}, persist=True)
     return {"accepted": False, "fallback_allowed": True, "reason": "request_failed", "error": str(last_error)}
+
+
+def _verified_delivery_transport(signal: dict) -> dict:
+    """Outbox retry transport that only clears the queue on *verified* delivery.
+
+    ``utils.signal_outbox.flush`` drops an entry as soon as the transport returns
+    ``accepted=True``, so a 2xx-with-``emailed=0`` response would permanently
+    discard an undelivered signal.  Downgrading an unverified acceptance to
+    ``accepted=False`` keeps the entry queued for the next scan.
+    """
+    result = _deliver_signal_to_website(signal)
+    verdict = verify_delivery(result, _signal_target_plans())
+    if result.get("accepted") and not verdict.get("delivered"):
+        LOGGER.warning(
+            "SIGNAL OUTBOX | %s %s accepted but unverified (%s); keeping in outbox",
+            signal.get("symbol"), signal.get("direction"), verdict.get("reason"),
+        )
+        return {**result, "accepted": False, "reason": verdict.get("reason") or "delivery_unverified"}
+    return result
 
 
 _HEARTBEAT_STARTED = False
@@ -1675,80 +1695,60 @@ def _disabled_strategy_setup(strategy: str, analysis: dict) -> dict:
     }
 
 
-def _run_fallback3(symbol, direction, analysis, tick, account, positions,
-                   mt5_connector, ict_setup, kingsbalfx_setup):
-    """Fallback 3, honouring the runtime strategy toggle."""
-    if not strategy_enabled("fallback3"):
-        LOGGER.debug("[%s] FALLBACK3 disabled by strategy toggle", symbol)
-        return (None, _disabled_strategy_setup("fallback3", analysis),
-                {"reason": "fallback3_disabled_by_toggle"})
-    from strategy.fallback_strategy3 import evaluate_fallback3
+# ---------------------------------------------------------------------------
+# Unified strategy framework wiring
+# ---------------------------------------------------------------------------
+_STRATEGY_CHAIN = None
 
-    return evaluate_fallback3(
+
+def _strategy_context(symbol: str, analysis: dict, tick: dict, account: dict, positions: list,
+                      *, smt: dict = None, killzone_active: bool = True):
+    """Build the immutable per-symbol context handed to every strategy.
+
+    ``analysis``/``tick`` are the *same* objects the legacy code passed around,
+    but the framework hands each strategy its own ``dict()`` copy and threads
+    prior setups via :meth:`StrategyContext.with_prior`, which deep-copies — so
+    no strategy can mutate another's evidence or plan.
+    """
+    from strategy.base import StrategyContext
+
+    return StrategyContext(
         symbol=symbol,
-        direction=direction,
         analysis=analysis,
         tick=tick,
         account=account,
         positions=positions,
         mt5_connector=mt5_connector,
-        ict_setup=ict_setup,
-        kingsbalfx_setup=kingsbalfx_setup,
+        direction=analysis.get("overall_trend") or None,
         risk_percent=_risk_percent(),
         minimum_rr=1.0,
+        smt=smt or {},
+        killzone_active=bool(killzone_active),
     )
 
 
-def _run_fallback4(symbol, direction, analysis, tick, account, positions,
-                   mt5_connector, ict_setup, kingsbalfx_setup, fallback3_setup):
-    """Fallback 4, honouring the runtime strategy toggle."""
-    if not strategy_enabled("fallback4"):
-        LOGGER.debug("[%s] FALLBACK4 disabled by strategy toggle", symbol)
-        return (None, _disabled_strategy_setup("fallback4", analysis),
-                {"reason": "fallback4_disabled_by_toggle"})
-    from strategy.fallback_strategy4 import evaluate_fallback4
+def _get_strategy_chain():
+    """Lazily build the shared ICT -> Kingsbalfx -> F3 -> F4 -> F5 chain.
 
-    return evaluate_fallback4(
-        symbol=symbol,
-        direction=direction,
-        analysis=analysis,
-        tick=tick,
-        account=account,
-        positions=positions,
-        mt5_connector=mt5_connector,
-        ict_setup=ict_setup,
-        kingsbalfx_setup=kingsbalfx_setup,
-        fallback3_setup=fallback3_setup,
-        risk_percent=_risk_percent(),
-        minimum_rr=1.0,
-    )
+    The ``main.py`` helpers that read module-level state (validation snapshot,
+    risk percent, cooldown, disabled-strategy stub) are injected, so the
+    ``strategy`` package stays importable on its own.
+    """
+    global _STRATEGY_CHAIN
+    if _STRATEGY_CHAIN is None:
+        from strategy.chain import build_chain
 
-
-def _run_fallback5(symbol, direction, analysis, tick, account, positions,
-                   mt5_connector, ict_setup, kingsbalfx_setup, fallback3_setup,
-                   fallback4_setup):
-    """Fallback 5, honouring the runtime strategy toggle."""
-    if not strategy_enabled("fallback5"):
-        LOGGER.debug("[%s] FALLBACK5 disabled by strategy toggle", symbol)
-        return (None, _disabled_strategy_setup("fallback5", analysis),
-                {"reason": "fallback5_disabled_by_toggle"})
-    from strategy.fallback_strategy5 import evaluate_fallback5
-
-    return evaluate_fallback5(
-        symbol=symbol,
-        direction=direction,
-        analysis=analysis,
-        tick=tick,
-        account=account,
-        positions=positions,
-        mt5_connector=mt5_connector,
-        ict_setup=ict_setup,
-        kingsbalfx_setup=kingsbalfx_setup,
-        fallback3_setup=fallback3_setup,
-        fallback4_setup=fallback4_setup,
-        risk_percent=_risk_percent(),
-        minimum_rr=1.0,
-    )
+        _STRATEGY_CHAIN = build_chain(
+            build_validation=_build_validation_snapshot,
+            risk_percent=_risk_percent,
+            cooldown=lambda: int(os.getenv("SETUP_COOLDOWN_SECONDS", "1800")),
+            disabled_setup=_disabled_strategy_setup,
+        )
+        LOGGER.info(
+            "STRATEGY FRAMEWORK | registered=%s",
+            ", ".join(entry["name"] for entry in _STRATEGY_CHAIN.registry.describe()),
+        )
+    return _STRATEGY_CHAIN
 
 
 def _evaluate_symbol(symbol: str, account: dict, positions: list):
@@ -1781,12 +1781,16 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
     except Exception as exc:
         smt = {"confirmed": False, "direction": None, "reason": f"SMT unavailable: {exc}"}
     killzone_active = _killzone_active_from_analysis(analysis)
-    if strategy_enabled("ict"):
-        setup = evaluate_strategy(symbol, price, analysis, smt=smt, killzone_active=killzone_active)
-    else:
-        # Strategy 1 switched OFF (locally or from the admin panel).
-        LOGGER.info("[%s] ICT DISABLED by strategy toggle -> fallback chain", symbol)
-        setup = _disabled_strategy_setup("ict", analysis)
+    # --- STRATEGY 1 (ICT 12-gate) via the unified framework -----------------
+    # Evaluated through `StrategyChain.primary`, which enforces the runtime
+    # strategy toggle (returning the legacy `_disabled_strategy_setup("ict")`
+    # stub when OFF) and converts any unexpected exception into a *skip* instead
+    # of aborting the whole symbol scan.
+    strategy_ctx = _strategy_context(
+        symbol, analysis, tick, account, positions, smt=smt, killzone_active=killzone_active
+    )
+    strategy_chain = _get_strategy_chain()
+    setup = strategy_chain.primary(strategy_ctx).setup
     try:
         news_allowed = news_allows_trade(symbol)
         news = {
@@ -1814,147 +1818,19 @@ def _evaluate_symbol(symbol: str, account: dict, positions: list):
     if observed != SEQUENCE[: len(observed)]:
         raise RuntimeError(f"State sequence violated: {observed}")
     if not setup["executable"]:
-        # Determine if we should try Kingsbalfx fallback.
-        # Skip fallback if the failure was Gate 1 (structural conflict) with no realistic chance
-        # of the pair aligning in this session. Only try fallback if at least H1 direction is clear.
-        failed_step = setup.get("failed_step")
-        direction = setup.get("direction") or setup.get("trend") or analysis.get("overall_trend")
-        
-        # Hard skip: If Gate 1 failed completely (no direction at all), Kingsbalfx will also fail
-        if failed_step == "higher_timeframe_narrative" and not direction:
-            fallback_setup = {
-                "strategy": "kingsbalfx",
-                "executable": False,
-                "direction": None,
-                "reason": "h1_narrative_unclear",
-                "failed_step": "higher_timeframe_narrative",
-                "states": [],
-                "total_steps": 6,
-                "primary_ict_skip": {
-                    "failed_step": setup.get("failed_step"),
-                    "reason": setup.get("reason"),
-                },
-            }
-            return None, fallback_setup, {"reason": "h1_narrative_unclear"}
-        
-        if strategy_enabled("kingsbalfx"):
-            LOGGER.info("[%s] ICT SKIP -> KINGSBALFX FALLBACK | failed_step=%s | reason=%s", symbol, failed_step, setup.get("reason"))
-            fallback_request, fallback_setup, fallback_safety = _evaluate_kingsbalfx_fallback(
-                symbol,
-                direction,
-                analysis,
-                tick,
-                account,
-                positions,
-                setup,
-            )
-        else:
-            LOGGER.info("[%s] KINGSBALFX DISABLED by strategy toggle", symbol)
-            fallback_request = None
-            fallback_setup = _disabled_strategy_setup("kingsbalfx", analysis)
-            fallback_safety = {"reason": "kingsbalfx_disabled_by_toggle"}
+        # --- STRATEGIES 2..5: fault-isolated fallback cascade --------------
+        # The registry walks Kingsbalfx -> F3 -> F4 -> F5, enforces the runtime
+        # toggles, catches every exception per-strategy, and threads each
+        # skipped strategy's setup forward through `StrategyContext.with_prior`,
+        # which *deep-copies*.  That deep copy is the fix for the signal bleed:
+        # a fallback can no longer mutate the ICT setup (or a sibling's) plan /
+        # evidence, so an F3 rejection can never leak into the F4 plan.
+        fallback_result = strategy_chain.fallbacks(strategy_ctx.with_prior("ict", setup))
+        fallback_request, fallback_setup, fallback_safety = fallback_result.outcome()
         if fallback_request:
             return fallback_request, fallback_setup, fallback_safety
-
-        # --- FALLBACK STRATEGY 3 ---
-        _fb3_setup = None
-        try:
-            from strategy.fallback_strategy3 import evaluate_fallback3 as _evaluate_fallback3
-            
-            _fb3_request, _fb3_setup, _fb3_safety = _run_fallback3(
-                symbol,
-                direction,
-                analysis,
-                tick,
-                account,
-                positions,
-                mt5_connector,
-                setup,
-                fallback_setup,
-            )
-            if _fb3_request:
-                LOGGER.info("[%s] FALLBACK3 | valid trade found | score=%s | sweep=%s | choch=%s",
-                            symbol,
-                            _fb3_setup.get("score"),
-                            _fb3_setup.get("evidence", {}).get("sweep", {}).get("classification"),
-                            _fb3_setup.get("evidence", {}).get("choch", {}).get("detected"))
-                return _fb3_request, _fb3_setup, _fb3_safety
-            LOGGER.debug("[%s] FALLBACK3 | skip: %s", symbol, _fb3_setup.get("reason", "no_valid_setup"))
-        except ImportError:
-            LOGGER.debug("[%s] FALLBACK3 | module not available", symbol)
-        except Exception as _fb3_exc:
-            LOGGER.warning("[%s] FALLBACK3 | error: %s", symbol, _fb3_exc, exc_info=True)
-        # --- END FALLBACK STRATEGY 3 ---
-
-        # --- FALLBACK STRATEGY 4 ---
-        _fb4_setup = None
-        try:
-            from strategy.fallback_strategy4 import evaluate_fallback4 as _evaluate_fallback4
-
-            _fb4_request, _fb4_setup, _fb4_safety = _run_fallback4(
-                symbol,
-                direction,
-                analysis,
-                tick,
-                account,
-                positions,
-                mt5_connector,
-                setup,
-                fallback_setup,
-                _fb3_setup,
-            )
-            if _fb4_request:
-                LOGGER.info("[%s] FALLBACK4 | valid trade | score=%s | range_w=%.1f sweep=%s entry=%.5f",
-                            symbol,
-                            _fb4_setup.get("score"),
-                            _fb4_setup.get("range_width_atr", 0),
-                            _fb4_setup.get("sweep_side", "none"),
-                            _fb4_setup.get("entry_price", 0))
-                return _fb4_request, _fb4_setup, _fb4_safety
-            LOGGER.debug("[%s] FALLBACK4 | skip: %s", symbol,
-                         _fb4_setup.get("rejection_reason", "no_valid_setup") if _fb4_setup else "no_setup")
-        except ImportError:
-            LOGGER.debug("[%s] FALLBACK4 | module not available", symbol)
-        except Exception as _fb4_exc:
-            LOGGER.warning("[%s] FALLBACK4 | error: %s", symbol, _fb4_exc, exc_info=True)
-        # --- END FALLBACK STRATEGY 4 ---
-
-        # --- FALLBACK STRATEGY 5 ---
-        _fb5_tried = False
-        try:
-            from strategy.fallback_strategy5 import evaluate_fallback5 as _evaluate_fallback5
-            
-            _fb5_tried = True
-            _fb5_request, _fb5_setup, _fb5_safety = _run_fallback5(
-                symbol,
-                direction,
-                analysis,
-                tick,
-                account,
-                positions,
-                mt5_connector,
-                setup,
-                fallback_setup,
-                _fb3_setup,
-                _fb4_setup if _fb4_setup else None,
-            )
-            if _fb5_request:
-                LOGGER.info("[%s] FALLBACK5 | valid trade | direction=%s | model=%s | score=%d | rr=%.2f | entry=%.5f",
-                            symbol,
-                            _fb5_setup.get("direction", direction),
-                            _fb5_setup.get("model", "?"),
-                            _fb5_setup.get("score", 0),
-                            _fb5_setup.get("risk_reward", 0),
-                            _fb5_setup.get("entry_price", 0))
-                return _fb5_request, _fb5_setup, _fb5_safety
-            LOGGER.debug("[%s] FALLBACK5 | skip: %s", symbol,
-                         _fb5_setup.get("rejection_reason", "no_valid_setup") if _fb5_setup else "no_setup")
-        except ImportError:
-            LOGGER.debug("[%s] FALLBACK5 | module not available", symbol)
-        except Exception as _fb5_exc:
-            LOGGER.warning("[%s] FALLBACK5 | error: %s", symbol, _fb5_exc, exc_info=True)
-        # --- END FALLBACK STRATEGY 5 ---
-
+        # Every fallback skipped/rejected: surface the *first* fallback's setup
+        # (the historical `fallback_setup`) plus the full audit trail.
         return None, fallback_setup, fallback_safety
 
     plan = setup["plan"]
@@ -2180,16 +2056,32 @@ def _process_scan_result(result: dict, max_trades: int) -> dict:
         pass
 
     payload = {**request, "state_machine": setup, "status": "open"}
-    delivery = _deliver_signal_to_website(payload)
-    if not delivery.get("accepted") and delivery.get("fallback_allowed"):
-        persist_signal_to_supabase(payload)
-        try:
-            from utils.signal_outbox import enqueue as _outbox_enqueue
-
-            _outbox_enqueue(payload, delivery.get("reason") or "delivery_rejected")
-        except Exception:
-            pass
-        bot_log("signal_delivery_fallback_supabase", "Signal saved directly to Supabase fallback; SMTP delivery requires BOT_SIGNAL_DELIVERY_URL/KINGSBALFX_WEB_URL and matching BOT_SIGNAL_SECRET.", {"symbol": payload.get("symbol"), "direction": payload.get("direction")}, persist=True)
+    # Guaranteed fan-out.  `_deliver_signal_to_website` returns ``accepted=True``
+    # for *any* 2xx — even when the website reports ``emailed=0`` — and the old
+    # code therefore never queued a retry, so subscribers silently received
+    # nothing.  `dispatch_signal` verifies the recipient/audience acknowledgement,
+    # reports success only when users were actually reached, and otherwise
+    # persists to Supabase + queues a durable outbox retry + raises an ops log.
+    try:
+        from utils.signal_outbox import enqueue as _outbox_enqueue
+    except Exception:  # pragma: no cover - the outbox is best effort
+        _outbox_enqueue = None
+    delivery = dispatch_signal(
+        payload,
+        transport=_deliver_signal_to_website,
+        expected_plans=_signal_target_plans(),
+        enqueue=_outbox_enqueue,
+        persist=persist_signal_to_supabase,
+        notify=bot_log,
+    )
+    if not delivery.get("delivered") and delivery.get("reason") in ("not_configured", "token_missing"):
+        bot_log(
+            "signal_delivery_fallback_supabase",
+            "Signal saved directly to Supabase fallback; SMTP delivery requires "
+            "BOT_SIGNAL_DELIVERY_URL/KINGSBALFX_WEB_URL and matching BOT_SIGNAL_SECRET.",
+            {"symbol": payload.get("symbol"), "direction": payload.get("direction")},
+            persist=True,
+        )
     push_trade(payload)
     strategy_labels = {
         "ict_state_machine": "ICT 12-gate",
@@ -2510,7 +2402,7 @@ def run_bot() -> None:
             try:
                 from utils.signal_outbox import flush as _outbox_flush
 
-                outbox_result = _outbox_flush(_deliver_signal_to_website)
+                outbox_result = _outbox_flush(_verified_delivery_transport)
                 if outbox_result.get("retried"):
                     LOGGER.info("SIGNAL OUTBOX | %s", outbox_result)
             except Exception as exc:
