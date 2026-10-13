@@ -79,6 +79,7 @@ function buildLinks(role, pathname) {
 
   if (role && role !== "admin") {
     links.push({ label: "Live Room", href: "/dashboard/live", group: "Trading" });
+    links.push({ label: "Trade History", href: "/dashboard/trade-history", group: "Trading" });
     links.push({
       label: "Demo Challenge",
       href: "/dashboard/challenge",
@@ -113,6 +114,7 @@ function buildLinks(role, pathname) {
         group: "Students",
       },
       { label: "MT5 Status", href: "/admin/settings", group: "Bot Desk" },
+      { label: "MT5 Performance", href: "/admin/mt5-performance", group: "Bot Desk" },
       { label: "Payments", href: "/admin/payments", group: "Business" },
       {
         label: "Subscriptions",

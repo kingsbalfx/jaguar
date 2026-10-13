@@ -15,7 +15,9 @@
     "test:unit": "jest --testPathPattern=unit",
     "test:integration": "jest --testPathPattern=integration",
     "test:smoke": "node scripts/smoke-tests.js",
-    "test:all": "npm run test:unit && npm run test:smoke"
+    "test:all": "npm run test:unit && npm run test:smoke",
+    "verify:mt5-sync": "node scripts/verify-mt5-sync.js",
+    "check:mt5-bridge": "node scripts/check-mt5-bridge.js"
   },
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.10.0",

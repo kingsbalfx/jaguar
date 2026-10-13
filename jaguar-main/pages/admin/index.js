@@ -179,6 +179,9 @@ export default function AdminPage({ profile, metrics, recentUsers }) {
             <Link href="/admin/signals" legacyBehavior>
               <a className="text-sm text-gray-300 hover:text-white px-3 py-2 rounded hover:bg-white/5">Signal Health</a>
             </Link>
+            <Link href="/admin/mt5-performance" legacyBehavior>
+              <a className="text-sm text-gray-300 hover:text-white px-3 py-2 rounded hover:bg-white/5">MT5 Performance</a>
+            </Link>
             <Link href="/admin/challenges" legacyBehavior>
               <a className="text-sm text-gray-300 hover:text-white px-3 py-2 rounded hover:bg-white/5">Student Challenges</a>
             </Link>

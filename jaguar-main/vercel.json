@@ -29,7 +29,8 @@
   ],
 
   "crons": [
-    { "path": "/api/cron/subscription-notifications", "schedule": "0 8 * * *" }
+    { "path": "/api/cron/subscription-notifications", "schedule": "0 8 * * *" },
+    { "path": "/api/cron/mt5-sync", "schedule": "30 7 * * *" }
   ],
 
   "headers": [

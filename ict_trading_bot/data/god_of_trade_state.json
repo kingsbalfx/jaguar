@@ -49,6 +49,11 @@
         "strategy": "kingsbalfx",
         "direction": "buy",
         "at": 1791523731.2743144
+      },
+      {
+        "strategy": "kingsbalfx",
+        "direction": "sell",
+        "at": 1791879738.723132
       }
     ],
     "EURUSD": [
@@ -76,6 +81,11 @@
         "strategy": "kingsbalfx",
         "direction": "sell",
         "at": 1791452368.1557927
+      },
+      {
+        "strategy": "kingsbalfx",
+        "direction": "sell",
+        "at": 1791843067.577295
       }
     ],
     "GBPJPY": [
@@ -93,6 +103,11 @@
         "strategy": "kingsbalfx",
         "direction": "buy",
         "at": 1791524675.8710692
+      },
+      {
+        "strategy": "kingsbalfx",
+        "direction": "sell",
+        "at": 1791849905.110683
       }
     ],
     "USDCAD": [
@@ -147,6 +162,11 @@
         "strategy": "kingsbalfx",
         "direction": "buy",
         "at": 1791522392.3207316
+      },
+      {
+        "strategy": "kingsbalfx",
+        "direction": "sell",
+        "at": 1791877606.6874306
       }
     ],
     "NZDUSD": [
@@ -193,6 +213,11 @@
         "strategy": "ict_state_machine",
         "direction": "sell",
         "at": 1791552195.1192408
+      },
+      {
+        "strategy": "kingsbalfx",
+        "direction": "sell",
+        "at": 1791850415.863643
       }
     ],
     "USDJPY": [
@@ -200,6 +225,11 @@
         "strategy": "kingsbalfx",
         "direction": "sell",
         "at": 1791402726.3403957
+      },
+      {
+        "strategy": "kingsbalfx",
+        "direction": "buy",
+        "at": 1791834284.9324155
       }
     ],
     "AUDUSD": [
@@ -212,5 +242,5 @@
   },
   "outcomes": {},
   "loss_streaks": {},
-  "updated_at": 1791552195.119249
+  "updated_at": 1791879738.7231572
 }
